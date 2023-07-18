@@ -1,0 +1,3 @@
+ACK 0b3ad721462ed060fae991d8ad1510cd92a69bfb ([`jamesob/ackr/24827.3.Adlai-Holler.net_fix_undefined_behavi`](https://github.com/jamesob/bitcoin/tree/ackr/24827.3.Adlai-Holler.net_fix_undefined_behavi))
+
+Reviewed, ran functional tests locally. Seems like a clear win to avoid UB, and probably readability too.

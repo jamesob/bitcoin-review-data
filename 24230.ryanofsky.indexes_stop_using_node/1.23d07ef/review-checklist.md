@@ -1,0 +1,24 @@
+- [ ] cf5d340448 interfaces, refactor: Add more block information to block connected notifications
+- [ ] f72ebd3eb9 indexes, refactor: Pass Chain interface instead of CChainState class to indexes
+- [ ] 624ee1ee9b indexes, refactor: Remove CBlockIndex* uses in coinstatsindex LookUpOne function
+- [ ] 15daa47ee0 indexes, refactor: Remove CBlockIndex* uses in index Init methods
+- [ ] ae7b272886 indexes, refactor: Remove CBlockIndex* uses in index WriteBlock methods
+- [ ] 820ac9302d indexes, refactor: Remove CBlockIndex* uses in index Rewind methods
+- [ ] 65d5ac7ae5 indexes, refactor: Remove CChainState use in index CommitInternal method
+- [ ] fc78244754 indexes, refactor: Remove index prune_violation code
+- [ ] b2b3ab4cd4 indexes, refactor: Remove index Init method
+- [ ] e470119fe5 indexes, refactor: Remove index validation interface and block locator code
+- [ ] ed0afe9092 indexes, refactor: Stop incorrectly calling Interupt() and Stop() in BaseIndex destructor
+- [ ] 714be24cb7 indexes, refactor: Add Commit CBlockLocator& argument
+- [ ] 0e80167cc8 indexes, refactor: Remove remaining CBlockIndex* uses in index Rewind methods
+- [ ] afce60462f indexes, refactor: Remove remaining CBlockIndex* uses in index CustomAppend methods
+- [ ] bf6a0f8ae8 indexes, refactor: Move more new block logic out of ThreadSync to blockConnected
+- [ ] 7add4807d8 indexes, refactor: Move Commit logic out of ThreadSync to notification handlers
+- [ ] 4e0b09777b indexes, refactor: Move Rewind logic out of Rewind to blockDisconnected and ThreadSync
+- [ ] 480387218c indexes, refactor: Move CustomInit and error handling code out of ThreadSync to notification handlers
+- [ ] c4e0a9dd45 indexes, refactor: Move sync thread from index to node
+- [ ] d39c6d0062 indexes, refactor: Remove SyncWithValidationInterfaceQueue call
+- [ ] b10b43d059 indexes: Rewrite chain sync logic, remove racy init
+- [ ] 87f1bd1e7a indexes: Initialize indexes without holding cs_main
+- [ ] abbd549cd4 indexes, refactor: Remove UndoReadFromDisk calls from indexing code
+- [ ] 23d07effca indexes, refactor: Remove remaining CBlockIndex* pointers from indexing code

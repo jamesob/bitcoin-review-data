@@ -1,0 +1,3 @@
+ACK fdc07a1d2916a85add9b11130a8c2cf6c02a09eb ([`jamesob/ackr/23280.5.dongcarl.init_coalesce_chainstate`](https://github.com/jamesob/bitcoin/tree/ackr/23280.5.dongcarl.init_coalesce_chainstate))
+
+Examined interdiff, built, merged & tested recent master and my init functional tests. Changes are as Carl describes.

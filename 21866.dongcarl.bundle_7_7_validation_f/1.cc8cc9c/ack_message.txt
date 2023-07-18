@@ -1,0 +1,2 @@
+ACK cc8cc9c4a24bb638baa733c129a87346c66821ba ([`jamesob/ackr/21866.1.dongcarl.bundle_7_7_validation_f`](https://github.com/jamesob/bitcoin/tree/ackr/21866.1.dongcarl.bundle_7_7_validation_f))
+

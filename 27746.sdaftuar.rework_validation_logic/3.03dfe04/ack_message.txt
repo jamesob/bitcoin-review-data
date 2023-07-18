@@ -1,0 +1,17 @@
+ACK 03dfe04075668aa3b99a5d6d68adfcecffca0593 ([`jamesob/ackr/27746.3.sdaftuar.rework_validation_logic`](https://github.com/jamesob/bitcoin/tree/ackr/27746.3.sdaftuar.rework_validation_logic))
+
+Reexamined commits locally. Built, tested each (or most). Examined [diff since
+last review](https://gist.github.com/jamesob/8535a4b81fc29e890ce2eff9a0fb2f1d). 
+
+Changes include 
+
+- removing `BlockManager::AddDirty()`
+- comment typo fixes
+- AcceptBlock() under ChainMan (vs. standalone function)
+- add `Chainstate::SnapshotBase()`
+- rework/additional commentary for `Chainstate::TryAddBlockIndexCandidate`
+  - minor bugfix for disabled chainstates
+- put `ReceivedBlockTransactions` under ChainstateManager (vs. standalone)
+- leave `AcceptBlockHeader()` in place
+- `Active*()` rephrasings
+- move `AcceptBlock()` under ChainstateManager

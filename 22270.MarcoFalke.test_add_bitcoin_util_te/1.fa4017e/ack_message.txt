@@ -1,0 +1,3 @@
+reACK fa4017e7a0899959b2ac84bcbc3f34dfb17b5fce ([`jamesob/ackr/22270.1.MarcoFalke.test_add_bitcoin_util_te`](https://github.com/jamesob/bitcoin/tree/ackr/22270.1.MarcoFalke.test_add_bitcoin_util_te))
+
+Built locally, ran bitcoin-util tests.

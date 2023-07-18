@@ -1,0 +1,82 @@
+[33mdiff --git a/src/node/coinstats.cpp b/src/node/coinstats.cpp[m
+[33mindex 268580c6e6..f8f0fff43f 100644[m
+[33m--- a/src/node/coinstats.cpp[m
+[33m+++ b/src/node/coinstats.cpp[m
+[36m@@ -94,7 +94,8 @@[m [mstatic bool GetUTXOStats(CCoinsView* view, BlockManager& blockman, CCoinsStats&[m
+     {[m
+         LOCK(cs_main);[m
+         assert(std::addressof(g_chainman.m_blockman) == std::addressof(blockman));[m
+[31m-        stats.nHeight = blockman.LookupBlockIndex(stats.hashBlock)->nHeight;[m
+[32m+[m[32m        const CBlockIndex* block = blockman.LookupBlockIndex(stats.hashBlock);[m
+[32m+[m[32m        stats.nHeight = Assert(block)->nHeight;[m
+     }[m
+ [m
+     PrepareHash(hash_obj, stats);[m
+[33mdiff --git a/src/test/validation_chainstatemanager_tests.cpp b/src/test/validation_chainstatemanager_tests.cpp[m
+[33mindex 94d4277019..35e087c899 100644[m
+[33m--- a/src/test/validation_chainstatemanager_tests.cpp[m
+[33m+++ b/src/test/validation_chainstatemanager_tests.cpp[m
+[36m@@ -259,6 +259,11 @@[m [mBOOST_FIXTURE_TEST_CASE(chainstatemanager_activate_snapshot, TestChain100Determi[m
+             // Coins count is smaller than coins in file[m
+             metadata.m_coins_count -= 1;[m
+     }));[m
+[32m+[m[32m    BOOST_REQUIRE(!CreateAndActivateUTXOSnapshot([m
+[32m+[m[32m        m_node, m_path_root, [](CAutoFile& auto_infile, SnapshotMetadata& metadata) {[m
+[32m+[m[32m            // Wrong hash[m
+[32m+[m[32m            metadata.m_base_blockhash = uint256::ONE;[m
+[32m+[m[32m    }));[m
+ [m
+     BOOST_REQUIRE(CreateAndActivateUTXOSnapshot(m_node, m_path_root));[m
+ [m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex 19363c0efb..619d3cea98 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -5423,6 +5423,15 @@[m [mbool ChainstateManager::PopulateAndValidateSnapshot([m
+ [m
+     assert(coins_cache.GetBestBlock() == base_blockhash);[m
+ [m
+[32m+[m[32m    CBlockIndex* snapshot_start_block = WITH_LOCK(::cs_main, return m_blockman.LookupBlockIndex(base_blockhash));[m
+[32m+[m
+[32m+[m[32m    if (!snapshot_start_block) {[m
+[32m+[m[32m        // Needed for GetUTXOStats to determine the height[m
+[32m+[m[32m        LogPrintf("[snapshot] Did not find snapshot start blockheader %s\n",[m
+[32m+[m[32m                  base_blockhash.ToString());[m
+[32m+[m[32m        return false;[m
+[32m+[m[32m    }[m
+[32m+[m
+     CCoinsStats stats;[m
+     auto breakpoint_fnc = [] { /* TODO insert breakpoint here? */ };[m
+ [m
+[36m@@ -5435,31 +5444,6 @@[m [mbool ChainstateManager::PopulateAndValidateSnapshot([m
+         return false;[m
+     }[m
+ [m
+[31m-    // Ensure that the base blockhash appears in the known chain of valid headers. We're willing to[m
+[31m-    // wait a bit here because the snapshot may have been loaded on startup, before we've[m
+[31m-    // received headers from the network.[m
+[31m-[m
+[31m-    int max_secs_to_wait_for_headers = 60 * 10;[m
+[31m-    CBlockIndex* snapshot_start_block = nullptr;[m
+[31m-[m
+[31m-    while (max_secs_to_wait_for_headers > 0) {[m
+[31m-        snapshot_start_block = WITH_LOCK(::cs_main,[m
+[31m-            return m_blockman.LookupBlockIndex(base_blockhash));[m
+[31m-        --max_secs_to_wait_for_headers;[m
+[31m-[m
+[31m-        if (!snapshot_start_block) {[m
+[31m-            std::this_thread::sleep_for(std::chrono::seconds(1));[m
+[31m-        } else {[m
+[31m-            break;[m
+[31m-        }[m
+[31m-    }[m
+[31m-[m
+[31m-    if (snapshot_start_block == nullptr) {[m
+[31m-        LogPrintf("[snapshot] timed out waiting for snapshot start blockheader %s\n",[m
+[31m-            base_blockhash.ToString());[m
+[31m-        return false;[m
+[31m-    }[m
+[31m-[m
+     // Assert that the deserialized chainstate contents match the expected assumeutxo value.[m
+ [m
+     int base_height = snapshot_start_block->nHeight;[m

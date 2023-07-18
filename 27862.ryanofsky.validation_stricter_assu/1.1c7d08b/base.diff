@@ -1,0 +1,113 @@
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex 38e1dbb4a2..234e338640 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -1530,7 +1530,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+             }[m
+         }[m
+ [m
+[31m-        if (status == node::ChainstateLoadStatus::FAILURE_INCOMPATIBLE_DB || status == node::ChainstateLoadStatus::FAILURE_INSUFFICIENT_DBCACHE) {[m
+[32m+[m[32m        if (status == node::ChainstateLoadStatus::FAILURE_FATAL || status == node::ChainstateLoadStatus::FAILURE_INCOMPATIBLE_DB || status == node::ChainstateLoadStatus::FAILURE_INSUFFICIENT_DBCACHE) {[m
+             return InitError(error);[m
+         }[m
+ [m
+[33mdiff --git a/src/node/chainstate.cpp b/src/node/chainstate.cpp[m
+[33mindex 8f997b0594..3900d2e620 100644[m
+[33m--- a/src/node/chainstate.cpp[m
+[33m+++ b/src/node/chainstate.cpp[m
+[36m@@ -207,7 +207,7 @@[m [mChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize[m
+     } else if (snapshot_completion == SnapshotCompletionResult::SUCCESS) {[m
+         LogPrintf("[snapshot] cleaning up unneeded background chainstate, then reinitializing\n");[m
+         if (!chainman.ValidatedSnapshotCleanup()) {[m
+[31m-            AbortNode("Background chainstate cleanup failed unexpectedly.");[m
+[32m+[m[32m            return {ChainstateLoadStatus::FAILURE_FATAL, Untranslated("Background chainstate cleanup failed unexpectedly.")};[m
+         }[m
+ [m
+         // Because ValidatedSnapshotCleanup() has torn down chainstates with[m
+[33mdiff --git a/src/node/chainstate.h b/src/node/chainstate.h[m
+[33mindex 77240cafe9..2e35035c28 100644[m
+[33m--- a/src/node/chainstate.h[m
+[33m+++ b/src/node/chainstate.h[m
+[36m@@ -42,7 +42,8 @@[m [mstruct ChainstateLoadOptions {[m
+ //! and exit cleanly in the interrupted case.[m
+ enum class ChainstateLoadStatus {[m
+     SUCCESS,[m
+[31m-    FAILURE,[m
+[32m+[m[32m    FAILURE, //!< Generic failure which reindexing may fix[m
+[32m+[m[32m    FAILURE_FATAL, //!< Fatal error which should not prompt to reindex[m
+     FAILURE_INCOMPATIBLE_DB,[m
+     FAILURE_INSUFFICIENT_DBCACHE,[m
+     INTERRUPTED,[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex d9a0fce34f..a2e55add20 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -5411,7 +5411,7 @@[m [mSnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation([m
+             "restart, the node will resume syncing from %d "[m
+             "without using any snapshot data. "[m
+             "Please report this incident to %s, including how you obtained the snapshot. "[m
+[31m-            "The invalid snapshot chainstate has been left on disk in case it is "[m
+[32m+[m[32m            "The invalid snapshot chainstate will be left on disk in case it is "[m
+             "helpful in diagnosing the issue that caused this error."),[m
+             PACKAGE_NAME, snapshot_tip_height, snapshot_base_height, snapshot_base_height, PACKAGE_BUGREPORT[m
+         );[m
+[36m@@ -5424,7 +5424,10 @@[m [mSnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation([m
+         assert(!this->IsUsable(m_snapshot_chainstate.get()));[m
+         assert(this->IsUsable(m_ibd_chainstate.get()));[m
+ [m
+[31m-        m_snapshot_chainstate->InvalidateCoinsDBOnDisk();[m
+[32m+[m[32m        auto rename_result = m_snapshot_chainstate->InvalidateCoinsDBOnDisk();[m
+[32m+[m[32m        if (!rename_result) {[m
+[32m+[m[32m            user_error = strprintf(Untranslated("%s\n%s"), user_error, util::ErrorString(rename_result));[m
+[32m+[m[32m        }[m
+ [m
+         shutdown_fnc(user_error);[m
+     };[m
+[36m@@ -5626,7 +5629,7 @@[m [mbool IsBIP30Unspendable(const CBlockIndex& block_index)[m
+            (block_index.nHeight==91812 && block_index.GetBlockHash() == uint256S("0x00000000000af0aed4792b1acee3d966af36cf5def14935db8de83d6f9306f2f"));[m
+ }[m
+ [m
+[31m-void Chainstate::InvalidateCoinsDBOnDisk()[m
+[32m+[m[32mutil::Result<void> Chainstate::InvalidateCoinsDBOnDisk()[m
+ {[m
+     AssertLockHeld(::cs_main);[m
+     // Should never be called on a non-snapshot chainstate.[m
+[36m@@ -5655,13 +5658,14 @@[m [mvoid Chainstate::InvalidateCoinsDBOnDisk()[m
+ [m
+         LogPrintf("%s: error renaming file '%s' -> '%s': %s\n",[m
+                 __func__, src_str, dest_str, e.what());[m
+[31m-        AbortNode(strprintf([m
+[32m+[m[32m        return util::Error{strprintf(_([m
+             "Rename of '%s' -> '%s' failed. "[m
+             "You should resolve this by manually moving or deleting the invalid "[m
+             "snapshot directory %s, otherwise you will encounter the same error again "[m
+[31m-            "on the next startup.",[m
+[31m-            src_str, dest_str, src_str));[m
+[32m+[m[32m            "on the next startup."),[m
+[32m+[m[32m            src_str, dest_str, src_str)};[m
+     }[m
+[32m+[m[32m    return {};[m
+ }[m
+ [m
+ const CBlockIndex* ChainstateManager::GetSnapshotBaseBlock() const[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex cb5b291dab..7b215dea6b 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -31,6 +31,7 @@[m
+ #include <util/check.h>[m
+ #include <util/fs.h>[m
+ #include <util/hasher.h>[m
+[32m+[m[32m#include <util/result.h>[m
+ #include <util/translation.h>[m
+ #include <versionbits.h>[m
+ [m
+[36m@@ -810,7 +811,7 @@[m [mprivate:[m
+      * In case of an invalid snapshot, rename the coins leveldb directory so[m
+      * that it can be examined for issue diagnosis.[m
+      */[m
+[31m-    void InvalidateCoinsDBOnDisk() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+[32m+[m[32m    [[nodiscard]] util::Result<void> InvalidateCoinsDBOnDisk() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+ [m
+     friend ChainstateManager;[m
+ };[m

@@ -1,0 +1,3 @@
+ACK fa9b74f5ea89624e052934c48391b5076a87ffef ([`jamesob/ackr/21582.1.MarcoFalke.fix_assumeutxo_crash_due`](https://github.com/jamesob/bitcoin/tree/ackr/21582.1.MarcoFalke.fix_assumeutxo_crash_due))
+
+Looks good, thanks.

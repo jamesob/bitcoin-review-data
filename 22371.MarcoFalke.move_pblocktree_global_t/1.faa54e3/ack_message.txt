@@ -1,0 +1,5 @@
+ACK faa54e375782b21cbc2761c763128131c569e903 ([`jamesob/ackr/22371.1.MarcoFalke.move_pblocktree_global_t`](https://github.com/jamesob/bitcoin/tree/ackr/22371.1.MarcoFalke.move_pblocktree_global_t))
+
+One less global in validation. :+1:
+
+Built locally, ran tests.

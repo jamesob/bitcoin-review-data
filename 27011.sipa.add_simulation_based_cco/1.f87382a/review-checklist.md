@@ -1,0 +1,1 @@
+- [ ] f87382af7a Add simulation-based CCoinsViewCache fuzzer

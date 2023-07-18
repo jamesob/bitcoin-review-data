@@ -1,0 +1,156 @@
+[33mdiff --git a/src/interfaces/node.h b/src/interfaces/node.h[m
+[33mindex 34fdde3774..48d4fd3ee2 100644[m
+[33m--- a/src/interfaces/node.h[m
+[33m+++ b/src/interfaces/node.h[m
+[36m@@ -6,7 +6,6 @@[m
+ #define BITCOIN_INTERFACES_NODE_H[m
+ [m
+ #include <consensus/amount.h>[m
+[31m-#include <external_signer.h>[m
+ #include <net.h>        // For NodeId[m
+ #include <net_types.h>  // For banmap_t[m
+ #include <netaddress.h> // For Network[m
+[36m@@ -50,6 +49,16 @@[m [mstruct BlockAndHeaderTipInfo[m
+     double verification_progress;[m
+ };[m
+ [m
+[32m+[m[32m//! External signer interface used by the GUI.[m
+[32m+[m[32mclass ExternalSigner[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    virtual ~ExternalSigner() {};[m
+[32m+[m
+[32m+[m[32m    //! Get signer display name[m
+[32m+[m[32m    virtual std::string getName() = 0;[m
+[32m+[m[32m};[m
+[32m+[m
+ //! Top-level interface for a bitcoin node (bitcoind process).[m
+ class Node[m
+ {[m
+[36m@@ -111,8 +120,8 @@[m [mpublic:[m
+     //! Disconnect node by id.[m
+     virtual bool disconnectById(NodeId id) = 0;[m
+ [m
+[31m-    //! List external signers[m
+[31m-    virtual std::vector<ExternalSigner> externalSigners() = 0;[m
+[32m+[m[32m    //! Return list of external signers (attached devices which can sign transactions).[m
+[32m+[m[32m    virtual std::vector<std::unique_ptr<ExternalSigner>> listExternalSigners() = 0;[m
+ [m
+     //! Get total bytes recv.[m
+     virtual int64_t getTotalBytesRecv() = 0;[m
+[33mdiff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp[m
+[33mindex 5b6d8416a7..9175ff65ed 100644[m
+[33m--- a/src/node/interfaces.cpp[m
+[33m+++ b/src/node/interfaces.cpp[m
+[36m@@ -67,6 +67,16 @@[m [musing interfaces::WalletClient;[m
+ [m
+ namespace node {[m
+ namespace {[m
+[32m+[m[32mclass ExternalSignerImpl : public interfaces::ExternalSigner[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m#ifdef ENABLE_EXTERNAL_SIGNER[m
+[32m+[m[32m    ExternalSignerImpl(::ExternalSigner signer) : m_signer(std::move(signer)) {}[m
+[32m+[m[32m    std::string getName() override { return m_signer.m_name; }[m
+[32m+[m[32m    ::ExternalSigner m_signer;[m
+[32m+[m[32m#endif[m
+[32m+[m[32m};[m
+[32m+[m
+ class NodeImpl : public Node[m
+ {[m
+ private:[m
+[36m@@ -172,14 +182,18 @@[m [mpublic:[m
+         }[m
+         return false;[m
+     }[m
+[31m-    std::vector<ExternalSigner> externalSigners() override[m
+[32m+[m[32m    std::vector<std::unique_ptr<interfaces::ExternalSigner>> listExternalSigners() override[m
+     {[m
+ #ifdef ENABLE_EXTERNAL_SIGNER[m
+         std::vector<ExternalSigner> signers = {};[m
+         const std::string command = gArgs.GetArg("-signer", "");[m
+[31m-        if (command == "") return signers;[m
+[32m+[m[32m        if (command == "") return {};[m
+         ExternalSigner::Enumerate(command, signers, Params().NetworkIDString());[m
+[31m-        return signers;[m
+[32m+[m[32m        std::vector<std::unique_ptr<interfaces::ExternalSigner>> result;[m
+[32m+[m[32m        for (auto& signer : signers) {[m
+[32m+[m[32m            result.emplace_back(std::make_unique<ExternalSignerImpl>(std::move(signer)));[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return result;[m
+ #else[m
+         // This result is indistinguishable from a successful call that returns[m
+         // no signers. For the current GUI this doesn't matter, because the wallet[m
+[33mdiff --git a/src/qt/createwalletdialog.cpp b/src/qt/createwalletdialog.cpp[m
+[33mindex f9a61c3e60..eba70331f8 100644[m
+[33m--- a/src/qt/createwalletdialog.cpp[m
+[33m+++ b/src/qt/createwalletdialog.cpp[m
+[36m@@ -6,7 +6,7 @@[m
+ #include <config/bitcoin-config.h>[m
+ #endif[m
+ [m
+[31m-#include <external_signer.h>[m
+[32m+[m[32m#include <interfaces/node.h>[m
+ #include <qt/createwalletdialog.h>[m
+ #include <qt/forms/ui_createwalletdialog.h>[m
+ [m
+[36m@@ -113,7 +113,7 @@[m [mCreateWalletDialog::~CreateWalletDialog()[m
+     delete ui;[m
+ }[m
+ [m
+[31m-void CreateWalletDialog::setSigners(const std::vector<ExternalSigner>& signers)[m
+[32m+[m[32mvoid CreateWalletDialog::setSigners(const std::vector<std::unique_ptr<interfaces::ExternalSigner>>& signers)[m
+ {[m
+     m_has_signers = !signers.empty();[m
+     if (m_has_signers) {[m
+[36m@@ -126,7 +126,7 @@[m [mvoid CreateWalletDialog::setSigners(const std::vector<ExternalSigner>& signers)[m
+         ui->blank_wallet_checkbox->setChecked(false);[m
+         ui->disable_privkeys_checkbox->setEnabled(false);[m
+         ui->disable_privkeys_checkbox->setChecked(true);[m
+[31m-        const std::string label = signers[0].m_name;[m
+[32m+[m[32m        const std::string label = signers[0]->getName();[m
+         ui->wallet_name_line_edit->setText(QString::fromStdString(label));[m
+         ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);[m
+     } else {[m
+[33mdiff --git a/src/qt/createwalletdialog.h b/src/qt/createwalletdialog.h[m
+[33mindex fc13cc44eb..63a5e012d8 100644[m
+[33m--- a/src/qt/createwalletdialog.h[m
+[33m+++ b/src/qt/createwalletdialog.h[m
+[36m@@ -7,7 +7,12 @@[m
+ [m
+ #include <QDialog>[m
+ [m
+[32m+[m[32m#include <memory>[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+ class ExternalSigner;[m
+[32m+[m[32m} // namespace interfaces[m
+[32m+[m
+ class WalletModel;[m
+ [m
+ namespace Ui {[m
+[36m@@ -24,7 +29,7 @@[m [mpublic:[m
+     explicit CreateWalletDialog(QWidget* parent);[m
+     virtual ~CreateWalletDialog();[m
+ [m
+[31m-    void setSigners(const std::vector<ExternalSigner>& signers);[m
+[32m+[m[32m    void setSigners(const std::vector<std::unique_ptr<interfaces::ExternalSigner>>& signers);[m
+ [m
+     QString walletName() const;[m
+     bool isEncryptWalletChecked() const;[m
+[33mdiff --git a/src/qt/walletcontroller.cpp b/src/qt/walletcontroller.cpp[m
+[33mindex 4c74bcd480..9c6349284e 100644[m
+[33m--- a/src/qt/walletcontroller.cpp[m
+[33m+++ b/src/qt/walletcontroller.cpp[m
+[36m@@ -274,9 +274,9 @@[m [mvoid CreateWalletActivity::create()[m
+ {[m
+     m_create_wallet_dialog = new CreateWalletDialog(m_parent_widget);[m
+ [m
+[31m-    std::vector<ExternalSigner> signers;[m
+[32m+[m[32m    std::vector<std::unique_ptr<interfaces::ExternalSigner>> signers;[m
+     try {[m
+[31m-        signers = node().externalSigners();[m
+[32m+[m[32m        signers = node().listExternalSigners();[m
+     } catch (const std::runtime_error& e) {[m
+         QMessageBox::critical(nullptr, tr("Can't list signers"), e.what());[m
+     }[m

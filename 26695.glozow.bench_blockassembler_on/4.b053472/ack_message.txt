@@ -1,0 +1,13 @@
+ACK b05347204d2d1cad030fc794aae2b0d29c35db7d ([`jamesob/ackr/26695.4.glozow.bench_blockassembler_on`](https://github.com/jamesob/bitcoin/tree/ackr/26695.4.glozow.bench_blockassembler_on))
+
+Oops, previous ACK already stale. New ACK incorporates
+
+```diff
++-            m_node.mempool->addUnchecked(CTxMemPoolEntry(ptx, 1000, 0, 1, false, 4, lp));
+++            m_node.mempool->addUnchecked(CTxMemPoolEntry(ptx, /*fee=*/(total_in - num_outputs * amount_per_output),
+++                                                         /*time=*/0, /*entry_height=*/1,
+++                                                         /*spends_coinbase=*/false, /*sigops_cost=*/4, lp));
++         }
++         --num_transactions;
++     }
+```

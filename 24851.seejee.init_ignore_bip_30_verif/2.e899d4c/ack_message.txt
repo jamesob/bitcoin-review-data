@@ -1,0 +1,6 @@
+ACK e899d4ca6f44785b6e5481e200a6a9a8d2448612 ([`jamesob/ackr/24851.2.seejee.init_ignore_bip_30_verif`](https://github.com/jamesob/bitcoin/tree/ackr/24851.2.seejee.init_ignore_bip_30_verif))
+
+Well documented and symmetric with the equivalent `ConnectBlock` conditionals; 
+even better in terms of specifically acting on coinbase transactions. Tested
+locally per the PR description.
+

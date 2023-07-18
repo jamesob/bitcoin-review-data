@@ -1,0 +1,237 @@
+[33mdiff --git a/src/index/txindex.cpp b/src/index/txindex.cpp[m
+[33mindex 782e55747..cde9821f3 100644[m
+[33m--- a/src/index/txindex.cpp[m
+[33m+++ b/src/index/txindex.cpp[m
+[36m@@ -204,7 +204,7 @@[m [mbool TxIndex::Init()[m
+     // Attempt to migrate txindex from the old database to the new one. Even if[m
+     // chain_tip is null, the node could be reindexing and we still want to[m
+     // delete txindex records in the old database.[m
+[31m-    if (!m_db->MigrateData(*pblocktree, m_chainstate->m_chain.GetLocator())) {[m
+[32m+[m[32m    if (!m_db->MigrateData(*m_chainstate->m_blockman.m_block_tree_db, m_chainstate->m_chain.GetLocator())) {[m
+         return false;[m
+     }[m
+ [m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex 9afd76d62..3915fa8fc 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -264,7 +264,6 @@[m [mvoid Shutdown(NodeContext& node)[m
+                 chainstate->ResetCoinsViews();[m
+             }[m
+         }[m
+[31m-        pblocktree.reset();[m
+     }[m
+     for (const auto& client : node.chain_clients) {[m
+         client->stop();[m
+[36m@@ -1355,6 +1354,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+ [m
+                 UnloadBlockIndex(node.mempool.get(), chainman);[m
+ [m
+[32m+[m[32m                auto& pblocktree{chainman.m_blockman.m_block_tree_db};[m
+                 // new CBlockTreeDB tries to delete the existing file, which[m
+                 // fails if it's still open from the previous loop. Close it first:[m
+                 pblocktree.reset();[m
+[33mdiff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp[m
+[33mindex 0083b74b3..90f7ba191 100644[m
+[33m--- a/src/node/blockstorage.cpp[m
+[33m+++ b/src/node/blockstorage.cpp[m
+[36m@@ -518,7 +518,7 @@[m [mvoid ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFile[m
+                 }[m
+                 nFile++;[m
+             }[m
+[31m-            pblocktree->WriteReindexing(false);[m
+[32m+[m[32m            WITH_LOCK(::cs_main, chainman.m_blockman.m_block_tree_db->WriteReindexing(false));[m
+             fReindex = false;[m
+             LogPrintf("Reindexing finished\n");[m
+             // To avoid ending up in a situation without genesis block, re-try initializing (no-op if reindexing worked):[m
+[33mdiff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp[m
+[33mindex d9d236be1..5334c4623 100644[m
+[33m--- a/src/test/util/setup_common.cpp[m
+[33m+++ b/src/test/util/setup_common.cpp[m
+[36m@@ -141,12 +141,11 @@[m [mChainTestingSetup::ChainTestingSetup(const std::string& chainName, const std::ve[m
+     m_node.scheduler->m_service_thread = std::thread(util::TraceThread, "scheduler", [&] { m_node.scheduler->serviceQueue(); });[m
+     GetMainSignals().RegisterBackgroundSignalScheduler(*m_node.scheduler);[m
+ [m
+[31m-    pblocktree.reset(new CBlockTreeDB(1 << 20, true));[m
+[31m-[m
+     m_node.fee_estimator = std::make_unique<CBlockPolicyEstimator>();[m
+     m_node.mempool = std::make_unique<CTxMemPool>(m_node.fee_estimator.get(), 1);[m
+ [m
+     m_node.chainman = std::make_unique<ChainstateManager>();[m
+[32m+[m[32m    m_node.chainman->m_blockman.m_block_tree_db = std::make_unique<CBlockTreeDB>(1 << 20, true);[m
+ [m
+     // Start script-checking threads. Set g_parallel_script_checks to true so they are used.[m
+     constexpr int script_check_threads = 2;[m
+[36m@@ -169,7 +168,6 @@[m [mChainTestingSetup::~ChainTestingSetup()[m
+     m_node.scheduler.reset();[m
+     m_node.chainman->Reset();[m
+     m_node.chainman.reset();[m
+[31m-    pblocktree.reset();[m
+ }[m
+ [m
+ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const char*>& extra_args)[m
+[33mdiff --git a/src/test/validation_chainstate_tests.cpp b/src/test/validation_chainstate_tests.cpp[m
+[33mindex 2893b412f..315ef2259 100644[m
+[33m--- a/src/test/validation_chainstate_tests.cpp[m
+[33m+++ b/src/test/validation_chainstate_tests.cpp[m
+[36m@@ -20,6 +20,7 @@[m [mBOOST_FIXTURE_TEST_SUITE(validation_chainstate_tests, TestingSetup)[m
+ BOOST_AUTO_TEST_CASE(validation_chainstate_resize_caches)[m
+ {[m
+     ChainstateManager manager;[m
+[32m+[m[32m    WITH_LOCK(::cs_main, manager.m_blockman.m_block_tree_db = std::make_unique<CBlockTreeDB>(1 << 20, true));[m
+     CTxMemPool mempool;[m
+ [m
+     //! Create and add a Coin with DynamicMemoryUsage of 80 bytes to the given view.[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex 26333d702..f81c27e8e 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -170,8 +170,6 @@[m [mCBlockIndex* BlockManager::FindForkInGlobalIndex(const CChain& chain, const CBlo[m
+     return chain.Genesis();[m
+ }[m
+ [m
+[31m-std::unique_ptr<CBlockTreeDB> pblocktree;[m
+[31m-[m
+ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,[m
+                        const CCoinsViewCache& inputs, unsigned int flags, bool cacheSigStore,[m
+                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,[m
+[36m@@ -2075,7 +2073,7 @@[m [mbool CChainState::FlushStateToDisk([m
+             if (!setFilesToPrune.empty()) {[m
+                 fFlushForPrune = true;[m
+                 if (!fHavePruned) {[m
+[31m-                    pblocktree->WriteFlag("prunedblockfiles", true);[m
+[32m+[m[32m                    m_blockman.m_block_tree_db->WriteFlag("prunedblockfiles", true);[m
+                     fHavePruned = true;[m
+                 }[m
+             }[m
+[36m@@ -2127,7 +2125,7 @@[m [mbool CChainState::FlushStateToDisk([m
+                     vBlocks.push_back(*it);[m
+                     setDirtyBlockIndex.erase(it++);[m
+                 }[m
+[31m-                if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {[m
+[32m+[m[32m                if (!m_blockman.m_block_tree_db->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {[m
+                     return AbortNode(state, "Failed to write to block index database");[m
+                 }[m
+             }[m
+[36m@@ -3700,11 +3698,11 @@[m [mCBlockIndex * BlockManager::InsertBlockIndex(const uint256& hash)[m
+ [m
+ bool BlockManager::LoadBlockIndex([m
+     const Consensus::Params& consensus_params,[m
+[31m-    CBlockTreeDB& blocktree,[m
+     std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates)[m
+ {[m
+[31m-    if (!blocktree.LoadBlockIndexGuts(consensus_params, [this](const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) { return this->InsertBlockIndex(hash); }))[m
+[32m+[m[32m    if (!m_block_tree_db->LoadBlockIndexGuts(consensus_params, [this](const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) { return this->InsertBlockIndex(hash); })) {[m
+         return false;[m
+[32m+[m[32m    }[m
+ [m
+     // Calculate nChainWork[m
+     std::vector<std::pair<int, CBlockIndex*> > vSortedByHeight;[m
+[36m@@ -3764,25 +3762,25 @@[m [mvoid BlockManager::Unload() {[m
+     m_block_index.clear();[m
+ }[m
+ [m
+[31m-bool CChainState::LoadBlockIndexDB()[m
+[32m+[m[32mbool BlockManager::LoadBlockIndexDB(std::set<CBlockIndex*, CBlockIndexWorkComparator>& setBlockIndexCandidates)[m
+ {[m
+[31m-    if (!m_blockman.LoadBlockIndex([m
+[31m-            m_params.GetConsensus(), *pblocktree,[m
+[32m+[m[32m    if (!LoadBlockIndex([m
+[32m+[m[32m            ::Params().GetConsensus(),[m
+             setBlockIndexCandidates)) {[m
+         return false;[m
+     }[m
+ [m
+     // Load block file info[m
+[31m-    pblocktree->ReadLastBlockFile(nLastBlockFile);[m
+[32m+[m[32m    m_block_tree_db->ReadLastBlockFile(nLastBlockFile);[m
+     vinfoBlockFile.resize(nLastBlockFile + 1);[m
+     LogPrintf("%s: last block file = %i\n", __func__, nLastBlockFile);[m
+     for (int nFile = 0; nFile <= nLastBlockFile; nFile++) {[m
+[31m-        pblocktree->ReadBlockFileInfo(nFile, vinfoBlockFile[nFile]);[m
+[32m+[m[32m        m_block_tree_db->ReadBlockFileInfo(nFile, vinfoBlockFile[nFile]);[m
+     }[m
+     LogPrintf("%s: last block file info: %s\n", __func__, vinfoBlockFile[nLastBlockFile].ToString());[m
+     for (int nFile = nLastBlockFile + 1; true; nFile++) {[m
+         CBlockFileInfo info;[m
+[31m-        if (pblocktree->ReadBlockFileInfo(nFile, info)) {[m
+[32m+[m[32m        if (m_block_tree_db->ReadBlockFileInfo(nFile, info)) {[m
+             vinfoBlockFile.push_back(info);[m
+         } else {[m
+             break;[m
+[36m@@ -3792,7 +3790,7 @@[m [mbool CChainState::LoadBlockIndexDB()[m
+     // Check presence of blk files[m
+     LogPrintf("Checking all blk files are present...\n");[m
+     std::set<int> setBlkDataFiles;[m
+[31m-    for (const std::pair<const uint256, CBlockIndex*>& item : m_blockman.m_block_index) {[m
+[32m+[m[32m    for (const std::pair<const uint256, CBlockIndex*>& item : m_block_index) {[m
+         CBlockIndex* pindex = item.second;[m
+         if (pindex->nStatus & BLOCK_HAVE_DATA) {[m
+             setBlkDataFiles.insert(pindex->nFile);[m
+[36m@@ -3807,13 +3805,13 @@[m [mbool CChainState::LoadBlockIndexDB()[m
+     }[m
+ [m
+     // Check whether we have ever pruned block & undo files[m
+[31m-    pblocktree->ReadFlag("prunedblockfiles", fHavePruned);[m
+[32m+[m[32m    m_block_tree_db->ReadFlag("prunedblockfiles", fHavePruned);[m
+     if (fHavePruned)[m
+         LogPrintf("LoadBlockIndexDB(): Block files have previously been pruned\n");[m
+ [m
+     // Check whether we need to continue reindexing[m
+     bool fReindexing = false;[m
+[31m-    pblocktree->ReadReindexing(fReindexing);[m
+[32m+[m[32m    m_block_tree_db->ReadReindexing(fReindexing);[m
+     if(fReindexing) fReindex = true;[m
+ [m
+     return true;[m
+[36m@@ -4114,7 +4112,7 @@[m [mbool ChainstateManager::LoadBlockIndex()[m
+     // Load block index from databases[m
+     bool needs_init = fReindex;[m
+     if (!fReindex) {[m
+[31m-        bool ret = ActiveChainstate().LoadBlockIndexDB();[m
+[32m+[m[32m        bool ret = m_blockman.LoadBlockIndexDB(ActiveChainstate().setBlockIndexCandidates);[m
+         if (!ret) return false;[m
+         needs_init = m_blockman.m_block_index.empty();[m
+     }[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex 9a2be3ad9..18a09d4aa 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -446,6 +446,10 @@[m [mpublic:[m
+      */[m
+     std::multimap<CBlockIndex*, CBlockIndex*> m_blocks_unlinked;[m
+ [m
+[32m+[m[32m    std::unique_ptr<CBlockTreeDB> m_block_tree_db GUARDED_BY(::cs_main);[m
+[32m+[m
+[32m+[m[32m    bool LoadBlockIndexDB(std::set<CBlockIndex*, CBlockIndexWorkComparator>& setBlockIndexCandidates) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+[32m+[m
+     /**[m
+      * Load the blocktree off disk and into memory. Populate certain metadata[m
+      * per index entry (nStatus, nChainWork, nTimeMax, etc.) as well as peripheral[m
+[36m@@ -456,7 +460,6 @@[m [mpublic:[m
+      */[m
+     bool LoadBlockIndex([m
+         const Consensus::Params& consensus_params,[m
+[31m-        CBlockTreeDB& blocktree,[m
+         std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates)[m
+         EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[36m@@ -798,8 +801,6 @@[m [mprivate:[m
+     void CheckForkWarningConditions() EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+     void InvalidChainFound(CBlockIndex* pindexNew) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[31m-    bool LoadBlockIndexDB() EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[31m-[m
+     //! Indirection necessary to make lock annotations work with an optional mempool.[m
+     RecursiveMutex* MempoolMutex() const LOCK_RETURNED(m_mempool->cs)[m
+     {[m
+[36m@@ -1047,9 +1048,6 @@[m [mpublic:[m
+     }[m
+ };[m
+ [m
+[31m-/** Global variable that points to the active block tree (protected by cs_main) */[m
+[31m-extern std::unique_ptr<CBlockTreeDB> pblocktree;[m
+[31m-[m
+ using FopenFn = std::function<FILE*(const fs::path&, const char*)>;[m
+ [m
+ /** Dump the mempool to disk. */[m

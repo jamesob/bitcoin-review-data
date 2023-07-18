@@ -1,0 +1,2190 @@
+[33mdiff --git a/src/Makefile.am b/src/Makefile.am[m
+[33mindex e1ae049b15..7aa4fb24d9 100644[m
+[33m--- a/src/Makefile.am[m
+[33m+++ b/src/Makefile.am[m
+[36m@@ -124,6 +124,7 @@[m [mBITCOIN_CORE_H = \[m
+   banman.h \[m
+   base58.h \[m
+   bech32.h \[m
+[32m+[m[32m  bip324.h \[m
+   blockencodings.h \[m
+   blockfilter.h \[m
+   chain.h \[m
+[36m@@ -375,6 +376,7 @@[m [mlibbitcoin_node_a_SOURCES = \[m
+   addrdb.cpp \[m
+   addrman.cpp \[m
+   banman.cpp \[m
+[32m+[m[32m  bip324.cpp \[m
+   blockencodings.cpp \[m
+   blockfilter.cpp \[m
+   chain.cpp \[m
+[36m@@ -544,10 +546,10 @@[m [mcrypto_libbitcoin_crypto_base_la_LDFLAGS = $(AM_LDFLAGS) -static[m
+ crypto_libbitcoin_crypto_base_la_SOURCES = \[m
+   crypto/aes.cpp \[m
+   crypto/aes.h \[m
+[31m-  crypto/chacha_poly_aead.h \[m
+[31m-  crypto/chacha_poly_aead.cpp \[m
+   crypto/chacha20.h \[m
+   crypto/chacha20.cpp \[m
+[32m+[m[32m  crypto/chacha20poly1305.h \[m
+[32m+[m[32m  crypto/chacha20poly1305.cpp \[m
+   crypto/common.h \[m
+   crypto/hkdf_sha256_32.cpp \[m
+   crypto/hkdf_sha256_32.h \[m
+[33mdiff --git a/src/Makefile.bench.include b/src/Makefile.bench.include[m
+[33mindex 10c8389c80..25a17c43ed 100644[m
+[33m--- a/src/Makefile.bench.include[m
+[33m+++ b/src/Makefile.bench.include[m
+[36m@@ -22,7 +22,6 @@[m [mbench_bench_bitcoin_SOURCES = \[m
+   bench/block_assemble.cpp \[m
+   bench/ccoins_caching.cpp \[m
+   bench/chacha20.cpp \[m
+[31m-  bench/chacha_poly_aead.cpp \[m
+   bench/checkblock.cpp \[m
+   bench/checkqueue.cpp \[m
+   bench/crypto_hash.cpp \[m
+[33mdiff --git a/src/Makefile.test.include b/src/Makefile.test.include[m
+[33mindex 224f1fe301..37de6237ec 100644[m
+[33m--- a/src/Makefile.test.include[m
+[33m+++ b/src/Makefile.test.include[m
+[36m@@ -74,6 +74,7 @@[m [mBITCOIN_TESTS =\[m
+   test/base64_tests.cpp \[m
+   test/bech32_tests.cpp \[m
+   test/bip32_tests.cpp \[m
+[32m+[m[32m  test/bip324_tests.cpp \[m
+   test/blockchain_tests.cpp \[m
+   test/blockencodings_tests.cpp \[m
+   test/blockfilter_index_tests.cpp \[m
+[36m@@ -246,6 +247,7 @@[m [mtest_fuzz_fuzz_SOURCES = \[m
+  test/fuzz/banman.cpp \[m
+  test/fuzz/base_encode_decode.cpp \[m
+  test/fuzz/bech32.cpp \[m
+[32m+[m[32m test/fuzz/bip324.cpp \[m
+  test/fuzz/bitdeque.cpp \[m
+  test/fuzz/block.cpp \[m
+  test/fuzz/block_header.cpp \[m
+[36m@@ -261,7 +263,6 @@[m [mtest_fuzz_fuzz_SOURCES = \[m
+  test/fuzz/crypto_aes256.cpp \[m
+  test/fuzz/crypto_aes256cbc.cpp \[m
+  test/fuzz/crypto_chacha20.cpp \[m
+[31m- test/fuzz/crypto_chacha20_poly1305_aead.cpp \[m
+  test/fuzz/crypto_common.cpp \[m
+  test/fuzz/crypto_diff_fuzz_chacha20.cpp \[m
+  test/fuzz/crypto_hkdf_hmac_sha256_l32.cpp \[m
+[33mdiff --git a/src/bench/chacha20.cpp b/src/bench/chacha20.cpp[m
+[33mindex 3b57e29f39..d8bebf9319 100644[m
+[33m--- a/src/bench/chacha20.cpp[m
+[33m+++ b/src/bench/chacha20.cpp[m
+[36m@@ -5,6 +5,7 @@[m
+ [m
+ #include <bench/bench.h>[m
+ #include <crypto/chacha20.h>[m
+[32m+[m[32m#include <crypto/chacha20poly1305.h>[m
+ [m
+ /* Number of bytes to process per iteration */[m
+ static const uint64_t BUFFER_SIZE_TINY  = 64;[m
+[36m@@ -23,6 +24,18 @@[m [mstatic void CHACHA20(benchmark::Bench& bench, size_t buffersize)[m
+     });[m
+ }[m
+ [m
+[32m+[m[32mstatic void FSCHACHA20POLY1305(benchmark::Bench& bench, size_t buffersize)[m
+[32m+[m[32m{[m
+[32m+[m[32m    std::vector<std::byte> key(32);[m
+[32m+[m[32m    FSChaCha20Poly1305 ctx(key, 224);[m
+[32m+[m[32m    std::vector<std::byte> in(buffersize);[m
+[32m+[m[32m    std::vector<std::byte> aad;[m
+[32m+[m[32m    std::vector<std::byte> out(buffersize + FSChaCha20Poly1305::EXPANSION);[m
+[2m+[m[2m    bench.batch(in.size()).unit("byte").run([&] {[m
+[32m+[m[32m        ctx.Encrypt(in, aad, out);[m
+[32m+[m[32m    });[m
+[32m+[m[32m}[m
+[32m+[m
+ static void CHACHA20_64BYTES(benchmark::Bench& bench)[m
+ {[m
+     CHACHA20(bench, BUFFER_SIZE_TINY);[m
+[36m@@ -38,6 +51,24 @@[m [mstatic void CHACHA20_1MB(benchmark::Bench& bench)[m
+     CHACHA20(bench, BUFFER_SIZE_LARGE);[m
+ }[m
+ [m
+[32m+[m[32mstatic void FSCHACHA20POLY1305_64BYTES(benchmark::Bench& bench)[m
+[32m+[m[32m{[m
+[32m+[m[32m    FSCHACHA20POLY1305(bench, BUFFER_SIZE_TINY);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mstatic void FSCHACHA20POLY1305_256BYTES(benchmark::Bench& bench)[m
+[32m+[m[32m{[m
+[32m+[m[32m    FSCHACHA20POLY1305(bench, BUFFER_SIZE_SMALL);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mstatic void FSCHACHA20POLY1305_1MB(benchmark::Bench& bench)[m
+[32m+[m[32m{[m
+[32m+[m[32m    FSCHACHA20POLY1305(bench, BUFFER_SIZE_LARGE);[m
+[32m+[m[32m}[m
+[32m+[m
+ BENCHMARK(CHACHA20_64BYTES, benchmark::PriorityLevel::HIGH);[m
+ BENCHMARK(CHACHA20_256BYTES, benchmark::PriorityLevel::HIGH);[m
+ BENCHMARK(CHACHA20_1MB, benchmark::PriorityLevel::HIGH);[m
+[32m+[m[32mBENCHMARK(FSCHACHA20POLY1305_64BYTES, benchmark::PriorityLevel::HIGH);[m
+[32m+[m[32mBENCHMARK(FSCHACHA20POLY1305_256BYTES, benchmark::PriorityLevel::HIGH);[m
+[32m+[m[32mBENCHMARK(FSCHACHA20POLY1305_1MB, benchmark::PriorityLevel::HIGH);[m
+[33mdiff --git a/src/bench/chacha_poly_aead.cpp b/src/bench/chacha_poly_aead.cpp[m
+[33mdeleted file mode 100644[m
+[33mindex 9149eb683a..0000000000[m
+[33m--- a/src/bench/chacha_poly_aead.cpp[m
+[33m+++ /dev/null[m
+[36m@@ -1,126 +0,0 @@[m
+[31m-// Copyright (c) 2019-2022 The Bitcoin Core developers[m
+[2m-// Distributed under the MIT software license, see the accompanying[m
+[2m-// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m-[m
+[31m-[m
+[31m-#include <bench/bench.h>[m
+[31m-#include <crypto/chacha_poly_aead.h>[m
+[31m-#include <crypto/poly1305.h> // for the POLY1305_TAGLEN constant[m
+[31m-#include <hash.h>[m
+[31m-[m
+[31m-#include <assert.h>[m
+[31m-#include <limits>[m
+[31m-[m
+[31m-/* Number of bytes to process per iteration */[m
+[31m-static constexpr uint64_t BUFFER_SIZE_TINY = 64;[m
+[31m-static constexpr uint64_t BUFFER_SIZE_SMALL = 256;[m
+[31m-static constexpr uint64_t BUFFER_SIZE_LARGE = 1024 * 1024;[m
+[31m-[m
+[31m-static const unsigned char k1[32] = {0};[m
+[31m-static const unsigned char k2[32] = {0};[m
+[31m-[m
+[31m-static ChaCha20Poly1305AEAD aead(k1, 32, k2, 32);[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD(benchmark::Bench& bench, size_t buffersize, bool include_decryption)[m
+[31m-{[m
+[31m-    std::vector<unsigned char> in(buffersize + CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN, 0);[m
+[31m-    std::vector<unsigned char> out(buffersize + CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN, 0);[m
+[31m-    uint64_t seqnr_payload = 0;[m
+[31m-    uint64_t seqnr_aad = 0;[m
+[31m-    int aad_pos = 0;[m
+[31m-    uint32_t len = 0;[m
+[31m-    bench.batch(buffersize).unit("byte").run([&] {[m
+[31m-        // encrypt or decrypt the buffer with a static key[m
+[31m-        const bool crypt_ok_1 = aead.Crypt(seqnr_payload, seqnr_aad, aad_pos, out.data(), out.size(), in.data(), buffersize, true);[m
+[31m-        assert(crypt_ok_1);[m
+[31m-[m
+[31m-        if (include_decryption) {[m
+[31m-            // if we decrypt, include the GetLength[m
+[31m-            const bool get_length_ok = aead.GetLength(&len, seqnr_aad, aad_pos, in.data());[m
+[31m-            assert(get_length_ok);[m
+[31m-            const bool crypt_ok_2 = aead.Crypt(seqnr_payload, seqnr_aad, aad_pos, out.data(), out.size(), in.data(), buffersize, true);[m
+[31m-            assert(crypt_ok_2);[m
+[31m-        }[m
+[31m-[m
+[31m-        // increase main sequence number[m
+[31m-        seqnr_payload++;[m
+[31m-        // increase aad position (position in AAD keystream)[m
+[31m-        aad_pos += CHACHA20_POLY1305_AEAD_AAD_LEN;[m
+[31m-        if (aad_pos + CHACHA20_POLY1305_AEAD_AAD_LEN > CHACHA20_ROUND_OUTPUT) {[m
+[31m-            aad_pos = 0;[m
+[31m-            seqnr_aad++;[m
+[31m-        }[m
+[31m-        if (seqnr_payload + 1 == std::numeric_limits<uint64_t>::max()) {[m
+[31m-            // reuse of nonce+key is okay while benchmarking.[m
+[31m-            seqnr_payload = 0;[m
+[31m-            seqnr_aad = 0;[m
+[31m-            aad_pos = 0;[m
+[31m-        }[m
+[31m-    });[m
+[31m-}[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD_64BYTES_ONLY_ENCRYPT(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    CHACHA20_POLY1305_AEAD(bench, BUFFER_SIZE_TINY, false);[m
+[31m-}[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD_256BYTES_ONLY_ENCRYPT(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    CHACHA20_POLY1305_AEAD(bench, BUFFER_SIZE_SMALL, false);[m
+[31m-}[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD_1MB_ONLY_ENCRYPT(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    CHACHA20_POLY1305_AEAD(bench, BUFFER_SIZE_LARGE, false);[m
+[31m-}[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD_64BYTES_ENCRYPT_DECRYPT(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    CHACHA20_POLY1305_AEAD(bench, BUFFER_SIZE_TINY, true);[m
+[31m-}[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD_256BYTES_ENCRYPT_DECRYPT(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    CHACHA20_POLY1305_AEAD(bench, BUFFER_SIZE_SMALL, true);[m
+[31m-}[m
+[31m-[m
+[31m-static void CHACHA20_POLY1305_AEAD_1MB_ENCRYPT_DECRYPT(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    CHACHA20_POLY1305_AEAD(bench, BUFFER_SIZE_LARGE, true);[m
+[31m-}[m
+[31m-[m
+[31m-// Add Hash() (dbl-sha256) bench for comparison[m
+[31m-[m
+[31m-static void HASH(benchmark::Bench& bench, size_t buffersize)[m
+[31m-{[m
+[31m-    uint8_t hash[CHash256::OUTPUT_SIZE];[m
+[31m-    std::vector<uint8_t> in(buffersize,0);[m
+[2m-    bench.batch(in.size()).unit("byte").run([&] {[m
+[31m-        CHash256().Write(in).Finalize(hash);[m
+[31m-    });[m
+[31m-}[m
+[31m-[m
+[31m-static void HASH_64BYTES(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    HASH(bench, BUFFER_SIZE_TINY);[m
+[31m-}[m
+[31m-[m
+[31m-static void HASH_256BYTES(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    HASH(bench, BUFFER_SIZE_SMALL);[m
+[31m-}[m
+[31m-[m
+[31m-static void HASH_1MB(benchmark::Bench& bench)[m
+[31m-{[m
+[31m-    HASH(bench, BUFFER_SIZE_LARGE);[m
+[31m-}[m
+[31m-[m
+[31m-BENCHMARK(CHACHA20_POLY1305_AEAD_64BYTES_ONLY_ENCRYPT, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(CHACHA20_POLY1305_AEAD_256BYTES_ONLY_ENCRYPT, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(CHACHA20_POLY1305_AEAD_1MB_ONLY_ENCRYPT, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(CHACHA20_POLY1305_AEAD_64BYTES_ENCRYPT_DECRYPT, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(CHACHA20_POLY1305_AEAD_256BYTES_ENCRYPT_DECRYPT, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(CHACHA20_POLY1305_AEAD_1MB_ENCRYPT_DECRYPT, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(HASH_64BYTES, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(HASH_256BYTES, benchmark::PriorityLevel::HIGH);[m
+[31m-BENCHMARK(HASH_1MB, benchmark::PriorityLevel::HIGH);[m
+[33mdiff --git a/src/bip324.cpp b/src/bip324.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..7ed99e5585[m
+[33m--- /dev/null[m
+[33m+++ b/src/bip324.cpp[m
+[36m@@ -0,0 +1,111 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[2m+[m[2m// Distributed under the MIT software license, see the accompanying[m
+[2m+[m[2m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m+[m
+[32m+[m[32m#include <bip324.h>[m
+[32m+[m
+[32m+[m[32m#include <chainparams.h>[m
+[2m+[m[2m#include <crypto/chacha20.h>[m
+[32m+[m[32m#include <crypto/chacha20poly1305.h>[m
+[32m+[m[32m#include <crypto/hkdf_sha256_32.h>[m
+[32m+[m[32m#include <random.h>[m
+[32m+[m[32m#include <span.h>[m
+[2m+[m[2m#include <support/cleanse.h>[m
+[2m+[m
+[32m+[m[32m#include <algorithm>[m
+[32m+[m[32m#include <assert.h>[m
+[32m+[m[32m#include <cstdint>[m
+[32m+[m[32m#include <cstddef>[m
+[32m+[m
+[32m+[m[32mBIP324Cipher::BIP324Cipher() noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    m_key.MakeNewKey(true);[m
+[32m+[m[32m    uint256 entropy = GetRandHash();[m
+[32m+[m[32m    m_our_pubkey = m_key.EllSwiftCreate(MakeByteSpan(entropy));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mBIP324Cipher::BIP324Cipher(const CKey& key, Span<const std::byte> ent32) noexcept :[m
+[32m+[m[32m    m_key(key)[m
+[32m+[m[32m{[m
+[32m+[m[32m    m_our_pubkey = m_key.EllSwiftCreate(ent32);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mBIP324Cipher::BIP324Cipher(const CKey& key, const EllSwiftPubKey& pubkey) noexcept :[m
+[32m+[m[32m    m_key(key), m_our_pubkey(pubkey) {}[m
+[32m+[m
+[32m+[m[32mvoid BIP324Cipher::Initialize(const EllSwiftPubKey& their_pubkey, bool initiator, bool self_decrypt) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    // Determine salt (fixed string + network magic bytes)[m
+[32m+[m[32m    const auto& message_header = Params().MessageStart();[m
+[32m+[m[32m    std::string salt = std::string{"bitcoin_v2_shared_secret"} + std::string(std::begin(message_header), std::end(message_header));[m
+[32m+[m
+[32m+[m[32m    // Perform ECDH to derive shared secret.[m
+[32m+[m[32m    ECDHSecret ecdh_secret = m_key.ComputeBIP324ECDHSecret(their_pubkey, m_our_pubkey, initiator);[m
+[32m+[m
+[32m+[m[32m    // Derive encryption keys from shared secret, and initialize stream ciphers and AEADs.[m
+[32m+[m[32m    bool side = (initiator != self_decrypt);[m
+[32m+[m[32m    CHKDF_HMAC_SHA256_L32 hkdf(UCharCast(ecdh_secret.data()), ecdh_secret.size(), salt);[m
+[32m+[m[32m    std::array<std::byte, 32> hkdf_32_okm;[m
+[32m+[m[32m    hkdf.Expand32("initiator_L", UCharCast(hkdf_32_okm.data()));[m
+[32m+[m[32m    (side ? m_send_l_cipher : m_recv_l_cipher).emplace(hkdf_32_okm, REKEY_INTERVAL);[m
+[32m+[m[32m    hkdf.Expand32("initiator_P", UCharCast(hkdf_32_okm.data()));[m
+[32m+[m[32m    (side ? m_send_p_cipher : m_recv_p_cipher).emplace(hkdf_32_okm, REKEY_INTERVAL);[m
+[32m+[m[32m    hkdf.Expand32("responder_L", UCharCast(hkdf_32_okm.data()));[m
+[32m+[m[32m    (side ? m_recv_l_cipher : m_send_l_cipher).emplace(hkdf_32_okm, REKEY_INTERVAL);[m
+[32m+[m[32m    hkdf.Expand32("responder_P", UCharCast(hkdf_32_okm.data()));[m
+[32m+[m[32m    (side ? m_recv_p_cipher : m_send_p_cipher).emplace(hkdf_32_okm, REKEY_INTERVAL);[m
+[32m+[m
+[32m+[m[32m    // Derive garbage terminators from shared secret.[m
+[32m+[m[32m    hkdf.Expand32("garbage_terminators", UCharCast(hkdf_32_okm.data()));[m
+[32m+[m[32m    std::copy(std::begin(hkdf_32_okm), std::begin(hkdf_32_okm) + GARBAGE_TERMINATOR_LEN,[m
+[32m+[m[32m        (initiator ? m_send_garbage_terminator : m_recv_garbage_terminator).begin());[m
+[32m+[m[32m    std::copy(std::end(hkdf_32_okm) - GARBAGE_TERMINATOR_LEN, std::end(hkdf_32_okm),[m
+[32m+[m[32m        (initiator ? m_recv_garbage_terminator : m_send_garbage_terminator).begin());[m
+[32m+[m
+[32m+[m[32m    // Derive session id from shared secret.[m
+[32m+[m[32m    hkdf.Expand32("session_id", UCharCast(m_session_id.data()));[m
+[32m+[m
+[32m+[m[32m    // Wipe all variables that contain information which could be used to re-derive encryption keys.[m
+[32m+[m[32m    memory_cleanse(ecdh_secret.data(), ecdh_secret.size());[m
+[32m+[m[32m    memory_cleanse(hkdf_32_okm.data(), sizeof(hkdf_32_okm));[m
+[32m+[m[32m    memory_cleanse(&hkdf, sizeof(hkdf));[m
+[32m+[m[32m    m_key = CKey();[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid BIP324Cipher::Encrypt(Span<const std::byte> contents, Span<const std::byte> aad, bool ignore, Span<std::byte> output) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(output.size() == contents.size() + EXPANSION);[m
+[32m+[m
+[32m+[m[32m    // Encrypt length.[m
+[32m+[m[32m    std::byte len[LENGTH_LEN];[m
+[32m+[m[32m    len[0] = std::byte{(uint8_t)(contents.size() & 0xFF)};[m
+[32m+[m[32m    len[1] = std::byte{(uint8_t)((contents.size() >> 8) & 0xFF)};[m
+[32m+[m[32m    len[2] = std::byte{(uint8_t)((contents.size() >> 16) & 0xFF)};[m
+[32m+[m[32m    m_send_l_cipher->Crypt(len, output.first(LENGTH_LEN));[m
+[32m+[m
+[32m+[m[32m    // Encrypt plaintext.[m
+[32m+[m[32m    std::byte header[HEADER_LEN] = {ignore ? IGNORE_BIT : std::byte{0}};[m
+[32m+[m[32m    m_send_p_cipher->Encrypt(header, contents, aad, output.subspan(LENGTH_LEN));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32muint32_t BIP324Cipher::DecryptLength(Span<const std::byte> input) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(input.size() == LENGTH_LEN);[m
+[32m+[m
+[32m+[m[32m    std::byte buf[LENGTH_LEN];[m
+[32m+[m[32m    // Decrypt length[m
+[32m+[m[32m    m_recv_l_cipher->Crypt(input, buf);[m
+[32m+[m[32m    // Convert to number.[m
+[32m+[m[32m    return uint32_t(buf[0]) + (uint32_t(buf[1]) << 8) + (uint32_t(buf[2]) << 16);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mbool BIP324Cipher::Decrypt(Span<const std::byte> input, Span<const std::byte> aad, bool& ignore, Span<std::byte> contents) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(input.size() + LENGTH_LEN == contents.size() + EXPANSION);[m
+[32m+[m
+[32m+[m[32m    std::byte header[HEADER_LEN];[m
+[32m+[m[32m    if (!m_recv_p_cipher->Decrypt(input, aad, header, contents)) return false;[m
+[32m+[m
+[32m+[m[32m    ignore = (header[0] & IGNORE_BIT) == IGNORE_BIT;[m
+[32m+[m[32m    return true;[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/bip324.h b/src/bip324.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..8d025c2ee3[m
+[33m--- /dev/null[m
+[33m+++ b/src/bip324.h[m
+[36m@@ -0,0 +1,94 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[2m+[m[2m// Distributed under the MIT software license, see the accompanying[m
+[2m+[m[2m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m+[m
+[32m+[m[32m#ifndef BITCOIN_BIP324_H[m
+[32m+[m[32m#define BITCOIN_BIP324_H[m
+[32m+[m
+[32m+[m[32m#include <cstddef>[m
+[32m+[m[32m#include <optional>[m
+[2m+[m
+[2m+[m[2m#include <crypto/chacha20.h>[m
+[32m+[m[32m#include <crypto/chacha20poly1305.h>[m
+[32m+[m[32m#include <key.h>[m
+[32m+[m[32m#include <pubkey.h>[m
+[32m+[m[32m#include <span.h>[m
+[32m+[m
+[32m+[m[32m/** The BIP324 packet cipher, encapsulating its key derivation, stream cipher, and AEAD. */[m
+[32m+[m[32mclass BIP324Cipher[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    static constexpr unsigned SESSION_ID_LEN{32};[m
+[32m+[m[32m    static constexpr unsigned GARBAGE_TERMINATOR_LEN{16};[m
+[32m+[m[32m    static constexpr unsigned REKEY_INTERVAL{224};[m
+[32m+[m[32m    static constexpr unsigned LENGTH_LEN{3};[m
+[32m+[m[32m    static constexpr unsigned HEADER_LEN{1};[m
+[32m+[m[32m    static constexpr unsigned EXPANSION = LENGTH_LEN + HEADER_LEN + FSChaCha20Poly1305::EXPANSION;[m
+[32m+[m[32m    static constexpr std::byte IGNORE_BIT{0x80};[m
+[32m+[m
+[32m+[m[32mprivate:[m
+[32m+[m[32m    std::optional<FSChaCha20> m_send_l_cipher;[m
+[32m+[m[32m    std::optional<FSChaCha20> m_recv_l_cipher;[m
+[32m+[m[32m    std::optional<FSChaCha20Poly1305> m_send_p_cipher;[m
+[32m+[m[32m    std::optional<FSChaCha20Poly1305> m_recv_p_cipher;[m
+[32m+[m
+[32m+[m[32m    CKey m_key;[m
+[32m+[m[32m    EllSwiftPubKey m_our_pubkey;[m
+[32m+[m
+[32m+[m[32m    std::array<std::byte, SESSION_ID_LEN> m_session_id;[m
+[32m+[m[32m    std::array<std::byte, GARBAGE_TERMINATOR_LEN> m_send_garbage_terminator;[m
+[32m+[m[32m    std::array<std::byte, GARBAGE_TERMINATOR_LEN> m_recv_garbage_terminator;[m
+[32m+[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    /** Initialize a BIP324 cipher with securely generated random keys. */[m
+[32m+[m[32m    BIP324Cipher() noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Initialize a BIP324 cipher with specified key and encoding entropy (testing only). */[m
+[32m+[m[32m    BIP324Cipher(const CKey& key, Span<const std::byte> ent32) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Initialize a BIP324 cipher with specified key (testing only). */[m
+[32m+[m[32m    BIP324Cipher(const CKey& key, const EllSwiftPubKey& pubkey) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Retrieve our public key. */[m
+[32m+[m[32m    const EllSwiftPubKey& GetOurPubKey() const noexcept { return m_our_pubkey; }[m
+[32m+[m
+[32m+[m[32m    /** Initialize when the other side's public key is received. Can only be called once.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * self_decrypt is only for testing, and swaps encryption/decryption keys, so that encryption[m
+[32m+[m[32m     * and decryption can be tested without knowing the other side's private key.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Initialize(const EllSwiftPubKey& their_pubkey, bool initiator, bool self_decrypt = false) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Determine whether this cipher is fully initialized. */[m
+[32m+[m[32m    explicit operator bool() const noexcept { return m_send_l_cipher.has_value(); }[m
+[32m+[m
+[32m+[m[32m    /** Encrypt a packet. Only after Initialize().[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * It must hold that output.size() == contents.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Encrypt(Span<const std::byte> contents, Span<const std::byte> aad, bool ignore, Span<std::byte> output) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Decrypt the length of a packet. Only after Initialize().[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * It must hold that input.size() == LENGTH_LEN.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    unsigned DecryptLength(Span<const std::byte> input) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Decrypt a packet. Only after Initialize().[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * It must hold that input.size() + LENGTH_LEN == contents.size() + EXPANSION.[m
+[32m+[m[32m     * Contents.size() must equal the length returned by DecryptLength.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    bool Decrypt(Span<const std::byte> input, Span<const std::byte> aad, bool& ignore, Span<std::byte> contents) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Get the Session ID. Only after Initialize(). */[m
+[32m+[m[32m    Span<const std::byte> GetSessionID() const noexcept { return m_session_id; }[m
+[32m+[m
+[32m+[m[32m    /** Get the Garbage Terminator to send. Only after Initialize(). */[m
+[32m+[m[32m    Span<const std::byte> GetSendGarbageTerminator() const noexcept { return m_send_garbage_terminator; }[m
+[32m+[m
+[32m+[m[32m    /** Get the expected Garbage Terminator to receive. Only after Initialize(). */[m
+[32m+[m[32m    Span<const std::byte> GetReceiveGarbageTerminator() const noexcept { return m_recv_garbage_terminator; }[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_BIP324_H[m
+[33mdiff --git a/src/crypto/chacha20.cpp b/src/crypto/chacha20.cpp[m
+[33mindex fafd783ab1..469b280494 100644[m
+[33m--- a/src/crypto/chacha20.cpp[m
+[33m+++ b/src/crypto/chacha20.cpp[m
+[36m@@ -7,6 +7,7 @@[m
+ [m
+ #include <crypto/common.h>[m
+ #include <crypto/chacha20.h>[m
+[2m+[m[2m#include <support/cleanse.h>[m
+ [m
+ #include <algorithm>[m
+ #include <string.h>[m
+[36m@@ -42,6 +43,11 @@[m [mChaCha20Aligned::ChaCha20Aligned()[m
+     memset(input, 0, sizeof(input));[m
+ }[m
+ [m
+[32m+[m[32mChaCha20Aligned::~ChaCha20Aligned()[m
+[32m+[m[32m{[m
+[32m+[m[32m    memory_cleanse(input, sizeof(input));[m
+[32m+[m[32m}[m
+[32m+[m
+ ChaCha20Aligned::ChaCha20Aligned(const unsigned char* key32)[m
+ {[m
+     SetKey32(key32);[m
+[36m@@ -318,3 +324,38 @@[m [mvoid ChaCha20::Crypt(const unsigned char* m, unsigned char* c, size_t bytes)[m
+         m_bufleft = 64 - bytes;[m
+     }[m
+ }[m
+[32m+[m
+[32m+[m[32mChaCha20::~ChaCha20()[m
+[32m+[m[32m{[m
+[32m+[m[32m    memory_cleanse(m_buffer, sizeof(m_buffer));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mFSChaCha20::FSChaCha20(Span<const std::byte> key, uint32_t rekey_interval) noexcept :[m
+[32m+[m[32m    m_chacha20(UCharCast(key.data())), m_rekey_interval(rekey_interval)[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(key.size() == KEYLEN);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid FSChaCha20::Crypt(Span<const std::byte> input, Span<std::byte> output) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(input.size() == output.size());[m
+[32m+[m
+[32m+[m[32m    // Invoke internal stream cipher for actual encryption/decryption.[m
+[32m+[m[32m    m_chacha20.Crypt(UCharCast(input.data()), UCharCast(output.data()), input.size());[m
+[32m+[m
+[32m+[m[32m    // Rekey after m_rekey_interval encryptions/decryptions.[m
+[32m+[m[32m    if (++m_chunk_counter == m_rekey_interval) {[m
+[32m+[m[32m        // Get new key from the stream cipher.[m
+[32m+[m[32m        std::byte new_key[KEYLEN];[m
+[32m+[m[32m        m_chacha20.Keystream(UCharCast(new_key), sizeof(new_key));[m
+[32m+[m[32m        // Update its key.[m
+[32m+[m[32m        m_chacha20.SetKey32(UCharCast(new_key));[m
+[32m+[m[32m        // Wipe the key (a copy remains inside m_chacha20, where it'll be wiped on the next rekey[m
+[32m+[m[32m        // or on destruction).[m
+[32m+[m[32m        memory_cleanse(new_key, sizeof(new_key));[m
+[32m+[m[32m        // Set the nonce for the new section of output.[m
+[32m+[m[32m        m_chacha20.Seek64({0, ++m_rekey_counter}, 0);[m
+[32m+[m[32m        // Reset the chunk counter.[m
+[32m+[m[32m        m_chunk_counter = 0;[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/crypto/chacha20.h b/src/crypto/chacha20.h[m
+[33mindex f2ec21d82e..d1b2094e7e 100644[m
+[33m--- a/src/crypto/chacha20.h[m
+[33m+++ b/src/crypto/chacha20.h[m
+[36m@@ -5,6 +5,10 @@[m
+ #ifndef BITCOIN_CRYPTO_CHACHA20_H[m
+ #define BITCOIN_CRYPTO_CHACHA20_H[m
+ [m
+[32m+[m[32m#include <span.h>[m
+[32m+[m
+[32m+[m[32m#include <array>[m
+[32m+[m[32m#include <cstddef>[m
+ #include <cstdlib>[m
+ #include <stdint.h>[m
+ #include <utility>[m
+[36m@@ -29,6 +33,9 @@[m [mpublic:[m
+     /** Initialize a cipher with specified 32-byte key. */[m
+     ChaCha20Aligned(const unsigned char* key32);[m
+ [m
+[32m+[m[32m    /** Destructor to clean up private memory. */[m
+[32m+[m[32m    ~ChaCha20Aligned();[m
+[32m+[m
+     /** set 32-byte key. */[m
+     void SetKey32(const unsigned char* key32);[m
+ [m
+[36m@@ -72,6 +79,9 @@[m [mpublic:[m
+     /** Initialize a cipher with specified 32-byte key. */[m
+     ChaCha20(const unsigned char* key32) : m_aligned(key32) {}[m
+ [m
+[32m+[m[32m    /** Destructor to clean up private memory. */[m
+[32m+[m[32m    ~ChaCha20();[m
+[32m+[m
+     /** set 32-byte key. */[m
+     void SetKey32(const unsigned char* key32)[m
+     {[m
+[36m@@ -98,4 +108,43 @@[m [mpublic:[m
+     void Crypt(const unsigned char* input, unsigned char* output, size_t bytes);[m
+ };[m
+ [m
+[32m+[m[32m/** Forward-secure ChaCha20[m
+[32m+[m[32m *[m
+[32m+[m[32m * This implements a stream cipher that automatically transitions to a new stream with a new key[m
+[32m+[m[32m * and new nonce after a predefined number of encryptions or decryptions.[m
+[32m+[m[32m *[m
+[32m+[m[32m * See BIP324 for details.[m
+[32m+[m[32m */[m
+[32m+[m[32mclass FSChaCha20[m
+[32m+[m[32m{[m
+[32m+[m[32mprivate:[m
+[32m+[m[32m    /** Internal stream cipher. */[m
+[32m+[m[32m    ChaCha20 m_chacha20;[m
+[32m+[m
+[32m+[m[32m    /** The number of encryptions/decryptions before a rekey happens. */[m
+[32m+[m[32m    const uint32_t m_rekey_interval;[m
+[32m+[m
+[32m+[m[32m    /** The number of encryptions/decryptions since the last rekey. */[m
+[32m+[m[32m    uint32_t m_chunk_counter{0};[m
+[32m+[m
+[32m+[m[32m    /** The number of rekey operations that have happened. */[m
+[32m+[m[32m    uint64_t m_rekey_counter{0};[m
+[32m+[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    /** Length of keys expected by the constructor. */[m
+[32m+[m[32m    static constexpr unsigned KEYLEN = 32;[m
+[32m+[m
+[32m+[m[32m    // No copy or move to protect the secret.[m
+[32m+[m[32m    FSChaCha20(const FSChaCha20&) = delete;[m
+[32m+[m[32m    FSChaCha20(FSChaCha20&&) = delete;[m
+[32m+[m[32m    FSChaCha20& operator=(const FSChaCha20&) = delete;[m
+[32m+[m[32m    FSChaCha20& operator=(FSChaCha20&&) = delete;[m
+[32m+[m
+[32m+[m[32m    /** Construct an FSChaCha20 cipher that rekeys every rekey_interval Crypt() calls. */[m
+[32m+[m[32m    FSChaCha20(Span<const std::byte> key, uint32_t rekey_interval) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Encrypt or decrypt a chunk. */[m
+[32m+[m[32m    void Crypt(Span<const std::byte> input, Span<std::byte> output) noexcept;[m
+[32m+[m[32m};[m
+[32m+[m
+ #endif // BITCOIN_CRYPTO_CHACHA20_H[m
+[33mdiff --git a/src/crypto/chacha20poly1305.cpp b/src/crypto/chacha20poly1305.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..af65830ece[m
+[33m--- /dev/null[m
+[33m+++ b/src/crypto/chacha20poly1305.cpp[m
+[36m@@ -0,0 +1,146 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[2m+[m[2m// Distributed under the MIT software license, see the accompanying[m
+[2m+[m[2m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m+[m
+[32m+[m[32m#include <crypto/chacha20poly1305.h>[m
+[32m+[m
+[32m+[m[32m#include <crypto/common.h>[m
+[1;36m+[m[1;36m#include <crypto/chacha20.h>[m
+[1;33m+[m[1;33m#include <crypto/poly1305.h>[m
+[32m+[m[32m#include <span.h>[m
+[2m+[m[2m#include <support/cleanse.h>[m
+[2m+[m
+[2m+[m[2m#include <assert.h>[m
+[32m+[m[32m#include <cstdint>[m
+[32m+[m[32m#include <cstddef>[m
+[32m+[m[32m#include <iterator>[m
+[32m+[m
+[32m+[m[32mAEADChaCha20Poly1305::AEADChaCha20Poly1305(Span<const std::byte> key) noexcept : m_chacha20(UCharCast(key.data()))[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(key.size() == KEYLEN);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid AEADChaCha20Poly1305::SetKey(Span<const std::byte> key) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(key.size() == KEYLEN);[m
+[32m+[m[32m    m_chacha20.SetKey32(UCharCast(key.data()));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mnamespace {[m
+[2m+[m
+[2m+[m[2m#ifndef HAVE_TIMINGSAFE_BCMP[m
+[32m+[m[32m#define HAVE_TIMINGSAFE_BCMP[m
+[32m+[m
+[32m+[m[32mint timingsafe_bcmp(const unsigned char* b1, const unsigned char* b2, size_t n) noexcept[m
+[2m+[m[2m{[m
+[2m+[m[2m    const unsigned char *p1 = b1, *p2 = b2;[m
+[1;36m+[m[1;36m    int ret = 0;[m
+[1;33m+[m[1;33m    for (; n > 0; n--)[m
+[2;3m+[m[2;3m        ret |= *p1++ ^ *p2++;[m
+[2;3m+[m[2;3m    return (ret != 0);[m
+[2;3m+[m[2;3m}[m
+[2;3m+[m
+[32m+[m[32m#endif[m
+[32m+[m
+[32m+[m[32m/** Write all tag data to poly1305 for an AEADChaCha20Poly1305 tag. */[m
+[32m+[m[32mvoid UpdateTag(Poly1305& poly1305, Span<const std::byte> aad, Span<const std::byte> cipher) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    static const std::byte PADDING[16] = {{}};[m
+[32m+[m[32m    // Process the padded AAD with Poly1305.[m
+[32m+[m[32m    unsigned aad_padding = (16 - (aad.size() % 16)) % 16;[m
+[32m+[m[32m    poly1305.Update(aad).Update(Span{PADDING}.first(aad_padding));[m
+[32m+[m[32m    // Process the padded ciphertext with Poly1305.[m
+[32m+[m[32m    unsigned cipher_padding = (16 - (cipher.size() % 16)) % 16;[m
+[32m+[m[32m    poly1305.Update(cipher).Update(Span{PADDING}.first(cipher_padding));[m
+[32m+[m[32m    // Process the AAD and plaintext length with Poly1305.[m
+[32m+[m[32m    std::byte length_desc[16];[m
+[32m+[m[32m    WriteLE64(UCharCast(length_desc), aad.size());[m
+[32m+[m[32m    WriteLE64(UCharCast(length_desc + 8), cipher.size());[m
+[32m+[m[32m    poly1305.Update(length_desc);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m} // namespace[m
+[32m+[m
+[32m+[m[32mvoid AEADChaCha20Poly1305::Encrypt(Span<const std::byte> plain1, Span<const std::byte> plain2, Span<const std::byte> aad, Nonce96 nonce, Span<std::byte> cipher) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(cipher.size() == plain1.size() + plain2.size() + EXPANSION);[m
+[32m+[m
+[32m+[m[32m    // Encrypt using ChaCha20 (starting at index 1).[m
+[32m+[m[32m    m_chacha20.Seek64(nonce, 1);[m
+[32m+[m[32m    m_chacha20.Crypt(UCharCast(plain1.data()), UCharCast(cipher.data()), plain1.size());[m
+[32m+[m[32m    m_chacha20.Crypt(UCharCast(plain2.data()), UCharCast(cipher.data() + plain1.size()), plain2.size());[m
+[32m+[m
+[32m+[m[32m    // Get first block of keystream.[m
+[32m+[m[32m    std::byte first_block[64];[m
+[32m+[m[32m    m_chacha20.Seek64(nonce, 0);[m
+[32m+[m[32m    m_chacha20.Keystream(UCharCast(first_block), sizeof(first_block));[m
+[32m+[m[32m    // Use the first 32 bytes of the first keystream block as poly1305 key.[m
+[32m+[m[32m    Poly1305 poly1305{Span{first_block}.first(Poly1305::KEYLEN)};[m
+[32m+[m[32m    // Compute tag.[m
+[32m+[m[32m    UpdateTag(poly1305, aad, cipher.first(cipher.size() - EXPANSION));[m
+[32m+[m
+[32m+[m[32m    // Write tag to ciphertext.[m
+[32m+[m[32m    poly1305.Finalize(cipher.last(EXPANSION));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mbool AEADChaCha20Poly1305::Decrypt(Span<const std::byte> cipher, Span<const std::byte> aad, Nonce96 nonce, Span<std::byte> plain1, Span<std::byte> plain2) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    assert(cipher.size() == plain1.size() + plain2.size() + EXPANSION);[m
+[32m+[m
+[32m+[m[32m    // Get first block of keystream.[m
+[32m+[m[32m    std::byte first_block[64];[m
+[32m+[m[32m    m_chacha20.Seek64(nonce, 0);[m
+[32m+[m[32m    m_chacha20.Keystream(UCharCast(first_block), sizeof(first_block));[m
+[32m+[m[32m    // Use the first 32 bytes of the first keystream block as poly1305 key.[m
+[32m+[m[32m    Poly1305 poly1305{Span{first_block}.first(Poly1305::KEYLEN)};[m
+[32m+[m[32m    // Compute tag.[m
+[32m+[m[32m    UpdateTag(poly1305, aad, cipher.first(cipher.size() - EXPANSION));[m
+[32m+[m
+[32m+[m[32m    // Verify tag.[m
+[32m+[m[32m    std::byte expected_tag[EXPANSION];[m
+[32m+[m[32m    poly1305.Finalize(expected_tag);[m
+[32m+[m[32m    if (timingsafe_bcmp(UCharCast(expected_tag), UCharCast(cipher.data() + cipher.size() - EXPANSION), EXPANSION)) return false;[m
+[32m+[m
+[32m+[m[32m    // Decrypt.[m
+[32m+[m[32m    m_chacha20.Crypt(UCharCast(cipher.data()), UCharCast(plain1.data()), plain1.size());[m
+[32m+[m[32m    m_chacha20.Crypt(UCharCast(cipher.data() + plain1.size()), UCharCast(plain2.data()), plain2.size());[m
+[32m+[m[32m    return true;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid AEADChaCha20Poly1305::Keystream(Nonce96 nonce, Span<std::byte> keystream) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    // Skip the first output block, as it's used for generating the poly1305 key.[m
+[32m+[m[32m    m_chacha20.Seek64(nonce, 1);[m
+[32m+[m[32m    m_chacha20.Keystream(UCharCast(keystream.data()), keystream.size());[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid FSChaCha20Poly1305::NextPacket() noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (++m_packet_counter == m_rekey_interval) {[m
+[32m+[m[32m        // Generate a full block of keystream, to avoid needing the ChaCha20 buffer, even though[m
+[32m+[m[32m        // we only need KEYLEN (32) bytes.[m
+[32m+[m[32m        std::byte one_block[64];[m
+[32m+[m[32m        m_aead.Keystream({0xFFFFFFFF, m_rekey_counter}, one_block);[m
+[32m+[m[32m        // Switch keys.[m
+[32m+[m[32m        m_aead.SetKey(Span{one_block}.first(KEYLEN));[m
+[32m+[m[32m        // Wipe the generated keystream (a copy remains inside m_aead, which will be cleaned up[m
+[32m+[m[32m        // once it cycles again, or is destroyed).[m
+[32m+[m[32m        memory_cleanse(one_block, sizeof(one_block));[m
+[32m+[m[32m        // Update counters.[m
+[32m+[m[32m        m_packet_counter = 0;[m
+[32m+[m[32m        ++m_rekey_counter;[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid FSChaCha20Poly1305::Encrypt(Span<const std::byte> plain1, Span<const std::byte> plain2, Span<const std::byte> aad, Span<std::byte> cipher) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    m_aead.Encrypt(plain1, plain2, aad, {m_packet_counter, m_rekey_counter}, cipher);[m
+[32m+[m[32m    NextPacket();[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mbool FSChaCha20Poly1305::Decrypt(Span<const std::byte> cipher, Span<const std::byte> aad, Span<std::byte> plain1, Span<std::byte> plain2) noexcept[m
+[32m+[m[32m{[m
+[32m+[m[32m    bool ret = m_aead.Decrypt(cipher, aad, {m_packet_counter, m_rekey_counter}, plain1, plain2);[m
+[32m+[m[32m    NextPacket();[m
+[32m+[m[32m    return ret;[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/crypto/chacha20poly1305.h b/src/crypto/chacha20poly1305.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..dc8fb1cc13[m
+[33m--- /dev/null[m
+[33m+++ b/src/crypto/chacha20poly1305.h[m
+[36m@@ -0,0 +1,149 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[2m+[m[2m// Distributed under the MIT software license, see the accompanying[m
+[2m+[m[2m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m+[m
+[32m+[m[32m#ifndef BITCOIN_CRYPTO_CHACHA20POLY1305_H[m
+[32m+[m[32m#define BITCOIN_CRYPTO_CHACHA20POLY1305_H[m
+[32m+[m
+[32m+[m[32m#include <cstddef>[m
+[32m+[m[32m#include <cstdlib>[m
+[32m+[m[32m#include <stdint.h>[m
+[2m+[m
+[1;36m+[m[1;36m#include <crypto/chacha20.h>[m
+[1;33m+[m[1;33m#include <crypto/poly1305.h>[m
+[32m+[m[32m#include <span.h>[m
+[32m+[m
+[32m+[m[32m/** The AEAD_CHACHA20_POLY1305 authenticated encryption algorithm from RFC8439 section 2.8. */[m
+[32m+[m[32mclass AEADChaCha20Poly1305[m
+[32m+[m[32m{[m
+[32m+[m[32m    /** Internal stream cipher. */[m
+[32m+[m[32m    ChaCha20 m_chacha20;[m
+[32m+[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    /** Expected size of key argument in constructor. */[m
+[32m+[m[32m    static constexpr unsigned KEYLEN = 32;[m
+[32m+[m
+[32m+[m[32m    /** Expansion when encrypting. */[m
+[32m+[m[32m    static constexpr unsigned EXPANSION = Poly1305::TAGLEN;[m
+[32m+[m
+[32m+[m[32m    /** Initialize an AEAD instance with a specified 32-byte key. */[m
+[32m+[m[32m    AEADChaCha20Poly1305(Span<const std::byte> key) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Switch to another 32-byte key. */[m
+[32m+[m[32m    void SetKey(Span<const std::byte> key) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** 96-bit nonce type. */[m
+[32m+[m[32m    using Nonce96 = ChaCha20::Nonce96;[m
+[32m+[m
+[32m+[m[32m    /** Encrypt a message with a specified 96-bit nonce and aad.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Encrypt(Span<const std::byte> plain, Span<const std::byte> aad, Nonce96 nonce, Span<std::byte> cipher) noexcept[m
+[32m+[m[32m    {[m
+[32m+[m[32m        Encrypt(plain, {}, aad, nonce, cipher);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /** Encrypt a message (given split into plain1 + plain2) with a specified 96-bit nonce and aad.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain1.size() + plain2.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Encrypt(Span<const std::byte> plain1, Span<const std::byte> plain2, Span<const std::byte> aad, Nonce96 nonce, Span<std::byte> cipher) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Decrypt a message with a specified 96-bit nonce and aad. Returns true if valid.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    bool Decrypt(Span<const std::byte> cipher, Span<const std::byte> aad, Nonce96 nonce, Span<std::byte> plain) noexcept[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return Decrypt(cipher, aad, nonce, plain, {});[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /** Decrypt a message with a specified 96-bit nonce and aad and split the result. Returns true if valid.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain1.size() + plain2.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    bool Decrypt(Span<const std::byte> cipher, Span<const std::byte> aad, Nonce96 nonce, Span<std::byte> plain1, Span<std::byte> plain2) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Get a number of keystream bytes from the underlying stream cipher.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * This is equivalent to Encrypt() with plain set to that many zero bytes, and dropping the[m
+[32m+[m[32m     * last EXPANSION bytes off the result.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Keystream(Nonce96 nonce, Span<std::byte> keystream) noexcept;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m/** Forward-secure wrapper around AEADChaCha20Poly1305.[m
+[32m+[m[32m *[m
+[32m+[m[32m * This implements an AEAD which automatically increments the nonce on every encryption or[m
+[32m+[m[32m * decryption, and cycles keys after a predetermined number of encryptions or decryptions.[m
+[32m+[m[32m *[m
+[32m+[m[32m * See BIP324 for details.[m
+[32m+[m[32m */[m
+[32m+[m[32mclass FSChaCha20Poly1305[m
+[32m+[m[32m{[m
+[32m+[m[32mprivate:[m
+[32m+[m[32m    /** Internal AEAD. */[m
+[32m+[m[32m    AEADChaCha20Poly1305 m_aead;[m
+[32m+[m
+[32m+[m[32m    /** Every how many iterations this cipher rekeys. */[m
+[32m+[m[32m    const uint32_t m_rekey_interval;[m
+[32m+[m
+[32m+[m[32m    /** The number of encryptions/decryptions since the last rekey. */[m
+[32m+[m[32m    uint32_t m_packet_counter{0};[m
+[32m+[m
+[32m+[m[32m    /** The number of rekeys performed so far. */[m
+[32m+[m[32m    uint64_t m_rekey_counter{0};[m
+[32m+[m
+[32m+[m[32m    /** Update counters (and if necessary, key) to transition to the next message. */[m
+[32m+[m[32m    void NextPacket() noexcept;[m
+[32m+[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    /** Length of keys expected by the constructor. */[m
+[32m+[m[32m    static constexpr auto KEYLEN = AEADChaCha20Poly1305::KEYLEN;[m
+[32m+[m
+[32m+[m[32m    /** Expansion when encrypting. */[m
+[32m+[m[32m    static constexpr auto EXPANSION = AEADChaCha20Poly1305::EXPANSION;[m
+[32m+[m
+[32m+[m[32m    // No copy or move to protect the secret.[m
+[32m+[m[32m    FSChaCha20Poly1305(const FSChaCha20Poly1305&) = delete;[m
+[32m+[m[32m    FSChaCha20Poly1305(FSChaCha20Poly1305&&) = delete;[m
+[32m+[m[32m    FSChaCha20Poly1305& operator=(const FSChaCha20Poly1305&) = delete;[m
+[32m+[m[32m    FSChaCha20Poly1305& operator=(FSChaCha20Poly1305&&) = delete;[m
+[32m+[m
+[32m+[m[32m    /** Construct an FSChaCha20Poly1305 cipher that rekeys every rekey_interval operations. */[m
+[32m+[m[32m    FSChaCha20Poly1305(Span<const std::byte> key, uint32_t rekey_interval) noexcept :[m
+[32m+[m[32m        m_aead(key), m_rekey_interval(rekey_interval) {}[m
+[32m+[m
+[32m+[m[32m    /** Encrypt a message with a specified aad.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Encrypt(Span<const std::byte> plain, Span<const std::byte> aad, Span<std::byte> cipher) noexcept[m
+[32m+[m[32m    {[m
+[32m+[m[32m        Encrypt(plain, {}, aad, cipher);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /** Encrypt a message (given split into plain1 + plain2) with a specified aad.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    void Encrypt(Span<const std::byte> plain1, Span<const std::byte> plain2, Span<const std::byte> aad, Span<std::byte> cipher) noexcept;[m
+[32m+[m
+[32m+[m[32m    /** Decrypt a message with a specified aad. Returns true if valid.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    bool Decrypt(Span<const std::byte> cipher, Span<const std::byte> aad, Span<std::byte> plain) noexcept[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return Decrypt(cipher, aad, plain, {});[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /** Decrypt a message with a specified aad and split the result. Returns true if valid.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * Requires cipher.size() = plain1.size() + plain2.size() + EXPANSION.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    bool Decrypt(Span<const std::byte> cipher, Span<const std::byte> aad, Span<std::byte> plain1, Span<std::byte> plain2) noexcept;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_CRYPTO_CHACHA20POLY1305_H[m
+[33mdiff --git a/src/crypto/chacha_poly_aead.cpp b/src/crypto/chacha_poly_aead.cpp[m
+[33mdeleted file mode 100644[m
+[33mindex 0d82cf3d74..0000000000[m
+[33m--- a/src/crypto/chacha_poly_aead.cpp[m
+[33m+++ /dev/null[m
+[36m@@ -1,132 +0,0 @@[m
+[31m-// Copyright (c) 2019-2022 The Bitcoin Core developers[m
+[2m-// Distributed under the MIT software license, see the accompanying[m
+[2m-// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m-[m
+[31m-#if defined(HAVE_CONFIG_H)[m
+[31m-#include <config/bitcoin-config.h>[m
+[31m-#endif[m
+[31m-[m
+[31m-#include <crypto/chacha_poly_aead.h>[m
+[31m-[m
+[1;35m-#include <crypto/poly1305.h>[m
+[1;34m-#include <support/cleanse.h>[m
+[2;3m-[m
+[2;3m-#include <assert.h>[m
+[31m-#include <string.h>[m
+[31m-[m
+[31m-#include <cstdio>[m
+[31m-#include <limits>[m
+[2m-[m
+[2m-#ifndef HAVE_TIMINGSAFE_BCMP[m
+[31m-[m
+[31m-int timingsafe_bcmp(const unsigned char* b1, const unsigned char* b2, size_t n)[m
+[2m-{[m
+[2m-    const unsigned char *p1 = b1, *p2 = b2;[m
+[2m-    int ret = 0;[m
+[31m-[m
+[2m-    for (; n > 0; n--)[m
+[2m-        ret |= *p1++ ^ *p2++;[m
+[2m-    return (ret != 0);[m
+[2m-}[m
+[2m-[m
+[31m-#endif // TIMINGSAFE_BCMP[m
+[31m-[m
+[31m-ChaCha20Poly1305AEAD::ChaCha20Poly1305AEAD(const unsigned char* K_1, size_t K_1_len, const unsigned char* K_2, size_t K_2_len)[m
+[31m-{[m
+[31m-    assert(K_1_len == CHACHA20_POLY1305_AEAD_KEY_LEN);[m
+[31m-    assert(K_2_len == CHACHA20_POLY1305_AEAD_KEY_LEN);[m
+[31m-[m
+[31m-    static_assert(CHACHA20_POLY1305_AEAD_KEY_LEN == 32);[m
+[31m-    m_chacha_header.SetKey32(K_1);[m
+[31m-    m_chacha_main.SetKey32(K_2);[m
+[31m-[m
+[31m-    // set the cached sequence number to uint64 max which hints for an unset cache.[m
+[31m-    // we can't hit uint64 max since the rekey rule (which resets the sequence number) is 1GB[m
+[31m-    m_cached_aad_seqnr = std::numeric_limits<uint64_t>::max();[m
+[31m-}[m
+[31m-[m
+[31m-bool ChaCha20Poly1305AEAD::Crypt(uint64_t seqnr_payload, uint64_t seqnr_aad, int aad_pos, unsigned char* dest, size_t dest_len /* length of the output buffer for sanity checks */, const unsigned char* src, size_t src_len, bool is_encrypt)[m
+[31m-{[m
+[31m-    // check buffer boundaries[m
+[31m-    if ([m
+[31m-        // if we encrypt, make sure the source contains at least the expected AAD and the destination has at least space for the source + MAC[m
+[31m-        (is_encrypt && (src_len < CHACHA20_POLY1305_AEAD_AAD_LEN || dest_len < src_len + Poly1305::TAGLEN)) ||[m
+[31m-        // if we decrypt, make sure the source contains at least the expected AAD+MAC and the destination has at least space for the source - MAC[m
+[31m-        (!is_encrypt && (src_len < CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN || dest_len < src_len - Poly1305::TAGLEN))) {[m
+[31m-        return false;[m
+[31m-    }[m
+[31m-[m
+[31m-    unsigned char expected_tag[Poly1305::TAGLEN], poly_key[Poly1305::KEYLEN];[m
+[31m-    memset(poly_key, 0, sizeof(poly_key));[m
+[31m-[m
+[31m-    // block counter 0 for the poly1305 key[m
+[31m-    // use lower 32bytes for the poly1305 key[m
+[31m-    // (throws away 32 unused bytes (upper 32) from this ChaCha20 round)[m
+[31m-    m_chacha_main.Seek64({0, seqnr_payload}, 0);[m
+[31m-    m_chacha_main.Crypt(poly_key, poly_key, sizeof(poly_key));[m
+[31m-[m
+[31m-    // if decrypting, verify the tag prior to decryption[m
+[31m-    if (!is_encrypt) {[m
+[31m-        const unsigned char* tag = src + src_len - Poly1305::TAGLEN;[m
+[31m-        Poly1305{MakeByteSpan(poly_key)}[m
+[31m-            .Update(AsBytes(Span{src, src_len - Poly1305::TAGLEN}))[m
+[31m-            .Finalize(MakeWritableByteSpan(expected_tag));[m
+[31m-[m
+[31m-        // constant time compare the calculated MAC with the provided MAC[m
+[31m-        if (timingsafe_bcmp(expected_tag, tag, Poly1305::TAGLEN) != 0) {[m
+[31m-            memory_cleanse(expected_tag, sizeof(expected_tag));[m
+[31m-            memory_cleanse(poly_key, sizeof(poly_key));[m
+[31m-            return false;[m
+[31m-        }[m
+[31m-        memory_cleanse(expected_tag, sizeof(expected_tag));[m
+[31m-        // MAC has been successfully verified, make sure we don't convert it in decryption[m
+[31m-        src_len -= Poly1305::TAGLEN;[m
+[31m-    }[m
+[31m-[m
+[31m-    // calculate and cache the next 64byte keystream block if requested sequence number is not yet the cache[m
+[31m-    if (m_cached_aad_seqnr != seqnr_aad) {[m
+[31m-        m_cached_aad_seqnr = seqnr_aad;[m
+[31m-        m_chacha_header.Seek64({0, seqnr_aad}, 0);[m
+[31m-        m_chacha_header.Keystream(m_aad_keystream_buffer, CHACHA20_ROUND_OUTPUT);[m
+[31m-    }[m
+[31m-    // crypt the AAD (3 bytes message length) with given position in AAD cipher instance keystream[m
+[31m-    dest[0] = src[0] ^ m_aad_keystream_buffer[aad_pos];[m
+[31m-    dest[1] = src[1] ^ m_aad_keystream_buffer[aad_pos + 1];[m
+[31m-    dest[2] = src[2] ^ m_aad_keystream_buffer[aad_pos + 2];[m
+[31m-[m
+[31m-    // Set the playload ChaCha instance block counter to 1 and crypt the payload[m
+[31m-    m_chacha_main.Seek64({0, seqnr_payload}, 1);[m
+[31m-    m_chacha_main.Crypt(src + CHACHA20_POLY1305_AEAD_AAD_LEN, dest + CHACHA20_POLY1305_AEAD_AAD_LEN, src_len - CHACHA20_POLY1305_AEAD_AAD_LEN);[m
+[31m-[m
+[31m-    // If encrypting, calculate and append tag[m
+[31m-    if (is_encrypt) {[m
+[31m-        // the poly1305 tag expands over the AAD (3 bytes length) & encrypted payload[m
+[31m-        Poly1305{MakeByteSpan(poly_key)}[m
+[31m-            .Update(AsBytes(Span{dest, src_len}))[m
+[31m-            .Finalize(AsWritableBytes(Span{dest + src_len, Poly1305::TAGLEN}));[m
+[31m-    }[m
+[31m-[m
+[31m-    // cleanse no longer required MAC and polykey[m
+[31m-    memory_cleanse(poly_key, sizeof(poly_key));[m
+[31m-    return true;[m
+[31m-}[m
+[31m-[m
+[31m-bool ChaCha20Poly1305AEAD::GetLength(uint32_t* len24_out, uint64_t seqnr_aad, int aad_pos, const uint8_t* ciphertext)[m
+[31m-{[m
+[31m-    // enforce valid aad position to avoid accessing outside of the 64byte keystream cache[m
+[31m-    // (there is space for 21 times 3 bytes)[m
+[31m-    assert(aad_pos >= 0 && aad_pos < CHACHA20_ROUND_OUTPUT - CHACHA20_POLY1305_AEAD_AAD_LEN);[m
+[31m-    if (m_cached_aad_seqnr != seqnr_aad) {[m
+[31m-        // we need to calculate the 64 keystream bytes since we reached a new aad sequence number[m
+[31m-        m_cached_aad_seqnr = seqnr_aad;[m
+[31m-        m_chacha_header.Seek64({0, seqnr_aad}, 0);                                // use LE for the nonce[m
+[31m-        m_chacha_header.Keystream(m_aad_keystream_buffer, CHACHA20_ROUND_OUTPUT); // write keystream to the cache[m
+[31m-    }[m
+[31m-[m
+[31m-    // decrypt the ciphertext length by XORing the right position of the 64byte keystream cache with the ciphertext[m
+[31m-    *len24_out = (ciphertext[0] ^ m_aad_keystream_buffer[aad_pos + 0]) |[m
+[31m-                 (ciphertext[1] ^ m_aad_keystream_buffer[aad_pos + 1]) << 8 |[m
+[31m-                 (ciphertext[2] ^ m_aad_keystream_buffer[aad_pos + 2]) << 16;[m
+[31m-[m
+[31m-    return true;[m
+[31m-}[m
+[33mdiff --git a/src/crypto/chacha_poly_aead.h b/src/crypto/chacha_poly_aead.h[m
+[33mdeleted file mode 100644[m
+[33mindex 5d57b5a5e2..0000000000[m
+[33m--- a/src/crypto/chacha_poly_aead.h[m
+[33m+++ /dev/null[m
+[36m@@ -1,146 +0,0 @@[m
+[31m-// Copyright (c) 2019-2021 The Bitcoin Core developers[m
+[2m-// Distributed under the MIT software license, see the accompanying[m
+[2m-// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m-[m
+[31m-#ifndef BITCOIN_CRYPTO_CHACHA_POLY_AEAD_H[m
+[31m-#define BITCOIN_CRYPTO_CHACHA_POLY_AEAD_H[m
+[2m-[m
+[2m-#include <crypto/chacha20.h>[m
+[31m-[m
+[31m-#include <cmath>[m
+[31m-[m
+[31m-static constexpr int CHACHA20_POLY1305_AEAD_KEY_LEN = 32;[m
+[31m-static constexpr int CHACHA20_POLY1305_AEAD_AAD_LEN = 3; /* 3 bytes length */[m
+[31m-static constexpr int CHACHA20_ROUND_OUTPUT = 64;         /* 64 bytes per round */[m
+[31m-static constexpr int AAD_PACKAGES_PER_ROUND = 21;        /* 64 / 3 round down*/[m
+[31m-[m
+[31m-/* A AEAD class for ChaCha20-Poly1305@bitcoin.[m
+[31m- *[m
+[31m- * ChaCha20 is a stream cipher designed by Daniel Bernstein and described in[m
+[31m- * <ref>[https://cr.yp.to/chacha/chacha-20080128.pdf ChaCha20]</ref>. It operates[m
+[31m- * by permuting 128 fixed bits, 128 or 256 bits of key, a 64 bit nonce and a 64[m
+[31m- * bit counter into 64 bytes of output. This output is used as a keystream, with[m
+[31m- * any unused bytes simply discarded.[m
+[31m- *[m
+[31m- * Poly1305 <ref>[https://cr.yp.to/mac/poly1305-20050329.pdf Poly1305]</ref>, also[m
+[31m- * by Daniel Bernstein, is a one-time Carter-Wegman MAC that computes a 128 bit[m
+[31m- * integrity tag given a message and a single-use 256 bit secret key.[m
+[31m- *[m
+[31m- * The chacha20-poly1305@bitcoin combines these two primitives into an[m
+[31m- * authenticated encryption mode. The construction used is based on that proposed[m
+[31m- * for TLS by Adam Langley in[m
+[31m- * <ref>[http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-03 "ChaCha20[m
+[31m- * and Poly1305 based Cipher Suites for TLS", Adam Langley]</ref>, but differs in[m
+[31m- * the layout of data passed to the MAC and in the addition of encryption of the[m
+[31m- * packet lengths.[m
+[31m- *[m
+[31m- * ==== Detailed Construction ====[m
+[31m- *[m
+[31m- * The chacha20-poly1305@bitcoin cipher requires two 256 bits of key material as[m
+[31m- * output from the key exchange. Each key (K_1 and K_2) are used by two separate[m
+[31m- * instances of chacha20.[m
+[31m- *[m
+[31m- * The instance keyed by K_1 is a stream cipher that is used only to encrypt the 3[m
+[31m- * byte packet length field and has its own sequence number. The second instance,[m
+[31m- * keyed by K_2, is used in conjunction with poly1305 to build an AEAD[m
+[31m- * (Authenticated Encryption with Associated Data) that is used to encrypt and[m
+[31m- * authenticate the entire packet.[m
+[31m- *[m
+[31m- * Two separate cipher instances are used here so as to keep the packet lengths[m
+[31m- * confidential but not create an oracle for the packet payload cipher by[m
+[31m- * decrypting and using the packet length prior to checking the MAC. By using an[m
+[31m- * independently-keyed cipher instance to encrypt the length, an active attacker[m
+[31m- * seeking to exploit the packet input handling as a decryption oracle can learn[m
+[31m- * nothing about the payload contents or its MAC (assuming key derivation,[m
+[31m- * ChaCha20 and Poly1305 are secure).[m
+[31m- *[m
+[31m- * The AEAD is constructed as follows: for each packet, generate a Poly1305 key by[m
+[31m- * taking the first 256 bits of ChaCha20 stream output generated using K_2, an IV[m
+[31m- * consisting of the packet sequence number encoded as an LE uint64 and a ChaCha20[m
+[31m- * block counter of zero. The K_2 ChaCha20 block counter is then set to the[m
+[31m- * little-endian encoding of 1 (i.e. {1, 0, 0, 0, 0, 0, 0, 0}) and this instance[m
+[31m- * is used for encryption of the packet payload.[m
+[31m- *[m
+[31m- * ==== Packet Handling ====[m
+[31m- *[m
+[31m- * When receiving a packet, the length must be decrypted first. When 3 bytes of[m
+[31m- * ciphertext length have been received, they may be decrypted.[m
+[31m- *[m
+[31m- * A ChaCha20 round always calculates 64bytes which is sufficient to crypt 21[m
+[31m- * times a 3 bytes length field (21*3 = 63). The length field sequence number can[m
+[31m- * thus be used 21 times (keystream caching).[m
+[31m- *[m
+[31m- * The length field must be enc-/decrypted with the ChaCha20 keystream keyed with[m
+[31m- * K_1 defined by block counter 0, the length field sequence number in little[m
+[31m- * endian and a keystream position from 0 to 60.[m
+[31m- *[m
+[31m- * Once the entire packet has been received, the MAC MUST be checked before[m
+[31m- * decryption. A per-packet Poly1305 key is generated as described above and the[m
+[31m- * MAC tag calculated using Poly1305 with this key over the ciphertext of the[m
+[31m- * packet length and the payload together. The calculated MAC is then compared in[m
+[31m- * constant time with the one appended to the packet and the packet decrypted[m
+[31m- * using ChaCha20 as described above (with K_2, the packet sequence number as[m
+[31m- * nonce and a starting block counter of 1).[m
+[31m- *[m
+[31m- * Detection of an invalid MAC MUST lead to immediate connection termination.[m
+[31m- *[m
+[31m- * To send a packet, first encode the 3 byte length and encrypt it using K_1 as[m
+[31m- * described above. Encrypt the packet payload (using K_2) and append it to the[m
+[31m- * encrypted length. Finally, calculate a MAC tag and append it.[m
+[31m- *[m
+[31m- * The initiating peer MUST use <code>K_1_A, K_2_A</code> to encrypt messages on[m
+[31m- * the send channel, <code>K_1_B, K_2_B</code> MUST be used to decrypt messages on[m
+[31m- * the receive channel.[m
+[31m- *[m
+[31m- * The responding peer MUST use <code>K_1_A, K_2_A</code> to decrypt messages on[m
+[31m- * the receive channel, <code>K_1_B, K_2_B</code> MUST be used to encrypt messages[m
+[31m- * on the send channel.[m
+[31m- *[m
+[31m- * Optimized implementations of ChaCha20-Poly1305@bitcoin are relatively fast in[m
+[31m- * general, therefore it is very likely that encrypted messages require not more[m
+[31m- * CPU cycles per bytes then the current unencrypted p2p message format[m
+[31m- * (ChaCha20/Poly1305 versus double SHA256).[m
+[31m- *[m
+[31m- * The initial packet sequence numbers are 0.[m
+[31m- *[m
+[31m- * K_2 ChaCha20 cipher instance (payload) must never reuse a {key, nonce} for[m
+[31m- * encryption nor may it be used to encrypt more than 2^70 bytes under the same[m
+[31m- * {key, nonce}.[m
+[31m- *[m
+[31m- * K_1 ChaCha20 cipher instance (length field/AAD) must never reuse a {key, nonce,[m
+[31m- * position-in-keystream} for encryption nor may it be used to encrypt more than[m
+[31m- * 2^70 bytes under the same {key, nonce}.[m
+[31m- *[m
+[31m- * We use message sequence numbers for both communication directions.[m
+[31m- */[m
+[31m-[m
+[31m-class ChaCha20Poly1305AEAD[m
+[31m-{[m
+[31m-private:[m
+[31m-    ChaCha20 m_chacha_header;                                    // AAD cipher instance (encrypted length) and poly1305 key-derivation cipher instance[m
+[31m-    ChaCha20 m_chacha_main;                                      // payload[m
+[31m-    unsigned char m_aad_keystream_buffer[CHACHA20_ROUND_OUTPUT]; // aad keystream cache[m
+[31m-    uint64_t m_cached_aad_seqnr;                                 // aad keystream cache hint[m
+[31m-[m
+[31m-public:[m
+[31m-    ChaCha20Poly1305AEAD(const unsigned char* K_1, size_t K_1_len, const unsigned char* K_2, size_t K_2_len);[m
+[31m-[m
+[31m-    explicit ChaCha20Poly1305AEAD(const ChaCha20Poly1305AEAD&) = delete;[m
+[31m-[m
+[31m-    /** Encrypts/decrypts a packet[m
+[31m-        seqnr_payload, the message sequence number[m
+[31m-        seqnr_aad, the messages AAD sequence number which allows reuse of the AAD keystream[m
+[31m-        aad_pos, position to use in the AAD keystream to encrypt the AAD[m
+[31m-        dest, output buffer, must be of a size equal or larger then CHACHA20_POLY1305_AEAD_AAD_LEN + payload (+ POLY1305_TAG_LEN in encryption) bytes[m
+[31m-        destlen, length of the destination buffer[m
+[31m-        src, the AAD+payload to encrypt or the AAD+payload+MAC to decrypt[m
+[31m-        src_len, the length of the source buffer[m
+[31m-        is_encrypt, set to true if we encrypt (creates and appends the MAC instead of verifying it)[m
+[31m-        */[m
+[31m-    bool Crypt(uint64_t seqnr_payload, uint64_t seqnr_aad, int aad_pos, unsigned char* dest, size_t dest_len, const unsigned char* src, size_t src_len, bool is_encrypt);[m
+[31m-[m
+[31m-    /** decrypts the 3 bytes AAD data and decodes it into a uint32_t field */[m
+[31m-    bool GetLength(uint32_t* len24_out, uint64_t seqnr_aad, int aad_pos, const uint8_t* ciphertext);[m
+[31m-};[m
+[31m-[m
+[31m-#endif // BITCOIN_CRYPTO_CHACHA_POLY_AEAD_H[m
+[33mdiff --git a/src/pubkey.h b/src/pubkey.h[m
+[33mindex 7d37504b01..00defa25a0 100644[m
+[33m--- a/src/pubkey.h[m
+[33m+++ b/src/pubkey.h[m
+[36m@@ -299,6 +299,9 @@[m [mprivate:[m
+     std::array<std::byte, SIZE> m_pubkey;[m
+ [m
+ public:[m
+[32m+[m[32m    /** Default constructor creates all-zero pubkey (which is valid). */[m
+[32m+[m[32m    EllSwiftPubKey() noexcept = default;[m
+[32m+[m
+     /** Construct a new ellswift public key from a given serialization. */[m
+     EllSwiftPubKey(const std::array<std::byte, SIZE>& ellswift) :[m
+         m_pubkey(ellswift) {}[m
+[33mdiff --git a/src/test/bip324_tests.cpp b/src/test/bip324_tests.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..35dc75cb99[m
+[33m--- /dev/null[m
+[33m+++ b/src/test/bip324_tests.cpp[m
+[36m@@ -0,0 +1,299 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[2m+[m[2m// Distributed under the MIT software license, see the accompanying[m
+[2m+[m[2m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m+[m
+[32m+[m[32m#include <bip324.h>[m
+[32m+[m[32m#include <chainparams.h>[m
+[32m+[m[32m#include <key.h>[m
+[32m+[m[32m#include <pubkey.h>[m
+[32m+[m[32m#include <test/util/random.h>[m
+[32m+[m[32m#include <test/util/setup_common.h>[m
+[32m+[m[32m#include <util/strencodings.h>[m
+[32m+[m
+[32m+[m[32m#include <array>[m
+[32m+[m[32m#include <vector>[m
+[32m+[m[32m#include <cstddef>[m
+[32m+[m
+[32m+[m[32m#include <boost/test/unit_test.hpp>[m
+[32m+[m
+[32m+[m[32mnamespace {[m
+[32m+[m
+[32m+[m[32mvoid TestBIP324PacketVector([m
+[32m+[m[32m    uint32_t in_idx,[m
+[32m+[m[32m    const std::string& in_priv_ours_hex,[m
+[32m+[m[32m    const std::string& in_ellswift_ours_hex,[m
+[32m+[m[32m    const std::string& in_ellswift_theirs_hex,[m
+[32m+[m[32m    bool in_initiating,[m
+[32m+[m[32m    const std::string& in_contents_hex,[m
+[32m+[m[32m    uint32_t in_multiply,[m
+[32m+[m[32m    const std::string& in_aad_hex,[m
+[32m+[m[32m    bool in_ignore,[m
+[32m+[m[32m    const std::string& mid_send_garbage_hex,[m
+[32m+[m[32m    const std::string& mid_recv_garbage_hex,[m
+[32m+[m[32m    const std::string& out_session_id_hex,[m
+[32m+[m[32m    const std::string& out_ciphertext_hex,[m
+[32m+[m[32m    const std::string& out_ciphertext_endswith_hex)[m
+[32m+[m[32m{[m
+[32m+[m[32m    // Convert input from hex to char/byte vectors/arrays.[m
+[32m+[m[32m    auto in_priv_ours = ParseHex(in_priv_ours_hex);[m
+[32m+[m[32m    auto in_ellswift_ours_vec = ParseHex<std::byte>(in_ellswift_ours_hex);[m
+[32m+[m[32m    assert(in_ellswift_ours_vec.size() == 64);[m
+[32m+[m[32m    std::array<std::byte, 64> in_ellswift_ours;[m
+[32m+[m[32m    std::copy(in_ellswift_ours_vec.begin(), in_ellswift_ours_vec.end(), in_ellswift_ours.begin());[m
+[32m+[m[32m    auto in_ellswift_theirs_vec = ParseHex<std::byte>(in_ellswift_theirs_hex);[m
+[32m+[m[32m    assert(in_ellswift_theirs_vec.size() == 64);[m
+[32m+[m[32m    std::array<std::byte, 64> in_ellswift_theirs;[m
+[32m+[m[32m    std::copy(in_ellswift_theirs_vec.begin(), in_ellswift_theirs_vec.end(), in_ellswift_theirs.begin());[m
+[32m+[m[32m    auto in_contents = ParseHex<std::byte>(in_contents_hex);[m
+[32m+[m[32m    auto in_aad = ParseHex<std::byte>(in_aad_hex);[m
+[32m+[m[32m    auto mid_send_garbage = ParseHex<std::byte>(mid_send_garbage_hex);[m
+[32m+[m[32m    auto mid_recv_garbage = ParseHex<std::byte>(mid_recv_garbage_hex);[m
+[32m+[m[32m    auto out_session_id = ParseHex<std::byte>(out_session_id_hex);[m
+[32m+[m[32m    auto out_ciphertext = ParseHex<std::byte>(out_ciphertext_hex);[m
+[32m+[m[32m    auto out_ciphertext_endswith = ParseHex<std::byte>(out_ciphertext_endswith_hex);[m
+[32m+[m
+[32m+[m[32m    // Load keys[m
+[32m+[m[32m    CKey key;[m
+[32m+[m[32m    key.Set(in_priv_ours.begin(), in_priv_ours.end(), true);[m
+[32m+[m[32m    EllSwiftPubKey ellswift_ours(in_ellswift_ours);[m
+[32m+[m[32m    EllSwiftPubKey ellswift_theirs(in_ellswift_theirs);[m
+[32m+[m
+[32m+[m[32m    // Instantiate encryption BIP324 cipher.[m
+[32m+[m[32m    BIP324Cipher cipher(key, ellswift_ours);[m
+[32m+[m[32m    BOOST_CHECK(!cipher);[m
+[32m+[m[32m    BOOST_CHECK(cipher.GetOurPubKey() == ellswift_ours);[m
+[32m+[m[32m    cipher.Initialize(ellswift_theirs, in_initiating);[m
+[32m+[m[32m    BOOST_CHECK(cipher);[m
+[32m+[m
+[32m+[m[32m    // Compare session variables.[m
+[32m+[m[32m    BOOST_CHECK(Span{out_session_id} == cipher.GetSessionID());[m
+[32m+[m[32m    BOOST_CHECK(Span{mid_send_garbage} == cipher.GetSendGarbageTerminator());[m
+[32m+[m[32m    BOOST_CHECK(Span{mid_recv_garbage} == cipher.GetReceiveGarbageTerminator());[m
+[32m+[m
+[32m+[m[32m    // Vector of encrypted empty messages, encrypted in order to seek to the right position.[m
+[32m+[m[32m    std::vector<std::vector<std::byte>> dummies(in_idx);[m
+[32m+[m
+[32m+[m[32m    // Seek to the numbered packet.[m
+[32m+[m[32m    for (uint32_t i = 0; i < in_idx; ++i) {[m
+[32m+[m[32m        dummies[i].resize(cipher.EXPANSION);[m
+[32m+[m[32m        cipher.Encrypt({}, {}, true, dummies[i]);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Construct contents and encrypt it.[m
+[32m+[m[32m    std::vector<std::byte> contents;[m
+[32m+[m[32m    for (uint32_t i = 0; i < in_multiply; ++i) {[m
+[32m+[m[32m        contents.insert(contents.end(), in_contents.begin(), in_contents.end());[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::vector<std::byte> ciphertext(contents.size() + cipher.EXPANSION);[m
+[32m+[m[32m    cipher.Encrypt(contents, in_aad, in_ignore, ciphertext);[m
+[32m+[m
+[32m+[m[32m    // Verify ciphertext.[m
+[32m+[m[32m    if (!out_ciphertext.empty()) BOOST_CHECK(out_ciphertext == ciphertext);[m
+[32m+[m[32m    BOOST_CHECK(ciphertext.size() >= out_ciphertext_endswith.size());[m
+[32m+[m[32m    BOOST_CHECK(Span{out_ciphertext_endswith} == Span{ciphertext}.last(out_ciphertext_endswith.size()));[m
+[32m+[m
+[32m+[m[32m    for (unsigned error = 0; error <= 11; ++error) {[m
+[32m+[m[32m        // error selects a type of error introduced:[m
+[32m+[m[32m        // - error=0: no errors, decryption should be successful[m
+[32m+[m[32m        // - error=1: wrong side[m
+[32m+[m[32m        // - error=2..9: bit error in ciphertext[m
+[32m+[m[32m        // - error=10: bit error in aad[m
+[32m+[m[32m        // - error=11: extra 0x00 at end of aad[m
+[32m+[m[32m        // - error=12: message index wrong[m
+[32m+[m
+[32m+[m[32m        // Instantiate self-decrypting BIP324 cipher.[m
+[32m+[m[32m        BIP324Cipher dec_cipher(key, ellswift_ours);[m
+[32m+[m[32m        BOOST_CHECK(!dec_cipher);[m
+[32m+[m[32m        BOOST_CHECK(dec_cipher.GetOurPubKey() == ellswift_ours);[m
+[32m+[m[32m        dec_cipher.Initialize(ellswift_theirs, (error == 1) ^ in_initiating, /*self_decrypt=*/true);[m
+[32m+[m[32m        BOOST_CHECK(dec_cipher);[m
+[32m+[m
+[32m+[m[32m        // Compare session variables.[m
+[32m+[m[32m        BOOST_CHECK((Span{out_session_id} == dec_cipher.GetSessionID()) == (error != 1));[m
+[32m+[m[32m        BOOST_CHECK((Span{mid_send_garbage} == dec_cipher.GetSendGarbageTerminator()) == (error != 1));[m
+[32m+[m[32m        BOOST_CHECK((Span{mid_recv_garbage} == dec_cipher.GetReceiveGarbageTerminator()) == (error != 1));[m
+[32m+[m
+[32m+[m[32m        // Seek to the numbered packet.[m
+[32m+[m[32m        uint32_t dec_idx = in_idx ^ (error == 12 ? (1U << InsecureRandRange(16)) : 0);[m
+[32m+[m[32m        for (uint32_t i = 0; i < dec_idx; ++i) {[m
+[32m+[m[32m            unsigned use_idx = i < in_idx ? i : 0;[m
+[32m+[m[32m            bool dec_ignore{false};[m
+[32m+[m[32m            dec_cipher.DecryptLength(Span{dummies[use_idx]}.first(cipher.LENGTH_LEN));[m
+[32m+[m[32m            dec_cipher.Decrypt(Span{dummies[use_idx]}.subspan(cipher.LENGTH_LEN), {}, dec_ignore, {});[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Construct copied (and possibly damaged) copy of ciphertext.[m
+[32m+[m[32m        // Decrypt length[m
+[32m+[m[32m        auto to_decrypt = ciphertext;[m
+[32m+[m[32m        if (error >= 2 && error <= 9) {[m
+[32m+[m[32m            to_decrypt[InsecureRandRange(to_decrypt.size())] ^= std::byte(1U << InsecureRandRange(8));[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Decrypt length and resize ciphertext to accomodate.[m
+[32m+[m[32m        uint32_t dec_len = dec_cipher.DecryptLength(MakeByteSpan(to_decrypt).first(cipher.LENGTH_LEN));[m
+[32m+[m[32m        to_decrypt.resize(dec_len + cipher.EXPANSION);[m
+[32m+[m
+[32m+[m[32m        // Construct copied (and possibly damaged) copy of aad.[m
+[32m+[m[32m        auto dec_aad = in_aad;[m
+[32m+[m[32m        if (error == 10) {[m
+[32m+[m[32m            if (in_aad.size() == 0) continue;[m
+[32m+[m[32m            dec_aad[InsecureRandRange(dec_aad.size())] ^= std::byte(1U << InsecureRandRange(8));[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if (error == 11) dec_aad.push_back({});[m
+[32m+[m
+[32m+[m[32m        // Decrypt contents.[m
+[32m+[m[32m        std::vector<std::byte> decrypted(dec_len);[m
+[32m+[m[32m        bool dec_ignore{false};[m
+[32m+[m[32m        bool dec_ok = dec_cipher.Decrypt(Span{to_decrypt}.subspan(cipher.LENGTH_LEN), dec_aad, dec_ignore, decrypted);[m
+[32m+[m
+[32m+[m[32m        // Verify result.[m
+[32m+[m[32m        BOOST_CHECK(dec_ok == !error);[m
+[32m+[m[32m        if (dec_ok) {[m
+[32m+[m[32m            BOOST_CHECK(decrypted == contents);[m
+[32m+[m[32m            BOOST_CHECK(dec_ignore == in_ignore);[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m}  // namespace[m
+[32m+[m
+[32m+[m[32mBOOST_FIXTURE_TEST_SUITE(bip324_tests, BasicTestingSetup)[m
+[32m+[m
+[32m+[m[32mBOOST_AUTO_TEST_CASE(packet_test_vectors) {[m
+[32m+[m[32m    // BIP324 key derivation uses network magic in the HKDF process. We use mainnet params here[m
+[32m+[m[32m    // as that is what the test vectors are written for.[m
+[32m+[m[32m    SelectParams(ChainType::MAIN);[m
+[32m+[m
+[32m+[m[32m    // The test vectors are converted using the following Python code in the BIP bip-0324/ directory:[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // import sys[m
+[32m+[m[32m    // import csv[m
+[32m+[m[32m    // with open('packet_encoding_test_vectors.csv', newline='', encoding='utf-8') as csvfile:[m
+[32m+[m[32m    //     reader = csv.DictReader(csvfile)[m
+[32m+[m[32m    //     quote = lambda x: "\"" + x + "\""[m
+[32m+[m[32m    //     for row in reader:[m
+[32m+[m[32m    //         args = [[m
+[32m+[m[32m    //             row['in_idx'],[m
+[32m+[m[32m    //             quote(row['in_priv_ours']),[m
+[32m+[m[32m    //             quote(row['in_ellswift_ours']),[m
+[32m+[m[32m    //             quote(row['in_ellswift_theirs']),[m
+[32m+[m[32m    //             "true" if int(row['in_initiating']) else "false",[m
+[32m+[m[32m    //             quote(row['in_contents']),[m
+[32m+[m[32m    //             row['in_multiply'],[m
+[32m+[m[32m    //             quote(row['in_aad']),[m
+[32m+[m[32m    //             "true" if int(row['in_ignore']) else "false",[m
+[32m+[m[32m    //             quote(row['mid_send_garbage_terminator']),[m
+[32m+[m[32m    //             quote(row['mid_recv_garbage_terminator']),[m
+[32m+[m[32m    //             quote(row['out_session_id']),[m
+[32m+[m[32m    //             quote(row['out_ciphertext']),[m
+[32m+[m[32m    //             quote(row['out_ciphertext_endswith'])[m
+[32m+[m[32m    //         ][m
+[32m+[m[32m    //         print("    TestBIP324PacketVector(\n        " + ",\n        ".join(args) + ");")[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        1,[m
+[32m+[m[32m        "61062ea5071d800bbfd59e2e8b53d47d194b095ae5a4df04936b49772ef0d4d7",[m
+[32m+[m[32m        "ec0adff257bbfe500c188c80b4fdd640f6b45a482bbc15fc7cef5931deff0aa186f6eb9bba7b85dc4dcc28b28722de1e3d9108b985e2967045668f66098e475b",[m
+[32m+[m[32m        "a4a94dfce69b4a2a0a099313d10f9f7e7d649d60501c9e1d274c300e0d89aafaffffffffffffffffffffffffffffffffffffffffffffffffffffffff8faf88d5",[m
+[32m+[m[32m        true,[m
+[32m+[m[32m        "8e",[m
+[32m+[m[32m        1,[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "faef555dfcdb936425d84aba524758f3",[m
+[32m+[m[32m        "02cb8ff24307a6e27de3b4e7ea3fa65b",[m
+[32m+[m[32m        "ce72dffb015da62b0d0f5474cab8bc72605225b0cee3f62312ec680ec5f41ba5",[m
+[32m+[m[32m        "7530d2a18720162ac09c25329a60d75adf36eda3c3",[m
+[32m+[m[32m        "");[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        999,[m
+[32m+[m[32m        "1f9c581b35231838f0f17cf0c979835baccb7f3abbbb96ffcc318ab71e6e126f",[m
+[32m+[m[32m        "a1855e10e94e00baa23041d916e259f7044e491da6171269694763f018c7e63693d29575dcb464ac816baa1be353ba12e3876cba7628bd0bd8e755e721eb0140",[m
+[32m+[m[32m        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f0000000000000000000000000000000000000000000000000000000000000000",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "3eb1d4e98035cfd8eeb29bac969ed3824a",[m
+[32m+[m[32m        1,[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "efb64fd80acd3825ac9bc2a67216535a",[m
+[32m+[m[32m        "b3cb553453bceb002897e751ff7588bf",[m
+[32m+[m[32m        "9267c54560607de73f18c563b76a2442718879c52dd39852885d4a3c9912c9ea",[m
+[32m+[m[32m        "1da1bcf589f9b61872f45b7fa5371dd3f8bdf5d515b0c5f9fe9f0044afb8dc0aa1cd39a8c4",[m
+[32m+[m[32m        "");[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        0,[m
+[32m+[m[32m        "0286c41cd30913db0fdff7a64ebda5c8e3e7cef10f2aebc00a7650443cf4c60d",[m
+[32m+[m[32m        "d1ee8a93a01130cbf299249a258f94feb5f469e7d0f2f28f69ee5e9aa8f9b54a60f2c3ff2d023634ec7f4127a96cc11662e402894cf1f694fb9a7eaa5f1d9244",[m
+[32m+[m[32m        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff22d5e441524d571a52b3def126189d3f416890a99d4da6ede2b0cde1760ce2c3f98457ae",[m
+[32m+[m[32m        true,[m
+[32m+[m[32m        "054290a6c6ba8d80478172e89d32bf690913ae9835de6dcf206ff1f4d652286fe0ddf74deba41d55de3edc77c42a32af79bbea2c00bae7492264c60866ae5a",[m
+[32m+[m[32m        1,[m
+[32m+[m[32m        "84932a55aac22b51e7b128d31d9f0550da28e6a3f394224707d878603386b2f9d0c6bcd8046679bfed7b68c517e7431e75d9dd34605727d2ef1c2babbf680ecc8d68d2c4886e9953a4034abde6da4189cd47c6bb3192242cf714d502ca6103ee84e08bc2ca4fd370d5ad4e7d06c7fbf496c6c7cc7eb19c40c61fb33df2a9ba48497a96c98d7b10c1f91098a6b7b16b4bab9687f27585ade1491ae0dba6a79e1e2d85dd9d9d45c5135ca5fca3f0f99a60ea39edbc9efc7923111c937913f225d67788d5f7e8852b697e26b92ec7bfcaa334a1665511c2b4c0a42d06f7ab98a9719516c8fd17f73804555ee84ab3b7d1762f6096b778d3cb9c799cbd49a9e4a325197b4e6cc4a5c4651f8b41ff88a92ec428354531f970263b467c77ed11312e2617d0d53fe9a8707f51f9f57a77bfb49afe3d89d85ec05ee17b9186f360c94ab8bb2926b65ca99dae1d6ee1af96cad09de70b6767e949023e4b380e66669914a741ed0fa420a48dbc7bfae5ef2019af36d1022283dd90655f25eec7151d471265d22a6d3f91dc700ba749bb67c0fe4bc0888593fbaf59d3c6fff1bf756a125910a63b9682b597c20f560ecb99c11a92c8c8c3f7fbfaa103146083a0ccaecf7a5f5e735a784a8820155914a289d57d8141870ffcaf588882332e0bcd8779efa931aa108dab6c3cce76691e345df4a91a03b71074d66333fd3591bff071ea099360f787bbe43b7b3dff2a59c41c7642eb79870222ad1c6f2e5a191ed5acea51134679587c9cf71c7d8ee290be6bf465c4ee47897a125708704ad610d8d00252d01959209d7cd04d5ecbbb1419a7e84037a55fefa13dee464b48a35c96bcb9a53e7ed461c3a1607ee00c3c302fd47cd73fda7493e947c9834a92d63dcfbd65aa7c38c3e3a2748bb5d9a58e7495d243d6b741078c8f7ee9c8813e473a323375702702b0afae1550c8341eedf5247627343a95240cb02e3e17d5dca16f8d8d3b2228e19c06399f8ec5c5e9dbe4caef6a0ea3ffb1d3c7eac03ae030e791fa12e537c80d56b55b764cadf27a8701052df1282ba8b5e3eb62b5dc7973ac40160e00722fa958d95102fc25c549d8c0e84bed95b7acb61ba65700c4de4feebf78d13b9682c52e937d23026fb4c6193e6644e2d3c99f91f4f39a8b9fc6d013f89c3793ef703987954dc0412b550652c01d922f525704d32d70d6d4079bc3551b563fb29577b3aecdc9505011701dddfd94830431e7a4918927ee44fb3831ce8c4513839e2deea1287f3fa1ab9b61a256c09637dbc7b4f0f8fbb783840f9c24526da883b0df0c473cf231656bd7bc1aaba7f321fec0971c8c2c3444bff2f55e1df7fea66ec3e440a612db9aa87bb505163a59e06b96d46f50d8120b92814ac5ab146bc78dbbf91065af26107815678ce6e33812e6bf3285d4ef3b7b04b076f21e7820dcbfdb4ad5218cf4ff6a65812d8fcb98ecc1e95e2fa58e3efe4ce26cd0bd400d6036ab2ad4f6c713082b5e3f1e04eb9e3b6c8f63f57953894b9e220e0130308e1fd91f72d398c1e7962ca2c31be83f31d6157633581a0a6910496de8d55d3d07090b6aa087159e388b7e7dec60f5d8a60d93ca2ae91296bd484d916bfaaa17c8f45ea4b1a91b37c82821199a2b7596672c37156d8701e7352aa48671d3b1bbbd2bd5f0a2268894a25b0cb2514af39c8743f8cce8ab4b523053739fd8a522222a09acf51ac704489cf17e4b7125455cb8f125b4d31af1eba1f8cf7f81a5a100a141a7ee72e8083e065616649c241f233645c5fc865d17f0285f5c52d9f45312c979bfb3ce5f2a1b951deddf280ffb3f370410cffd1583bfa90077835aa201a0712d1dcd1293ee177738b14e6b5e2a496d05220c3253bb6578d6aff774be91946a614dd7e879fb3dcf7451e0b9adb6a8c44f53c2c464bcc0019e9fad89cac7791a0a3f2974f759a9856351d4d2d7c5612c17cfc50f8479945df57716767b120a590f4bf656f4645029a525694d8a238446c5f5c2c1c995c09c1405b8b1eb9e0352ffdf766cc964f8dcf9f8f043dfab6d102cf4b298021abd78f1d9025fa1f8e1d710b38d9d1652f2d88d1305874ec41609b6617b65c5adb19b6295dc5c5da5fdf69f28144ea12f17c3c6fcce6b9b5157b3dfc969d6725fa5b098a4d9b1d31547ed4c9187452d281d0a5d456008caf1aa251fac8f950ca561982dc2dc908d3691ee3b6ad3ae3d22d002577264ca8e49c523bd51c4846be0d198ad9407bf6f7b82c79893eb2c05fe9981f687a97a4f01fe45ff8c8b7ecc551135cd960a0d6001ad35020be07ffb53cb9e731522ca8ae9364628914b9b8e8cc2f37f03393263603cc2b45295767eb0aac29b0930390eb89587ab2779d2e3decb8042acece725ba42eda650863f418f8d0d50d104e44fbbe5aa7389a4a144a8cecf00f45fb14c39112f9bfb56c0acbd44fa3ff261f5ce4acaa5134c2c1d0cca447040820c81ab1bcdc16aa075b7c68b10d06bbb7ce08b5b805e0238f24402cf24a4b4e00701935a0c68add3de090903f9b85b153cb179a582f57113bfc21c2093803f0cfa4d9d4672c2b05a24f7e4c34a8e9101b70303a7378b9c50b6cddd46814ef7fd73ef6923feceab8fc5aa8b0d185f2e83c7a99dcb1077c0ab5c1f5d5f01ba2f0420443f75c4417db9ebf1665efbb33dca224989920a64b44dc26f682cc77b4632c8454d49135e52503da855bc0f6ff8edc1145451a9772c06891f41064036b66c3119a0fc6e80dffeb65dc456108b7ca0296f4175fff3ed2b0f842cd46bd7e86f4c62dfaf1ddbf836263c00b34803de164983d0811cebfac86e7720c726d3048934c36c23189b02386a722ca9f0fe00233ab50db928d3bccea355cc681144b8b7edcaae4884d5a8f04425c0890ae2c74326e138066d8c05f4c82b29df99b034ea727afde590a1f2177ace3af99cfb1729d6539ce7f7f7314b046aab74497e63dd399e1f7d5f16517c23bd830d1fdee810f3c3b77573dd69c4b97d80d71fb5a632e00acdfa4f8e829faf3580d6a72c40b28a82172f8dcd4627663ebf6069736f21735fd84a226f427cd06bb055f94e7c92f31c48075a2955d82a5b9d2d0198ce0d4e131a112570a8ee40fb80462a81436a58e7db4e34b6e2c422e82f934ecda9949893da5730fc5c23c7c920f363f85ab28cc6a4206713c3152669b47efa8238fa826735f17b4e78750276162024ec85458cd5808e06f40dd9fd43775a456a3ff6cae90550d76d8b2899e0762ad9a371482b3e38083b1274708301d6346c22fea9bb4b73db490ff3ab05b2f7f9e187adef139a7794454b7300b8cc64d3ad76c0e4bc54e08833a4419251550655380d675bc91855aeb82585220bb97f03e976579c08f321b5f8f70988d3061f41465517d53ac571dbf1b24b94443d2e9a8e8a79b392b3d6a4ecdd7f626925c365ef6221305105ce9b5f5b6ecc5bed3d702bd4b7f5008aa8eb8c7aa3ade8ecf6251516fbefeea4e1082aa0e1848eddb31ffe44b04792d296054402826e4bd054e671f223e5557e4c94f89ca01c25c44f1a2ff2c05a70b43408250705e1b858bf0670679fdcd379203e36be3500dd981b1a6422c3cf15224f7fefdef0a5f225c5a09d15767598ecd9e262460bb33a4b5d09a64591efabc57c923d3be406979032ae0bc0997b65336a06dd75b253332ad6a8b63ef043f780a1b3fb6d0b6cad98b1ef4a02535eb39e14a866cfc5fc3a9c5deb2261300d71280ebe66a0776a151469551c3c5fa308757f956655278ec6330ae9e3625468c5f87e02cd9a6489910d4143c1f4ee13aa21a6859d907b788e28572fecee273d44e4a900fa0aa668dd861a60fb6b6b12c2c5ef3c8df1bd7ef5d4b0d1cdb8c15fffbb365b9784bd94abd001c6966216b9b67554ad7cb7f958b70092514f7800fc40244003e0fd1133a9b850fb17f4fcafde07fc87b07fb510670654a5d2d6fc9876ac74728ea41593beef003d6858786a52d3a40af7529596767c17000bfaf8dc52e871359f4ad8bf6e7b2853e5229bdf39657e213580294a5317c5df172865e1e17fe37093b585e04613f5f078f761b2b1752eb32983afda24b523af8851df9a02b37e77f543f18888a782a994a50563334282bf9cdfccc183fdf4fcd75ad86ee0d94f91ee2300a5befbccd14e03a77fc031a8cfe4f01e4c5290f5ac1da0d58ea054bd4837cfd93e5e34fc0eb16e48044ba76131f228d16cde9b0bb978ca7cdcd10653c358bdb26fdb723a530232c32ae0a4cecc06082f46e1c1d596bfe60621ad1e354e01e07b040cc7347c016653f44d926d13ca74e6cbc9d4ab4c99f4491c95c76fff5076b3936eb9d0a286b97c035ca88a3c6309f5febfd4cdaac869e4f58ed409b1e9eb4192fb2f9c2f12176d460fd98286c9d6df84598f260119fd29c63f800c07d8df83d5cc95f8c2fea2812e7890e8a0718bb1e031ecbebc0436dcf3e3b9a58bcc06b4c17f711f80fe1dffc3326a6eb6e00283055c6dabe20d311bfd5019591b7954f8163c9afad9ef8390a38f3582e0a79cdf0353de8eeb6b5f9f27b16ffdef7dd62869b4840ee226ccdce95e02c4545eb981b60571cd83f03dc5eaf8c97a0829a4318a9b3dc06c0e003db700b2260ff1fa8fee66890e637b109abb03ec901b05ca599775f48af50154c0e67d82bf0f558d7d3e0778dc38bea1eb5f74dc8d7f90abdf5511a424be66bf8b6a3cacb477d2e7ef4db68d2eba4d5289122d851f9501ba7e9c4957d8eba3be3fc8e785c4265a1d65c46f2809b70846c693864b169c9dcb78be26ea14b8613f145b01887222979a9e67aee5f800caa6f5c4229bdeefc901232ace6143c9865e4d9c07f51aa200afaf7e48a7d1d8faf366023beab12906ffcb3eaf72c0eb68075e4daf3c080e0c31911befc16f0cc4a09908bb7c1e26abab38bd7b788e1a09c0edf1a35a38d2ff1d3ed47fcdaae2f0934224694f5b56705b9409b6d3d64f3833b686f7576ec64bbdd6ff174e56c2d1edac0011f904681a73face26573fbba4e34652f7ae84acfb2fa5a5b3046f98178cd0831df7477de70e06a4c00e305f31aafc026ef064dd68fd3e4252b1b91d617b26c6d09b6891a00df68f105b5962e7f9d82da101dd595d286da721443b72b2aba2377f6e7772e33b3a5e3753da9c2578c5d1daab80187f55518c72a64ee150a7cb5649823c08c9f62cd7d020b45ec2cba8310db1a7785a46ab24785b4d54ff1660b5ca78e05a9a55edba9c60bf044737bc468101c4e8bd1480d749be5024adefca1d998abe33eaeb6b11fbb39da5d905fdd3f611b2e51517ccee4b8af72c2d948573505590d61a6783ab7278fc43fe55b1fcc0e7216444d3c8039bb8145ef1ce01c50e95a3f3feab0aee883fdb94cc13ee4d21c542aa795e18932228981690f4d4c57ca4db6eb5c092e29d8a05139d509a8aeb48baa1eb97a76e597a32b280b5e9d6c36859064c98ff96ef5126130264fa8d2f49213870d9fb036cff95da51f270311d9976208554e48ffd486470d0ecdb4e619ccbd8226147204baf8e235f54d8b1cba8fa34a9a4d055de515cdf180d2bb6739a175183c472e30b5c914d09eeb1b7dafd6872b38b48c6afc146101200e6e6a44fe5684e220adc11f5c403ddb15df8051e6bdef09117a3a5349938513776286473a3cf1d2788bb875052a2e6459fa7926da33380149c7f98d7700528a60c954e6f5ecb65842fde69d614be69eaa2040a4819ae6e756accf936e14c1e894489744a79c1f2c1eb295d13e2d767c09964b61f9cfe497649f712",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "d4e3f18ac2e2095edb5c3b94236118ad",[m
+[32m+[m[32m        "4faa6c4233d9fd53d170ede4172142a8",[m
+[32m+[m[32m        "23f154ac43cfc59c4243e9fc68aeec8f19ad3942d74108e833b36f0dd3dcd357",[m
+[32m+[m[32m        "8da7de6ea7bf2a81a396a42880ba1f5756734c4821309ac9aeffa2a26ce86873b9dc4935a772de6ec5162c6d075b14536800fb174841153511bfb597e992e2fe8a450c4bce102cc550bb37fd564c4d60bf884e",[m
+[32m+[m[32m        "");[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        223,[m
+[32m+[m[32m        "6c77432d1fda31e9f942f8af44607e10f3ad38a65f8a4bddae823e5eff90dc38",[m
+[32m+[m[32m        "d2685070c1e6376e633e825296634fd461fa9e5bdf2109bcebd735e5a91f3e587c5cb782abb797fbf6bb5074fd1542a474f2a45b673763ec2db7fb99b737bbb9",[m
+[32m+[m[32m        "56bd0c06f10352c3a1a9f4b4c92f6fa2b26df124b57878353c1fc691c51abea77c8817daeeb9fa546b77c8daf79d89b22b0e1b87574ece42371f00237aa9d83a",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "7e0e78eb6990b059e6cf0ded66ea93ef82e72aa2f18ac24f2fc6ebab561ae557420729da103f64cecfa20527e15f9fb669a49bbbf274ef0389b3e43c8c44e5f60bf2ac38e2b55e7ec4273dba15ba41d21f8f5b3ee1688b3c29951218caf847a97fb50d75a86515d445699497d968164bf740012679b8962de573be941c62b7ef",[m
+[32m+[m[32m        1,[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        true,[m
+[32m+[m[32m        "cf2e25f23501399f30738d7eee652b90",[m
+[32m+[m[32m        "225a477a28a54ea7671d2b217a9c29db",[m
+[32m+[m[32m        "7ec02fea8c1484e3d0875f978c5f36d63545e2e4acf56311394422f4b66af612",[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        "729847a3e9eba7a5bff454b5de3b393431ee360736b6c030d7a5bd01d1203d2e98f528543fd2bf886ccaa1ada5e215a730a36b3f4abfc4e252c89eb01d9512f94916dae8a76bf16e4da28986ffe159090fe5267ee3394300b7ccf4dfad389a26321b3a3423e4594a82ccfbad16d6561ecb8772b0cb040280ff999a29e3d9d4fd");[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        448,[m
+[32m+[m[32m        "a6ec25127ca1aa4cf16b20084ba1e6516baae4d32422288e9b36d8bddd2de35a",[m
+[32m+[m[32m        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff053d7ecca53e33e185a8b9be4e7699a97c6ff4c795522e5918ab7cd6b6884f67e683f3dc",[m
+[32m+[m[32m        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffa7730be30000000000000000000000000000000000000000000000000000000000000000",[m
+[32m+[m[32m        true,[m
+[32m+[m[32m        "00cf68f8f7ac49ffaa02c4864fdf6dfe7bbf2c740b88d98c50ebafe32c92f3427f57601ffcb21a3435979287db8fee6c302926741f9d5e464c647eeb9b7acaeda46e00abd7506fc9a719847e9a7328215801e96198dac141a15c7c2f68e0690dd1176292a0dded04d1f548aad88f1aebdc0a8f87da4bb22df32dd7c160c225b843e83f6525d6d484f502f16d923124fc538794e21da2eb689d18d87406ecced5b9f92137239ed1d37bcfa7836641a83cf5e0a1cf63f51b06f158e499a459ede41c",[m
+[32m+[m[32m        1,[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "fead69be77825a23daec377c362aa560",[m
+[32m+[m[32m        "511d4980526c5e64aa7187462faeafdd",[m
+[32m+[m[32m        "acb8f084ea763ddd1b92ac4ed23bf44de20b84ab677d4e4e6666a6090d40353d",[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        "77b4656934a82de1a593d8481f020194ddafd8cac441f9d72aeb8721e6a14f49698ca6d9b2b6d59d07a01aa552fd4d5b68d0d1617574c77dea10bfadbaa31b83885b7ceac2fd45e3e4a331c51a74e7b1698d81b64c87c73c5b9258b4d83297f9debc2e9aa07f8572ff434dc792b83ecf07b3197de8dc9cf7be56acb59c66cff5");[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        673,[m
+[32m+[m[32m        "0af952659ed76f80f585966b95ab6e6fd68654672827878684c8b547b1b94f5a",[m
+[32m+[m[32m        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffc81017fd92fd31637c26c906b42092e11cc0d3afae8d9019d2578af22735ce7bc469c72d",[m
+[32m+[m[32m        "9652d78baefc028cd37a6a92625b8b8f85fde1e4c944ad3f20e198bef8c02f19fffffffffffffffffffffffffffffffffffffffffffffffffffffffff2e91870",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "5c6272ee55da855bbbf7b1246d9885aa7aa601a715ab86fa46c50da533badf82b97597c968293ae04e",[m
+[32m+[m[32m        97561,[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        false,[m
+[32m+[m[32m        "5e2375ac629b8df1e4ff3617c6255a70",[m
+[32m+[m[32m        "70bcbffcb62e4d29d2605d30bceef137",[m
+[32m+[m[32m        "7332e92a3f9d2792c4d444fac5ed888c39a073043a65eefb626318fd649328f8",[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        "657a4a19711ce593c3844cb391b224f60124aba7e04266233bc50cafb971e26c7716b76e98376448f7d214dd11e629ef9a974d60e3770a695810a61c4ba66d78b936ee7892b98f0b48ddae9fcd8b599dca1c9b43e9b95e0226cf8d4459b8a7c2c4e6db80f1d58c7b20dd7208fa5c1057fb78734223ee801dbd851db601fee61e");[m
+[32m+[m[32m    TestBIP324PacketVector([m
+[32m+[m[32m        1024,[m
+[32m+[m[32m        "f90e080c64b05824c5a24b2501d5aeaf08af3872ee860aa80bdcd430f7b63494",[m
+[32m+[m[32m        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff115173765dc202cf029ad3f15479735d57697af12b0131dd21430d5772e4ef11474d58b9",[m
+[32m+[m[32m        "12a50f3fafea7c1eeada4cf8d33777704b77361453afc83bda91eef349ae044d20126c6200547ea5a6911776c05dee2a7f1a9ba7dfbabbbd273c3ef29ef46e46",[m
+[32m+[m[32m        true,[m
+[32m+[m[32m        "5f67d15d22ca9b2804eeab0a66f7f8e3a10fa5de5809a046084348cbc5304e843ef96f59a59c7d7fdfe5946489f3ea297d941bac326225df316a25fc90f0e65b0d31a9c497e960fdbf8c482516bc8a9c1c77b7f6d0e1143810c737f76f9224e6f2c9af5186b4f7259c7e8d165b6e4fe3d38a60bdbdd4d06ecdcaaf62086070dbb68686b802d53dfd7db14b18743832605f5461ad81e2af4b7e8ff0eff0867a25b93cec7becf15c43131895fed09a83bf1ee4a87d44dd0f02a837bf5a1232e201cb882734eb9643dc2dc4d4e8b5690840766212c7ac8f38ad8a9ec47c7a9b3e022ae3eb6a32522128b518bd0d0085dd81c5",[m
+[32m+[m[32m        69615,[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        true,[m
+[32m+[m[32m        "b709dea25e0be287c50e3603482c2e98",[m
+[32m+[m[32m        "1f677e9d7392ebe3633fd82c9efb0f16",[m
+[32m+[m[32m        "889f339285564fd868401fac8380bb9887925122ec8f31c8ae51ce067def103b",[m
+[32m+[m[32m        "",[m
+[32m+[m[32m        "7c4b9e1e6c1ce69da7b01513cdc4588fd93b04dafefaf87f31561763d906c672bac3dfceb751ebd126728ac017d4d580e931b8e5c7d5dfe0123be4dc9b2d2238b655c8a7fadaf8082c31e310909b5b731efc12f0a56e849eae6bfeedcc86dd27ef9b91d159256aa8e8d2b71a311f73350863d70f18d0d7302cf551e4303c7733");[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mBOOST_AUTO_TEST_SUITE_END()[m
+[33mdiff --git a/src/test/crypto_tests.cpp b/src/test/crypto_tests.cpp[m
+[33mindex 8332f54591..58a459151a 100644[m
+[33m--- a/src/test/crypto_tests.cpp[m
+[33m+++ b/src/test/crypto_tests.cpp[m
+[36m@@ -4,7 +4,7 @@[m
+ [m
+ #include <crypto/aes.h>[m
+ #include <crypto/chacha20.h>[m
+[31m-#include <crypto/chacha_poly_aead.h>[m
+[32m+[m[32m#include <crypto/chacha20poly1305.h>[m
+ #include <crypto/hkdf_sha256_32.h>[m
+ #include <crypto/hmac_sha256.h>[m
+ #include <crypto/hmac_sha512.h>[m
+[36m@@ -182,6 +182,46 @@[m [mstatic void TestChaCha20(const std::string &hex_message, const std::string &hexk[m
+     }[m
+ }[m
+ [m
+[32m+[m[32mstatic void TestFSChaCha20(const std::string& hex_plaintext, const std::string& hexkey, uint32_t rekey_interval, const std::string& ciphertext_after_rotation)[m
+[32m+[m[32m{[m
+[32m+[m[32m    auto key = ParseHex<std::byte>(hexkey);[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(FSChaCha20::KEYLEN, key.size());[m
+[32m+[m
+[32m+[m[32m    auto plaintext = ParseHex<std::byte>(hex_plaintext);[m
+[32m+[m
+[32m+[m[32m    auto fsc20 = FSChaCha20{key, rekey_interval};[m
+[32m+[m[32m    auto c20 = ChaCha20{UCharCast(key.data())};[m
+[32m+[m
+[32m+[m[32m    std::vector<std::byte> fsc20_output;[m
+[32m+[m[32m    fsc20_output.resize(plaintext.size());[m
+[32m+[m
+[32m+[m[32m    std::vector<std::byte> c20_output;[m
+[32m+[m[32m    c20_output.resize(plaintext.size());[m
+[32m+[m
+[32m+[m[32m    for (size_t i = 0; i < rekey_interval; i++) {[m
+[32m+[m[32m        fsc20.Crypt(plaintext, fsc20_output);[m
+[32m+[m[32m        c20.Crypt(UCharCast(plaintext.data()), UCharCast(c20_output.data()), plaintext.size());[m
+[32m+[m[32m        BOOST_CHECK(c20_output == fsc20_output);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // At the rotation interval, the outputs will no longer match[m
+[32m+[m[32m    fsc20.Crypt(plaintext, fsc20_output);[m
+[32m+[m[32m    auto c20_copy = c20;[m
+[32m+[m[32m    c20.Crypt(UCharCast(plaintext.data()), UCharCast(c20_output.data()), plaintext.size());[m
+[32m+[m[32m    BOOST_CHECK(c20_output != fsc20_output);[m
+[32m+[m
+[32m+[m[32m    std::byte new_key[FSChaCha20::KEYLEN];[m
+[32m+[m[32m    c20_copy.Keystream(UCharCast(new_key), sizeof(new_key));[m
+[32m+[m[32m    c20.SetKey32(UCharCast(new_key));[m
+[32m+[m[32m    c20.Seek64({0, 1}, 0);[m
+[32m+[m
+[32m+[m[32m    // Outputs should match again after simulating key rotation[m
+[32m+[m[32m    c20.Crypt(UCharCast(plaintext.data()), UCharCast(c20_output.data()), plaintext.size());[m
+[32m+[m[32m    BOOST_CHECK(c20_output == fsc20_output);[m
+[32m+[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(HexStr(fsc20_output), ciphertext_after_rotation);[m
+[32m+[m[32m}[m
+[32m+[m
+ static void TestPoly1305(const std::string &hexmessage, const std::string &hexkey, const std::string& hextag)[m
+ {[m
+     auto key = ParseHex<std::byte>(hexkey);[m
+[36m@@ -208,6 +248,94 @@[m [mstatic void TestPoly1305(const std::string &hexmessage, const std::string &hexke[m
+     }[m
+ }[m
+ [m
+[32m+[m[32mstatic void TestChaCha20Poly1305(const std::string& plain_hex, const std::string& aad_hex, const std::string& key_hex, ChaCha20::Nonce96 nonce, const std::string& cipher_hex)[m
+[32m+[m[32m{[m
+[32m+[m[32m    auto plain = ParseHex<std::byte>(plain_hex);[m
+[32m+[m[32m    auto aad = ParseHex<std::byte>(aad_hex);[m
+[32m+[m[32m    auto key = ParseHex<std::byte>(key_hex);[m
+[32m+[m[32m    auto expected_cipher = ParseHex<std::byte>(cipher_hex);[m
+[32m+[m
+[32m+[m[32m    for (int i = 0; i < 10; ++i) {[m
+[32m+[m[32m        // During i=0, use single-plain Encrypt/Decrypt; others use a split at prefix.[m
+[32m+[m[32m        size_t prefix = i ? InsecureRandRange(plain.size() + 1) : plain.size();[m
+[32m+[m[32m        // Encrypt.[m
+[32m+[m[32m        std::vector<std::byte> cipher(plain.size() + AEADChaCha20Poly1305::EXPANSION);[m
+[32m+[m[32m        AEADChaCha20Poly1305 aead{key};[m
+[32m+[m[32m        if (i == 0) {[m
+[32m+[m[32m            aead.Encrypt(plain, aad, nonce, cipher);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            aead.Encrypt(Span{plain}.first(prefix), Span{plain}.subspan(prefix), aad, nonce, cipher);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        BOOST_CHECK(cipher == expected_cipher);[m
+[32m+[m
+[32m+[m[32m        // Decrypt.[m
+[32m+[m[32m        std::vector<std::byte> decipher(cipher.size() - AEADChaCha20Poly1305::EXPANSION);[m
+[32m+[m[32m        bool ret{false};[m
+[32m+[m[32m        if (i == 0) {[m
+[32m+[m[32m            ret = aead.Decrypt(cipher, aad, nonce, decipher);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            ret = aead.Decrypt(cipher, aad, nonce, Span{decipher}.first(prefix), Span{decipher}.subspan(prefix));[m
+[32m+[m[32m        }[m
+[32m+[m[32m        BOOST_CHECK(ret);[m
+[32m+[m[32m        BOOST_CHECK(decipher == plain);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Test Keystream output.[m
+[32m+[m[32m    std::vector<std::byte> keystream(plain.size());[m
+[32m+[m[32m    AEADChaCha20Poly1305 aead{key};[m
+[32m+[m[32m    aead.Keystream(nonce, keystream);[m
+[32m+[m[32m    for (size_t i = 0; i < plain.size(); ++i) {[m
+[32m+[m[32m        BOOST_CHECK((plain[i] ^ keystream[i]) == expected_cipher[i]);[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mstatic void TestFSChaCha20Poly1305(const std::string& plain_hex, const std::string& aad_hex, const std::string& key_hex, uint64_t msg_idx, const std::string& cipher_hex)[m
+[32m+[m[32m{[m
+[32m+[m[32m    auto plain = ParseHex<std::byte>(plain_hex);[m
+[32m+[m[32m    auto aad = ParseHex<std::byte>(aad_hex);[m
+[32m+[m[32m    auto key = ParseHex<std::byte>(key_hex);[m
+[32m+[m[32m    auto expected_cipher = ParseHex<std::byte>(cipher_hex);[m
+[32m+[m[32m    std::vector<std::byte> cipher(plain.size() + FSChaCha20Poly1305::EXPANSION);[m
+[32m+[m
+[32m+[m[32m    for (int it = 0; it < 10; ++it) {[m
+[32m+[m[32m        // During it==0 we use the single-plain Encrypt/Decrypt; others use a split at prefix.[m
+[32m+[m[32m        size_t prefix = it ? InsecureRandRange(plain.size() + 1) : plain.size();[m
+[32m+[m
+[32m+[m[32m        // Do msg_idx dummy encryptions to seek to the correct packet.[m
+[32m+[m[32m        FSChaCha20Poly1305 enc_aead{key, 224};[m
+[32m+[m[32m        for (uint64_t i = 0; i < msg_idx; ++i) {[m
+[32m+[m[32m            std::byte dummy_tag[FSChaCha20Poly1305::EXPANSION] = {{}};[m
+[32m+[m[32m            enc_aead.Encrypt(Span{dummy_tag}.first(0), Span{dummy_tag}.first(0), dummy_tag);[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Invoke single-plain or plain1/plain2 Encrypt.[m
+[32m+[m[32m        if (it == 0) {[m
+[32m+[m[32m            enc_aead.Encrypt(plain, aad, cipher);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            enc_aead.Encrypt(Span{plain}.first(prefix), Span{plain}.subspan(prefix), aad, cipher);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        BOOST_CHECK(cipher == expected_cipher);[m
+[32m+[m
+[32m+[m[32m        // Do msg_idx dummy decryptions to seek to the correct packet.[m
+[32m+[m[32m        FSChaCha20Poly1305 dec_aead{key, 224};[m
+[32m+[m[32m        for (uint64_t i = 0; i < msg_idx; ++i) {[m
+[32m+[m[32m            std::byte dummy_tag[FSChaCha20Poly1305::EXPANSION] = {{}};[m
+[32m+[m[32m            dec_aead.Decrypt(dummy_tag, Span{dummy_tag}.first(0), Span{dummy_tag}.first(0));[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Invoke single-plain or plain1/plain2 Decrypt.[m
+[32m+[m[32m        std::vector<std::byte> decipher(cipher.size() - AEADChaCha20Poly1305::EXPANSION);[m
+[32m+[m[32m        bool ret{false};[m
+[32m+[m[32m        if (it == 0) {[m
+[32m+[m[32m            ret = dec_aead.Decrypt(cipher, aad, decipher);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            ret = dec_aead.Decrypt(cipher, aad, Span{decipher}.first(prefix), Span{decipher}.subspan(prefix));[m
+[32m+[m[32m        }[m
+[32m+[m[32m        BOOST_CHECK(ret);[m
+[32m+[m[32m        BOOST_CHECK(decipher == plain);[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+ static void TestHKDF_SHA256_32(const std::string &ikm_hex, const std::string &salt_hex, const std::string &info_hex, const std::string &okm_check_hex) {[m
+     std::vector<unsigned char> initial_key_material = ParseHex(ikm_hex);[m
+     std::vector<unsigned char> salt = ParseHex(salt_hex);[m
+[36m@@ -678,6 +806,20 @@[m [mBOOST_AUTO_TEST_CASE(chacha20_testvector)[m
+                  "fd565dea5addbdb914208fde7950f23e0385f9a727143f6a6ac51d84b1c0fb3e"[m
+                  "2e3b00b63d6841a1cc6d1538b1d3a74bef1eb2f54c7b7281e36e484dba89b351"[m
+                  "c8f572617e61e342879f211b0e4c515df50ea9d0771518fad96cd0baee62deb6");[m
+[32m+[m
+[32m+[m[32m    // Forward secure ChaCha20[m
+[32m+[m[32m    TestFSChaCha20("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",[m
+[32m+[m[32m                   "0000000000000000000000000000000000000000000000000000000000000000",[m
+[32m+[m[32m                   256,[m
+[32m+[m[32m                   "a93df4ef03011f3db95f60d996e1785df5de38fc39bfcb663a47bb5561928349");[m
+[32m+[m[32m    TestFSChaCha20("01",[m
+[32m+[m[32m                   "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",[m
+[32m+[m[32m                   5,[m
+[32m+[m[32m                   "ea");[m
+[32m+[m[32m    TestFSChaCha20("e93fdb5c762804b9a706816aca31e35b11d2aa3080108ef46a5b1f1508819c0a",[m
+[32m+[m[32m                   "8ec4c3ccdaea336bdeb245636970be01266509b33f3d2642504eaf412206207a",[m
+[32m+[m[32m                   4096,[m
+[32m+[m[32m                   "8bfaa4eacff308fdb4a94a5ff25bd9d0c1f84b77f81239f67ff39d6e1ac280c9");[m
+ }[m
+ [m
+ BOOST_AUTO_TEST_CASE(chacha20_midblock)[m
+[36m@@ -686,7 +828,7 @@[m [mBOOST_AUTO_TEST_CASE(chacha20_midblock)[m
+     ChaCha20 c20{key.data()};[m
+     // get one block of keystream[m
+     unsigned char block[64];[m
+[31m-    c20.Keystream(block, CHACHA20_ROUND_OUTPUT);[m
+[32m+[m[32m    c20.Keystream(block, sizeof(block));[m
+     unsigned char b1[5], b2[7], b3[52];[m
+     c20 = ChaCha20{key.data()};[m
+     c20.Keystream(b1, 5);[m
+[36m@@ -819,6 +961,84 @@[m [mBOOST_AUTO_TEST_CASE(poly1305_testvector)[m
+                  "0e410fa9d7a40ac582e77546be9a72bb");[m
+ }[m
+ [m
+[32m+[m[32mBOOST_AUTO_TEST_CASE(chacha20poly1305_testvectors)[m
+[32m+[m[32m{[m
+[32m+[m[32m    // RFC 8439 Example from section 2.8.2[m
+[32m+[m[32m    TestChaCha20Poly1305("4c616469657320616e642047656e746c656d656e206f662074686520636c6173"[m
+[32m+[m[32m                         "73206f66202739393a204966204920636f756c64206f6666657220796f75206f"[m
+[32m+[m[32m                         "6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73"[m
+[32m+[m[32m                         "637265656e20776f756c642062652069742e",[m
+[32m+[m[32m                         "50515253c0c1c2c3c4c5c6c7",[m
+[32m+[m[32m                         "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",[m
+[32m+[m[32m                         {7, 0x4746454443424140},[m
+[32m+[m[32m                         "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"[m
+[32m+[m[32m                         "3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36"[m
+[32m+[m[32m                         "92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc"[m
+[32m+[m[32m                         "3ff4def08e4b7a9de576d26586cec64b61161ae10b594f09e26a7e902ecbd060"[m
+[32m+[m[32m                         "0691");[m
+[32m+[m
+[32m+[m[32m    // RFC 8439 Test vector A.5[m
+[32m+[m[32m    TestChaCha20Poly1305("496e7465726e65742d4472616674732061726520647261667420646f63756d65"[m
+[32m+[m[32m                         "6e74732076616c696420666f722061206d6178696d756d206f6620736978206d"[m
+[32m+[m[32m                         "6f6e74687320616e64206d617920626520757064617465642c207265706c6163"[m
+[32m+[m[32m                         "65642c206f72206f62736f6c65746564206279206f7468657220646f63756d65"[m
+[32m+[m[32m                         "6e747320617420616e792074696d652e20497420697320696e617070726f7072"[m
+[32m+[m[32m                         "6961746520746f2075736520496e7465726e65742d4472616674732061732072"[m
+[32m+[m[32m                         "65666572656e6365206d6174657269616c206f7220746f206369746520746865"[m
+[32m+[m[32m                         "6d206f74686572207468616e206173202fe2809c776f726b20696e2070726f67"[m
+[32m+[m[32m                         "726573732e2fe2809d",[m
+[32m+[m[32m                         "f33388860000000000004e91",[m
+[32m+[m[32m                         "1c9240a5eb55d38af333888604f6b5f0473917c1402b80099dca5cbc207075c0",[m
+[32m+[m[32m                         {0, 0x0807060504030201},[m
+[32m+[m[32m                         "64a0861575861af460f062c79be643bd5e805cfd345cf389f108670ac76c8cb2"[m
+[32m+[m[32m                         "4c6cfc18755d43eea09ee94e382d26b0bdb7b73c321b0100d4f03b7f355894cf"[m
+[32m+[m[32m                         "332f830e710b97ce98c8a84abd0b948114ad176e008d33bd60f982b1ff37c855"[m
+[32m+[m[32m                         "9797a06ef4f0ef61c186324e2b3506383606907b6a7c02b0f9f6157b53c867e4"[m
+[32m+[m[32m                         "b9166c767b804d46a59b5216cde7a4e99040c5a40433225ee282a1b0a06c523e"[m
+[32m+[m[32m                         "af4534d7f83fa1155b0047718cbc546a0d072b04b3564eea1b422273f548271a"[m
+[32m+[m[32m                         "0bb2316053fa76991955ebd63159434ecebb4e466dae5a1073a6727627097a10"[m
+[32m+[m[32m                         "49e617d91d361094fa68f0ff77987130305beaba2eda04df997b714d6c6f2c29"[m
+[32m+[m[32m                         "a6ad5cb4022b02709beead9d67890cbb22392336fea1851f38");[m
+[32m+[m
+[32m+[m[32m    // Test vectors exercising aad and plaintext which are multiples of 16 bytes.[m
+[32m+[m[32m    TestChaCha20Poly1305("8d2d6a8befd9716fab35819eaac83b33269afb9f1a00fddf66095a6c0cd91951"[m
+[32m+[m[32m                         "a6b7ad3db580be0674c3f0b55f618e34",[m
+[32m+[m[32m                         "",[m
+[32m+[m[32m                         "72ddc73f07101282bbbcf853b9012a9f9695fc5d36b303a97fd0845d0314e0c3",[m
+[32m+[m[32m                         {0x3432b75f, 0xb3585537eb7f4024},[m
+[32m+[m[32m                         "f760b8224fb2a317b1b07875092606131232a5b86ae142df5df1c846a7f6341a"[m
+[32m+[m[32m                         "f2564483dd77f836be45e6230808ffe402a6f0a3e8be074b3d1f4ea8a7b09451");[m
+[32m+[m[32m    TestChaCha20Poly1305("",[m
+[32m+[m[32m                         "36970d8a704c065de16250c18033de5a400520ac1b5842b24551e5823a3314f3"[m
+[32m+[m[32m                         "946285171e04a81ebfbe3566e312e74ab80e94c7dd2ff4e10de0098a58d0f503",[m
+[32m+[m[32m                         "77adda51d6730b9ad6c995658cbd49f581b2547e7c0c08fcc24ceec797461021",[m
+[32m+[m[32m                         {0x1f90da88, 0x75dafa3ef84471a4},[m
+[32m+[m[32m                         "aaae5bb81e8407c94b2ae86ae0c7efbe");[m
+[32m+[m
+[32m+[m[32m    // FSChaCha20Poly1305 tests.[m
+[32m+[m[32m    TestFSChaCha20Poly1305("d6a4cb04ef0f7c09c1866ed29dc24d820e75b0491032a51b4c3366f9ca35c19e"[m
+[32m+[m[32m                           "a3047ec6be9d45f9637b63e1cf9eb4c2523a5aab7b851ebeba87199db0e839cf"[m
+[32m+[m[32m                           "0d5c25e50168306377aedbe9089fd2463ded88b83211cf51b73b150608cc7a60"[m
+[32m+[m[32m                           "0d0f11b9a742948482e1b109d8faf15b450aa7322e892fa2208c6691e3fecf4c"[m
+[32m+[m[32m                           "711191b14d75a72147",[m
+[32m+[m[32m                           "786cb9b6ebf44288974cf0",[m
+[32m+[m[32m                           "5c9e1c3951a74fba66708bf9d2c217571684556b6a6a3573bff2847d38612654",[m
+[32m+[m[32m                           500,[m
+[32m+[m[32m                           "9dcebbd3281ea3dd8e9a1ef7d55a97abd6743e56ebc0c190cb2c4e14160b385e"[m
+[32m+[m[32m                           "0bf508dddf754bd02c7c208447c131ce23e47a4a14dfaf5dd8bc601323950f75"[m
+[32m+[m[32m                           "4e05d46e9232f83fc5120fbbef6f5347a826ec79a93820718d4ec7a2b7cfaaa4"[m
+[32m+[m[32m                           "4b21e16d726448b62f803811aff4f6d827ed78e738ce8a507b81a8ae13131192"[m
+[32m+[m[32m                           "8039213de18a5120dc9b7370baca878f50ff254418de3da50c");[m
+[32m+[m[32m    TestFSChaCha20Poly1305("8349b7a2690b63d01204800c288ff1138a1d473c832c90ea8b3fc102d0bb3adc"[m
+[32m+[m[32m                           "44261b247c7c3d6760bfbe979d061c305f46d94c0582ac3099f0bf249f8cb234",[m
+[32m+[m[32m                           "",[m
+[32m+[m[32m                           "3bd2093fcbcb0d034d8c569583c5425c1a53171ea299f8cc3bbf9ae3530adfce",[m
+[32m+[m[32m                           60000,[m
+[32m+[m[32m                           "30a6757ff8439b975363f166a0fa0e36722ab35936abd704297948f45083f4d4"[m
+[32m+[m[32m                           "99433137ce931f7fca28a0acd3bc30f57b550acbc21cbd45bbef0739d9caf30c"[m
+[32m+[m[32m                           "14b94829deb27f0b1923a2af704ae5d6");[m
+[32m+[m[32m}[m
+[32m+[m
+ BOOST_AUTO_TEST_CASE(hkdf_hmac_sha256_l32_tests)[m
+ {[m
+     // Use rfc5869 test vectors but truncated to 32 bytes (our implementation only support length 32)[m
+[36m@@ -839,129 +1059,6 @@[m [mBOOST_AUTO_TEST_CASE(hkdf_hmac_sha256_l32_tests)[m
+                 "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d");[m
+ }[m
+ [m
+[31m-static void TestChaCha20Poly1305AEAD(bool must_succeed, unsigned int expected_aad_length, const std::string& hex_m, const std::string& hex_k1, const std::string& hex_k2, const std::string& hex_aad_keystream, const std::string& hex_encrypted_message, const std::string& hex_encrypted_message_seq_999)[m
+[31m-{[m
+[31m-    // we need two sequence numbers, one for the payload cipher instance...[m
+[31m-    uint32_t seqnr_payload = 0;[m
+[31m-    // ... and one for the AAD (length) cipher instance[m
+[31m-    uint32_t seqnr_aad = 0;[m
+[31m-    // we need to keep track of the position in the AAD cipher instance[m
+[31m-    // keystream since we use the same 64byte output 21 times[m
+[31m-    // (21 times 3 bytes length < 64)[m
+[31m-    int aad_pos = 0;[m
+[31m-[m
+[31m-    std::vector<unsigned char> aead_K_1 = ParseHex(hex_k1);[m
+[31m-    std::vector<unsigned char> aead_K_2 = ParseHex(hex_k2);[m
+[31m-    std::vector<unsigned char> plaintext_buf = ParseHex(hex_m);[m
+[31m-    std::vector<unsigned char> expected_aad_keystream = ParseHex(hex_aad_keystream);[m
+[31m-    std::vector<unsigned char> expected_ciphertext_and_mac = ParseHex(hex_encrypted_message);[m
+[31m-    std::vector<unsigned char> expected_ciphertext_and_mac_sequence999 = ParseHex(hex_encrypted_message_seq_999);[m
+[31m-[m
+[31m-    std::vector<unsigned char> ciphertext_buf(plaintext_buf.size() + Poly1305::TAGLEN, 0);[m
+[31m-    std::vector<unsigned char> plaintext_buf_new(plaintext_buf.size(), 0);[m
+[31m-    std::vector<unsigned char> cmp_ctx_buffer(64);[m
+[31m-    uint32_t out_len = 0;[m
+[31m-[m
+[31m-    // create the AEAD instance[m
+[31m-    ChaCha20Poly1305AEAD aead(aead_K_1.data(), aead_K_1.size(), aead_K_2.data(), aead_K_2.size());[m
+[31m-[m
+[31m-    // create a chacha20 instance to compare against[m
+[31m-    ChaCha20 cmp_ctx(aead_K_1.data());[m
+[31m-[m
+[31m-    // encipher[m
+[31m-    bool res = aead.Crypt(seqnr_payload, seqnr_aad, aad_pos, ciphertext_buf.data(), ciphertext_buf.size(), plaintext_buf.data(), plaintext_buf.size(), true);[m
+[31m-    // make sure the operation succeeded if expected to succeed[m
+[31m-    BOOST_CHECK_EQUAL(res, must_succeed);[m
+[31m-    if (!res) return;[m
+[31m-[m
+[31m-    // verify ciphertext & mac against the test vector[m
+[31m-    BOOST_CHECK_EQUAL(expected_ciphertext_and_mac.size(), ciphertext_buf.size());[m
+[31m-    BOOST_CHECK(memcmp(ciphertext_buf.data(), expected_ciphertext_and_mac.data(), ciphertext_buf.size()) == 0);[m
+[31m-[m
+[31m-    // manually construct the AAD keystream[m
+[31m-    cmp_ctx.Seek64({0, seqnr_aad}, 0);[m
+[31m-    cmp_ctx.Keystream(cmp_ctx_buffer.data(), 64);[m
+[31m-    BOOST_CHECK(memcmp(expected_aad_keystream.data(), cmp_ctx_buffer.data(), expected_aad_keystream.size()) == 0);[m
+[31m-    // crypt the 3 length bytes and compare the length[m
+[31m-    uint32_t len_cmp = 0;[m
+[31m-    len_cmp = (ciphertext_buf[0] ^ cmp_ctx_buffer[aad_pos + 0]) |[m
+[31m-              (ciphertext_buf[1] ^ cmp_ctx_buffer[aad_pos + 1]) << 8 |[m
+[31m-              (ciphertext_buf[2] ^ cmp_ctx_buffer[aad_pos + 2]) << 16;[m
+[31m-    BOOST_CHECK_EQUAL(len_cmp, expected_aad_length);[m
+[31m-[m
+[31m-    // encrypt / decrypt 1000 packets[m
+[31m-    for (size_t i = 0; i < 1000; ++i) {[m
+[31m-        res = aead.Crypt(seqnr_payload, seqnr_aad, aad_pos, ciphertext_buf.data(), ciphertext_buf.size(), plaintext_buf.data(), plaintext_buf.size(), true);[m
+[31m-        BOOST_CHECK(res);[m
+[31m-        BOOST_CHECK(aead.GetLength(&out_len, seqnr_aad, aad_pos, ciphertext_buf.data()));[m
+[31m-        BOOST_CHECK_EQUAL(out_len, expected_aad_length);[m
+[31m-        res = aead.Crypt(seqnr_payload, seqnr_aad, aad_pos, plaintext_buf_new.data(), plaintext_buf_new.size(), ciphertext_buf.data(), ciphertext_buf.size(), false);[m
+[31m-        BOOST_CHECK(res);[m
+[31m-[m
+[31m-        // make sure we repetitive get the same plaintext[m
+[31m-        BOOST_CHECK(memcmp(plaintext_buf.data(), plaintext_buf_new.data(), plaintext_buf.size()) == 0);[m
+[31m-[m
+[31m-        // compare sequence number 999 against the test vector[m
+[31m-        if (seqnr_payload == 999) {[m
+[31m-            BOOST_CHECK(memcmp(ciphertext_buf.data(), expected_ciphertext_and_mac_sequence999.data(), expected_ciphertext_and_mac_sequence999.size()) == 0);[m
+[31m-        }[m
+[31m-        // set nonce and block counter, output the keystream[m
+[31m-        cmp_ctx.Seek64({0, seqnr_aad}, 0);[m
+[31m-        cmp_ctx.Keystream(cmp_ctx_buffer.data(), 64);[m
+[31m-[m
+[31m-        // crypt the 3 length bytes and compare the length[m
+[31m-        len_cmp = 0;[m
+[31m-        len_cmp = (ciphertext_buf[0] ^ cmp_ctx_buffer[aad_pos + 0]) |[m
+[31m-                  (ciphertext_buf[1] ^ cmp_ctx_buffer[aad_pos + 1]) << 8 |[m
+[31m-                  (ciphertext_buf[2] ^ cmp_ctx_buffer[aad_pos + 2]) << 16;[m
+[31m-        BOOST_CHECK_EQUAL(len_cmp, expected_aad_length);[m
+[31m-[m
+[31m-        // increment the sequence number(s)[m
+[31m-        // always increment the payload sequence number[m
+[31m-        // increment the AAD keystream position by its size (3)[m
+[31m-        // increment the AAD sequence number if we would hit the 64 byte limit[m
+[31m-        seqnr_payload++;[m
+[31m-        aad_pos += CHACHA20_POLY1305_AEAD_AAD_LEN;[m
+[31m-        if (aad_pos + CHACHA20_POLY1305_AEAD_AAD_LEN > CHACHA20_ROUND_OUTPUT) {[m
+[31m-            aad_pos = 0;[m
+[31m-            seqnr_aad++;[m
+[31m-        }[m
+[31m-    }[m
+[31m-}[m
+[31m-[m
+[31m-BOOST_AUTO_TEST_CASE(chacha20_poly1305_aead_testvector)[m
+[31m-{[m
+[31m-    /* test chacha20poly1305@bitcoin AEAD */[m
+[31m-[m
+[31m-    // must fail with no message[m
+[31m-    TestChaCha20Poly1305AEAD(false, 0,[m
+[31m-        "",[m
+[31m-        "0000000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        "0000000000000000000000000000000000000000000000000000000000000000", "", "", "");[m
+[31m-[m
+[31m-    TestChaCha20Poly1305AEAD(true, 0,[m
+[31m-        /* m  */ "0000000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        /* k1 (AAD) */ "0000000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        /* k2 (payload) */ "0000000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        /* AAD keystream */ "76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",[m
+[31m-        /* encrypted message & MAC */ "76b8e09f07e7be5551387a98ba977c732d080dcb0f29a048e3656912c6533e32d2fc11829c1b6c1df1f551cd6131ff08",[m
+[31m-        /* encrypted message & MAC at sequence 999 */ "b0a03d5bd2855d60699e7d3a3133fa47be740fe4e4c1f967555e2d9271f31c3aaa7aa16ec62c5e24f040c08bb20c3598");[m
+[31m-    TestChaCha20Poly1305AEAD(true, 1,[m
+[31m-        "0100000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        "0000000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        "0000000000000000000000000000000000000000000000000000000000000000",[m
+[31m-        "76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",[m
+[31m-        "77b8e09f07e7be5551387a98ba977c732d080dcb0f29a048e3656912c6533e32baf0c85b6dff8602b06cf52a6aefc62e",[m
+[31m-        "b1a03d5bd2855d60699e7d3a3133fa47be740fe4e4c1f967555e2d9271f31c3a8bd94d54b5ecabbc41ffbb0c90924080");[m
+[31m-    TestChaCha20Poly1305AEAD(true, 255,[m
+[31m-        "ff0000f195e66982105ffb640bb7757f579da31602fc93ec01ac56f85ac3c134a4547b733b46413042c9440049176905d3be59ea1c53f15916155c2be8241a38008b9a26bc35941e2444177c8ade6689de95264986d95889fb60e84629c9bd9a5acb1cc118be563eb9b3a4a472f82e09a7e778492b562ef7130e88dfe031c79db9d4f7c7a899151b9a475032b63fc385245fe054e3dd5a97a5f576fe064025d3ce042c566ab2c507b138db853e3d6959660996546cc9c4a6eafdc777c040d70eaf46f76dad3979e5c5360c3317166a1c894c94a371876a94df7628fe4eaaf2ccb27d5aaae0ad7ad0f9d4b6ad3b54098746d4524d38407a6deb3ab78fab78c9",[m
+[31m-        "ff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",[m
+[31m-        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",[m
+[31m-        "c640c1711e3ee904ac35c57ab9791c8a1c408603a90b77a83b54f6c844cb4b06d94e7fc6c800e165acd66147e80ec45a567f6ce66d05ec0cae679dceeb890017",[m
+[31m-        "3940c1e92da4582ff6f92a776aeb14d014d384eeb30f660dacf70a14a23fd31e91212701334e2ce1acf5199dc84f4d61ddbe6571bca5af874b4c9226c26e650995d157644e1848b96ed6c2102d5489a050e71d29a5a66ece11de5fb5c9558d54da28fe45b0bc4db4e5b88030bfc4a352b4b7068eccf656bae7ad6a35615315fc7c49d4200388d5eca67c2e822e069336c69b40db67e0f3c81209c50f3216a4b89fb3ae1b984b7851a2ec6f68ab12b101ab120e1ea7313bb93b5a0f71185c7fea017ddb92769861c29dba4fbc432280d5dff21b36d1c4c790128b22699950bb18bf74c448cdfe547d8ed4f657d8005fdc0cd7a050c2d46050a44c4376355858981fbe8b184288276e7a93eabc899c4a",[m
+[31m-        "f039c6689eaeef0456685200feaab9d54bbd9acde4410a3b6f4321296f4a8ca2604b49727d8892c57e005d799b2a38e85e809f20146e08eec75169691c8d4f54a0d51a1e1c7b381e0474eb02f994be9415ef3ffcbd2343f0601e1f3b172a1d494f838824e4df570f8e3b0c04e27966e36c82abd352d07054ef7bd36b84c63f9369afe7ed79b94f953873006b920c3fa251a771de1b63da927058ade119aa898b8c97e42a606b2f6df1e2d957c22f7593c1e2002f4252f4c9ae4bf773499e5cfcfe14dfc1ede26508953f88553bf4a76a802f6a0068d59295b01503fd9a600067624203e880fdf53933b96e1f4d9eb3f4e363dd8165a278ff667a41ee42b9892b077cefff92b93441f7be74cf10e6cd");[m
+[31m-}[m
+[31m-[m
+ BOOST_AUTO_TEST_CASE(countbits_tests)[m
+ {[m
+     FastRandomContext ctx;[m
+[33mdiff --git a/src/test/fuzz/bip324.cpp b/src/test/fuzz/bip324.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..5df279b7df[m
+[33m--- /dev/null[m
+[33m+++ b/src/test/fuzz/bip324.cpp[m
+[36m@@ -0,0 +1,133 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[2m+[m[2m// Distributed under the MIT software license, see the accompanying[m
+[2m+[m[2m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m+[m
+[32m+[m[32m#include <bip324.h>[m
+[32m+[m[32m#include <chainparams.h>[m
+[32m+[m[32m#include <span.h>[m
+[2m+[m[2m#include <test/fuzz/FuzzedDataProvider.h>[m
+[2m+[m[2m#include <test/fuzz/fuzz.h>[m
+[2m+[m[2m#include <test/fuzz/util.h>[m
+[32m+[m[32m#include <test/util/xoroshiro128plusplus.h>[m
+[32m+[m
+[32m+[m[32m#include <cstdint>[m
+[32m+[m[32m#include <tuple>[m
+[32m+[m[32m#include <vector>[m
+[32m+[m
+[32m+[m[32mnamespace {[m
+[32m+[m
+[32m+[m[32mvoid Initialize()[m
+[32m+[m[32m{[m
+[32m+[m[32m    ECC_Start();[m
+[32m+[m[32m    SelectParams(ChainType::MAIN);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m}  // namespace[m
+[32m+[m
+[32m+[m[32mFUZZ_TARGET(bip324_cipher_roundtrip, .init=Initialize)[m
+[32m+[m[32m{[m
+[32m+[m[32m    // Test that BIP324Cipher's encryption and decryption agree.[m
+[32m+[m
+[32m+[m[32m    // Load keys from fuzzer.[m
+[32m+[m[32m    FuzzedDataProvider provider(buffer.data(), buffer.size());[m
+[32m+[m[32m    // Initiator key[m
+[32m+[m[32m    auto init_key_data = provider.ConsumeBytes<unsigned char>(32);[m
+[32m+[m[32m    init_key_data.resize(32);[m
+[32m+[m[32m    CKey init_key;[m
+[32m+[m[32m    init_key.Set(init_key_data.begin(), init_key_data.end(), true);[m
+[32m+[m[32m    if (!init_key.IsValid()) return;[m
+[32m+[m[32m    // Initiator entropy[m
+[32m+[m[32m    auto init_ent = provider.ConsumeBytes<std::byte>(32);[m
+[32m+[m[32m    init_ent.resize(32);[m
+[32m+[m[32m    // Responder key[m
+[32m+[m[32m    auto resp_key_data = provider.ConsumeBytes<unsigned char>(32);[m
+[32m+[m[32m    resp_key_data.resize(32);[m
+[32m+[m[32m    CKey resp_key;[m
+[32m+[m[32m    resp_key.Set(resp_key_data.begin(), resp_key_data.end(), true);[m
+[32m+[m[32m    if (!resp_key.IsValid()) return;[m
+[32m+[m[32m    // Responder entropy[m
+[32m+[m[32m    auto resp_ent = provider.ConsumeBytes<std::byte>(32);[m
+[32m+[m[32m    resp_ent.resize(32);[m
+[32m+[m
+[32m+[m[32m    // Initialize ciphers by exchanging public keys.[m
+[32m+[m[32m    BIP324Cipher initiator(init_key, init_ent);[m
+[32m+[m[32m    assert(!initiator);[m
+[32m+[m[32m    BIP324Cipher responder(resp_key, resp_ent);[m
+[32m+[m[32m    assert(!responder);[m
+[32m+[m[32m    initiator.Initialize(responder.GetOurPubKey(), true);[m
+[32m+[m[32m    assert(initiator);[m
+[32m+[m[32m    responder.Initialize(initiator.GetOurPubKey(), false);[m
+[32m+[m[32m    assert(responder);[m
+[32m+[m
+[32m+[m[32m    // Initialize RNG deterministically, to generate contents and AAD. We assume that there are no[m
+[32m+[m[32m    // (potentially buggy) edge cases triggered by specific values of contents/AAD, so we can avoid[m
+[32m+[m[32m    // reading the actual data for those from the fuzzer input (which would need large amounts of[m
+[32m+[m[32m    // data).[m
+[32m+[m[32m    XoRoShiRo128PlusPlus rng(provider.ConsumeIntegral<uint64_t>());[m
+[32m+[m
+[32m+[m[32m    // Compare session IDs and garbage terminators.[m
+[32m+[m[32m    assert(initiator.GetSessionID() == responder.GetSessionID());[m
+[32m+[m[32m    assert(initiator.GetSendGarbageTerminator() == responder.GetReceiveGarbageTerminator());[m
+[32m+[m[32m    assert(initiator.GetReceiveGarbageTerminator() == responder.GetSendGarbageTerminator());[m
+[32m+[m
+[32m+[m[32m    LIMITED_WHILE(provider.remaining_bytes(), 1000) {[m
+[32m+[m[32m        // Mode:[m
+[32m+[m[32m        // - Bit 0: whether the ignore bit is set in message[m
+[32m+[m[32m        // - Bit 1: whether the responder (0) or initiator (1) sends[m
+[32m+[m[32m        // - Bit 2: whether this ciphertext will be corrupted (making it the last sent one)[m
+[32m+[m[32m        // - Bit 3-4: controls the maximum aad length (max 511 bytes)[m
+[32m+[m[32m        // - Bit 5-7: controls the maximum content length (max 16383 bytes, for performance reasons)[m
+[32m+[m[32m        unsigned mode = provider.ConsumeIntegral<uint8_t>();[m
+[32m+[m[32m        bool ignore = mode & 1;[m
+[32m+[m[32m        bool from_init = mode & 2;[m
+[32m+[m[32m        bool damage = mode & 4;[m
+[32m+[m[32m        unsigned aad_length_bits = 3 * ((mode >> 3) & 3);[m
+[32m+[m[32m        unsigned aad_length = provider.ConsumeIntegralInRange<unsigned>(0, (1 << aad_length_bits) - 1);[m
+[32m+[m[32m        unsigned length_bits = 2 * ((mode >> 5) & 7);[m
+[32m+[m[32m        unsigned length = provider.ConsumeIntegralInRange<unsigned>(0, (1 << length_bits) - 1);[m
+[32m+[m[32m        // Generate aad and content.[m
+[32m+[m[32m        std::vector<std::byte> aad(aad_length);[m
+[32m+[m[32m        for (auto& val : aad) val = std::byte{(uint8_t)rng()};[m
+[32m+[m[32m        std::vector<std::byte> contents(length);[m
+[32m+[m[32m        for (auto& val : contents) val = std::byte{(uint8_t)rng()};[m
+[32m+[m
+[32m+[m[32m        // Encrypt[m
+[32m+[m[32m        std::vector<std::byte> ciphertext(length + initiator.EXPANSION);[m
+[32m+[m[32m        (from_init ? initiator : responder).Encrypt(contents, aad, ignore, ciphertext);[m
+[32m+[m
+[32m+[m[32m        // Optionally damage 1 bit in either the ciphertext (corresponding to a change in transit)[m
+[32m+[m[32m        // or the aad (to make sure that decryption will fail if the AAD mismatches).[m
+[32m+[m[32m        if (damage) {[m
+[32m+[m[32m            unsigned damage_bit = provider.ConsumeIntegralInRange<unsigned>(0,[m
+[32m+[m[32m                (ciphertext.size() + aad.size()) * 8U - 1U);[m
+[32m+[m[32m            unsigned damage_pos = damage_bit >> 3;[m
+[32m+[m[32m            std::byte damage_val{(uint8_t)(1U << (damage_bit & 3))};[m
+[32m+[m[32m            if (damage_pos >= ciphertext.size()) {[m
+[32m+[m[32m                aad[damage_pos - ciphertext.size()] ^= damage_val;[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                ciphertext[damage_pos] ^= damage_val;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Decrypt length[m
+[32m+[m[32m        uint32_t dec_length = (from_init ? responder : initiator).DecryptLength(Span{ciphertext}.first(initiator.LENGTH_LEN));[m
+[32m+[m[32m        if (!damage) {[m
+[32m+[m[32m            assert(dec_length == length);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            // For performance reasons, don't try to decode if length got increased too much.[m
+[32m+[m[32m            if (dec_length > 16384 + length) break;[m
+[32m+[m[32m            // Otherwise, just append zeros if dec_length > length.[m
+[32m+[m[32m            ciphertext.resize(dec_length + initiator.EXPANSION);[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Decrypt[m
+[32m+[m[32m        std::vector<std::byte> decrypt(dec_length);[m
+[32m+[m[32m        bool dec_ignore{false};[m
+[32m+[m[32m        bool ok = (from_init ? responder : initiator).Decrypt(Span{ciphertext}.subspan(initiator.LENGTH_LEN), aad, dec_ignore, decrypt);[m
+[32m+[m[32m        // Decryption *must* fail if the packet was damaged, and succeed if it wasn't.[m
+[32m+[m[32m        assert(!ok == damage);[m
+[32m+[m[32m        if (!ok) break;[m
+[32m+[m[32m        assert(ignore == dec_ignore);[m
+[32m+[m[32m        assert(decrypt == contents);[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/test/fuzz/crypto_chacha20.cpp b/src/test/fuzz/crypto_chacha20.cpp[m
+[33mindex 63c7bf3b45..a12ff9e0f1 100644[m
+[33m--- a/src/test/fuzz/crypto_chacha20.cpp[m
+[33m+++ b/src/test/fuzz/crypto_chacha20.cpp[m
+[36m@@ -8,6 +8,8 @@[m
+ #include <test/fuzz/util.h>[m
+ #include <test/util/xoroshiro128plusplus.h>[m
+ [m
+[32m+[m[32m#include <array>[m
+[32m+[m[32m#include <cstddef>[m
+ #include <cstdint>[m
+ #include <vector>[m
+ [m
+[36m@@ -151,3 +153,23 @@[m [mFUZZ_TARGET(chacha20_split_keystream)[m
+     FuzzedDataProvider provider{buffer.data(), buffer.size()};[m
+     ChaCha20SplitFuzz<false>(provider);[m
+ }[m
+[32m+[m
+[32m+[m[32mFUZZ_TARGET(crypto_fschacha20)[m
+[2m+[m[2m{[m
+[2m+[m[2m    FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};[m
+[2m+[m
+[32m+[m[32m    auto key = fuzzed_data_provider.ConsumeBytes<std::byte>(FSChaCha20::KEYLEN);[m
+[32m+[m[32m    key.resize(FSChaCha20::KEYLEN);[m
+[32m+[m[32m    auto salt = fuzzed_data_provider.ConsumeBytes<std::byte>(FSChaCha20::KEYLEN);[m
+[32m+[m[32m    salt.resize(FSChaCha20::KEYLEN);[m
+[32m+[m
+[32m+[m[32m    auto fsc20 = FSChaCha20{key, fuzzed_data_provider.ConsumeIntegralInRange<uint32_t>(1, 1024)};[m
+[32m+[m
+[32m+[m[32m    LIMITED_WHILE(fuzzed_data_provider.ConsumeBool(), 10000)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        auto input = fuzzed_data_provider.ConsumeBytes<std::byte>(fuzzed_data_provider.ConsumeIntegralInRange(0, 4096));[m
+[32m+[m[32m        std::vector<std::byte> output;[m
+[32m+[m[32m        output.resize(input.size());[m
+[32m+[m[32m        fsc20.Crypt(input, output);[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/test/fuzz/crypto_chacha20_poly1305_aead.cpp b/src/test/fuzz/crypto_chacha20_poly1305_aead.cpp[m
+[33mdeleted file mode 100644[m
+[33mindex 84ac65dd88..0000000000[m
+[33m--- a/src/test/fuzz/crypto_chacha20_poly1305_aead.cpp[m
+[33m+++ /dev/null[m
+[36m@@ -1,72 +0,0 @@[m
+[31m-// Copyright (c) 2020-2021 The Bitcoin Core developers[m
+[2m-// Distributed under the MIT software license, see the accompanying[m
+[2m-// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[2m-[m
+[31m-#include <crypto/chacha_poly_aead.h>[m
+[1;35m-#include <crypto/poly1305.h>[m
+[1;34m-#include <test/fuzz/FuzzedDataProvider.h>[m
+[2;3m-#include <test/fuzz/fuzz.h>[m
+[2;3m-#include <test/fuzz/util.h>[m
+[31m-#include <util/overflow.h>[m
+[31m-[m
+[31m-#include <cassert>[m
+[31m-#include <cstdint>[m
+[31m-#include <limits>[m
+[31m-#include <vector>[m
+[31m-[m
+[31m-FUZZ_TARGET(crypto_chacha20_poly1305_aead)[m
+[2m-{[m
+[2m-    FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};[m
+[2m-[m
+[31m-    const std::vector<uint8_t> k1 = ConsumeFixedLengthByteVector(fuzzed_data_provider, CHACHA20_POLY1305_AEAD_KEY_LEN);[m
+[31m-    const std::vector<uint8_t> k2 = ConsumeFixedLengthByteVector(fuzzed_data_provider, CHACHA20_POLY1305_AEAD_KEY_LEN);[m
+[31m-[m
+[31m-    ChaCha20Poly1305AEAD aead(k1.data(), k1.size(), k2.data(), k2.size());[m
+[31m-    uint64_t seqnr_payload = 0;[m
+[31m-    uint64_t seqnr_aad = 0;[m
+[31m-    int aad_pos = 0;[m
+[31m-    size_t buffer_size = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, 4096);[m
+[31m-    std::vector<uint8_t> in(buffer_size + CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN, 0);[m
+[31m-    std::vector<uint8_t> out(buffer_size + CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN, 0);[m
+[31m-    bool is_encrypt = fuzzed_data_provider.ConsumeBool();[m
+[31m-    LIMITED_WHILE(fuzzed_data_provider.ConsumeBool(), 10000) {[m
+[31m-        CallOneOf([m
+[31m-            fuzzed_data_provider,[m
+[31m-            [&] {[m
+[31m-                buffer_size = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(64, 4096);[m
+[31m-                in = std::vector<uint8_t>(buffer_size + CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN, 0);[m
+[31m-                out = std::vector<uint8_t>(buffer_size + CHACHA20_POLY1305_AEAD_AAD_LEN + Poly1305::TAGLEN, 0);[m
+[31m-            },[m
+[31m-            [&] {[m
+[31m-                (void)aead.Crypt(seqnr_payload, seqnr_aad, aad_pos, out.data(), out.size(), in.data(), buffer_size, is_encrypt);[m
+[31m-            },[m
+[31m-            [&] {[m
+[31m-                uint32_t len = 0;[m
+[31m-                const bool ok = aead.GetLength(&len, seqnr_aad, aad_pos, in.data());[m
+[31m-                assert(ok);[m
+[31m-            },[m
+[31m-            [&] {[m
+[31m-                if (AdditionOverflow(seqnr_payload, static_cast<uint64_t>(1))) {[m
+[31m-                    return;[m
+[31m-                }[m
+[31m-                seqnr_payload += 1;[m
+[31m-                aad_pos += CHACHA20_POLY1305_AEAD_AAD_LEN;[m
+[31m-                if (aad_pos + CHACHA20_POLY1305_AEAD_AAD_LEN > CHACHA20_ROUND_OUTPUT) {[m
+[31m-                    aad_pos = 0;[m
+[31m-                    if (AdditionOverflow(seqnr_aad, static_cast<uint64_t>(1))) {[m
+[31m-                        return;[m
+[31m-                    }[m
+[31m-                    seqnr_aad += 1;[m
+[31m-                }[m
+[31m-            },[m
+[31m-            [&] {[m
+[31m-                seqnr_payload = fuzzed_data_provider.ConsumeIntegral<uint64_t>();[m
+[31m-            },[m
+[31m-            [&] {[m
+[31m-                seqnr_aad = fuzzed_data_provider.ConsumeIntegral<uint64_t>();[m
+[31m-            },[m
+[31m-            [&] {[m
+[31m-                is_encrypt = fuzzed_data_provider.ConsumeBool();[m
+[31m-            });[m
+[31m-    }[m
+[31m-}[m

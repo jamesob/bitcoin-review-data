@@ -1,0 +1,35 @@
+[33mdiff --git a/src/interfaces/chain.h b/src/interfaces/chain.h[m
+[33mindex 3395741b1b..d40bd09e2d 100644[m
+[33m--- a/src/interfaces/chain.h[m
+[33m+++ b/src/interfaces/chain.h[m
+[36m@@ -35,7 +35,9 @@[m [mnamespace interfaces {[m
+ class Handler;[m
+ class Wallet;[m
+ [m
+[31m-//! Helper for findBlock to selectively return pieces of block data.[m
+[32m+[m[32m//! Helper for findBlock to selectively return pieces of block data. If block is[m
+[32m+[m[32m//! found, data will be returned by setting specified output variables. If block[m
+[32m+[m[32m//! is not found, output variables will keep their previous values.[m
+ class FoundBlock[m
+ {[m
+ public:[m
+[36m@@ -60,6 +62,7 @@[m [mpublic:[m
+     bool* m_in_active_chain = nullptr;[m
+     const FoundBlock* m_next_block = nullptr;[m
+     CBlock* m_data = nullptr;[m
+[32m+[m[32m    mutable bool found = false;[m
+ };[m
+ [m
+ //! Interface giving clients (wallet processes, maybe other analysis tools in[m
+[33mdiff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp[m
+[33mindex 171f15d4fb..552a1b8dc7 100644[m
+[33m--- a/src/node/interfaces.cpp[m
+[33m+++ b/src/node/interfaces.cpp[m
+[36m@@ -345,6 +345,7 @@[m [mbool FillBlock(const CBlockIndex* index, const FoundBlock& block, UniqueLock<Rec[m
+         REVERSE_LOCK(lock);[m
+         if (!ReadBlockFromDisk(*block.m_data, index, Params().GetConsensus())) block.m_data->SetNull();[m
+     }[m
+[32m+[m[32m    block.found = true;[m
+     return true;[m
+ }[m
+ [m

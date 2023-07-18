@@ -1,0 +1,5 @@
+ACK 07dfbb5bb8115c680621f361c65d9cde2f8c52f2 ([`jamesob/ackr/26513.1.aureleoules.make_static_nlastflush_a`](https://github.com/jamesob/bitcoin/tree/ackr/26513.1.aureleoules.make_static_nlastflush_a))
+
+Reviewed, built, ran tests locally. Very simple, common-sense change that should
+be done. Thanks!
+

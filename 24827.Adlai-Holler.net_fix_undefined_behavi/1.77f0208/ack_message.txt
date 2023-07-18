@@ -1,0 +1,26 @@
+ACK 77f0208cf912389c88415e8efc80af06ec7616e1 ([`jamesob/ackr/24827.1.Adlai-Holler.net_fix_undefined_behavi`](https://github.com/jamesob/bitcoin/tree/ackr/24827.1.Adlai-Holler.net_fix_undefined_behavi))
+
+Built, tested locally. 
+
+I'm still spotting some `reinterpret_cast<struct sockaddr*>` calls in e.g.
+
+- [ ] `ConnectSocketDirectly`
+- [ ] `TorControlConnection::Connect`
+- [ ] `GetBindAddress`
+- [ ] `CConman::AcceptConnection`
+- [ ] [some others in net.cpp...]
+- [ ] `randomenv.cpp:AddSockaddr` (not sure if this one matters much)
+
+so I'm not sure this change resolves all of the UB related to sockaddr use.
+Casting from `sockaddr_storage*` -> `sockaddr*` seems precarious, since they're
+different sizes, but is there some reason you avoided touching those here as
+well?
+
+All memcpy invocations look safe to me. Obviously the code will require care
+when modified though. I wonder if we could consolidate the memcpy calls to a 
+(templated?) function to cut down the risk.
+
+Longterm it may make sense to move to some kind of polymorphic union that can
+encompass both `sockaddr_in` and `sockaddr_in6` and doesn't require all the
+ip4/6 case handling, but that's speculative and in any case the avoidance of UB
+seems like a strict improvement here.

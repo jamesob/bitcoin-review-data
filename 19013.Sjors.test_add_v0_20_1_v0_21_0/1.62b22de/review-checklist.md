@@ -1,0 +1,6 @@
+- [ ] 603de2094b test: Remove i686 from test/get_previous_releases.py
+- [ ] f35faefac0 test: backwards compatibility: misc fixes
+- [ ] 94d3989352 test: v0.20.1 backwards compatibility
+- [ ] dd0d92e33c test: previous releases: add v0.21.0
+- [ ] bf59b65015 test: bump sandbox argument minimum version
+- [ ] 62b22de69d test: previous releases: add v22.0

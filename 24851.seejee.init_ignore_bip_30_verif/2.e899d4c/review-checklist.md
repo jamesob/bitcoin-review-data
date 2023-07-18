@@ -1,0 +1,2 @@
+- [ ] 511eb7fdea Ignore problematic blocks in DisconnectBlock
+- [ ] e899d4ca6f init: limit bip30 exceptions to coinbase txs

@@ -1,0 +1,437 @@
+[33mdiff --git a/src/bench/block_assemble.cpp b/src/bench/block_assemble.cpp[m
+[33mindex aa72981cb..b4b33d115 100644[m
+[33m--- a/src/bench/block_assemble.cpp[m
+[33m+++ b/src/bench/block_assemble.cpp[m
+[36m@@ -37,7 +37,7 @@[m [mstatic void AssembleBlock(benchmark::Bench& bench)[m
+         LOCK(::cs_main); // Required for ::AcceptToMemoryPool.[m
+ [m
+         for (const auto& txr : txs) {[m
+[31m-            const MempoolAcceptResult res = ::AcceptToMemoryPool(::ChainstateActive(), *test_setup->m_node.mempool, txr, false /* bypass_limits */);[m
+[32m+[m[32m            const MempoolAcceptResult res = ::AcceptToMemoryPool(test_setup->m_node.chainman->ActiveChainstate(), *test_setup->m_node.mempool, txr, false /* bypass_limits */);[m
+             assert(res.m_result_type == MempoolAcceptResult::ResultType::VALID);[m
+         }[m
+     }[m
+[33mdiff --git a/src/bench/duplicate_inputs.cpp b/src/bench/duplicate_inputs.cpp[m
+[33mindex 25d1a2b56..4f6e1122b 100644[m
+[33m--- a/src/bench/duplicate_inputs.cpp[m
+[33m+++ b/src/bench/duplicate_inputs.cpp[m
+[36m@@ -25,7 +25,8 @@[m [mstatic void DuplicateInputs(benchmark::Bench& bench)[m
+     CMutableTransaction naughtyTx{};[m
+ [m
+     LOCK(cs_main);[m
+[31m-    CBlockIndex* pindexPrev = ::ChainActive().Tip();[m
+[32m+[m[32m    assert(std::addressof(::ChainActive()) == std::addressof(testing_setup->m_node.chainman->ActiveChain()));[m
+[32m+[m[32m    CBlockIndex* pindexPrev = testing_setup->m_node.chainman->ActiveChain().Tip();[m
+     assert(pindexPrev != nullptr);[m
+     block.nBits = GetNextWorkRequired(pindexPrev, &block, chainparams.GetConsensus());[m
+     block.nNonce = 0;[m
+[33mdiff --git a/src/index/base.cpp b/src/index/base.cpp[m
+[33mindex 4079fc456..3a61af28b 100644[m
+[33m--- a/src/index/base.cpp[m
+[33m+++ b/src/index/base.cpp[m
+[36m@@ -60,33 +60,34 @@[m [mbool BaseIndex::Init()[m
+     }[m
+ [m
+     LOCK(cs_main);[m
+[32m+[m[32m    CChain& active_chain = m_chainstate->m_chain;[m
+     if (locator.IsNull()) {[m
+         m_best_block_index = nullptr;[m
+     } else {[m
+[31m-        m_best_block_index = g_chainman.m_blockman.FindForkInGlobalIndex(::ChainActive(), locator);[m
+[32m+[m[32m        m_best_block_index = m_chainstate->m_blockman.FindForkInGlobalIndex(active_chain, locator);[m
+     }[m
+[31m-    m_synced = m_best_block_index.load() == ::ChainActive().Tip();[m
+[32m+[m[32m    m_synced = m_best_block_index.load() == active_chain.Tip();[m
+     if (!m_synced) {[m
+         bool prune_violation = false;[m
+         if (!m_best_block_index) {[m
+             // index is not built yet[m
+             // make sure we have all block data back to the genesis[m
+[31m-            const CBlockIndex* block = ::ChainActive().Tip();[m
+[32m+[m[32m            const CBlockIndex* block = active_chain.Tip();[m
+             while (block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+                 block = block->pprev;[m
+             }[m
+[31m-            prune_violation = block != ::ChainActive().Genesis();[m
+[32m+[m[32m            prune_violation = block != active_chain.Genesis();[m
+         }[m
+         // in case the index has a best block set and is not fully synced[m
+         // check if we have the required blocks to continue building the index[m
+         else {[m
+             const CBlockIndex* block_to_test = m_best_block_index.load();[m
+[31m-            if (!ChainActive().Contains(block_to_test)) {[m
+[32m+[m[32m            if (!active_chain.Contains(block_to_test)) {[m
+                 // if the bestblock is not part of the mainchain, find the fork[m
+                 // and make sure we have all data down to the fork[m
+[31m-                block_to_test = ::ChainActive().FindFork(block_to_test);[m
+[32m+[m[32m                block_to_test = active_chain.FindFork(block_to_test);[m
+             }[m
+[31m-            const CBlockIndex* block = ::ChainActive().Tip();[m
+[32m+[m[32m            const CBlockIndex* block = active_chain.Tip();[m
+             prune_violation = true;[m
+             // check backwards from the tip if we have all block data until we reach the indexes bestblock[m
+             while (block_to_test && block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+[36m@@ -104,20 +105,20 @@[m [mbool BaseIndex::Init()[m
+     return true;[m
+ }[m
+ [m
+[31m-static const CBlockIndex* NextSyncBlock(const CBlockIndex* pindex_prev) EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+[32m+[m[32mstatic const CBlockIndex* NextSyncBlock(const CBlockIndex* pindex_prev, CChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+ {[m
+     AssertLockHeld(cs_main);[m
+ [m
+     if (!pindex_prev) {[m
+[31m-        return ::ChainActive().Genesis();[m
+[32m+[m[32m        return chain.Genesis();[m
+     }[m
+ [m
+[31m-    const CBlockIndex* pindex = ::ChainActive().Next(pindex_prev);[m
+[32m+[m[32m    const CBlockIndex* pindex = chain.Next(pindex_prev);[m
+     if (pindex) {[m
+         return pindex;[m
+     }[m
+ [m
+[31m-    return ::ChainActive().Next(::ChainActive().FindFork(pindex_prev));[m
+[32m+[m[32m    return chain.Next(chain.FindFork(pindex_prev));[m
+ }[m
+ [m
+ void BaseIndex::ThreadSync()[m
+[36m@@ -140,7 +141,7 @@[m [mvoid BaseIndex::ThreadSync()[m
+ [m
+             {[m
+                 LOCK(cs_main);[m
+[31m-                const CBlockIndex* pindex_next = NextSyncBlock(pindex);[m
+[32m+[m[32m                const CBlockIndex* pindex_next = NextSyncBlock(pindex, m_chainstate->m_chain);[m
+                 if (!pindex_next) {[m
+                     m_best_block_index = pindex;[m
+                     m_synced = true;[m
+[36m@@ -203,7 +204,7 @@[m [mbool BaseIndex::Commit()[m
+ bool BaseIndex::CommitInternal(CDBBatch& batch)[m
+ {[m
+     LOCK(cs_main);[m
+[31m-    GetDB().WriteBestBlock(batch, ::ChainActive().GetLocator(m_best_block_index));[m
+[32m+[m[32m    GetDB().WriteBestBlock(batch, m_chainstate->m_chain.GetLocator(m_best_block_index));[m
+     return true;[m
+ }[m
+ [m
+[36m@@ -279,7 +280,7 @@[m [mvoid BaseIndex::ChainStateFlushed(const CBlockLocator& locator)[m
+     const CBlockIndex* locator_tip_index;[m
+     {[m
+         LOCK(cs_main);[m
+[31m-        locator_tip_index = g_chainman.m_blockman.LookupBlockIndex(locator_tip_hash);[m
+[32m+[m[32m        locator_tip_index = m_chainstate->m_blockman.LookupBlockIndex(locator_tip_hash);[m
+     }[m
+ [m
+     if (!locator_tip_index) {[m
+[36m@@ -320,7 +321,7 @@[m [mbool BaseIndex::BlockUntilSyncedToCurrentChain() const[m
+         // Skip the queue-draining stuff if we know we're caught up with[m
+         // ::ChainActive().Tip().[m
+         LOCK(cs_main);[m
+[31m-        const CBlockIndex* chain_tip = ::ChainActive().Tip();[m
+[32m+[m[32m        const CBlockIndex* chain_tip = m_chainstate->m_chain.Tip();[m
+         const CBlockIndex* best_block_index = m_best_block_index.load();[m
+         if (best_block_index->GetAncestor(chain_tip->nHeight) == chain_tip) {[m
+             return true;[m
+[36m@@ -337,8 +338,10 @@[m [mvoid BaseIndex::Interrupt()[m
+     m_interrupt();[m
+ }[m
+ [m
+[31m-bool BaseIndex::Start()[m
+[32m+[m[32mbool BaseIndex::Start(CChainState& active_chainstate)[m
+ {[m
+[32m+[m[32m    assert(std::addressof(::ChainstateActive()) == std::addressof(active_chainstate));[m
+[32m+[m[32m    m_chainstate = &active_chainstate;[m
+     // Need to register this ValidationInterface before running Init(), so that[m
+     // callbacks are not missed if Init sets m_synced to true.[m
+     RegisterValidationInterface(this);[m
+[33mdiff --git a/src/index/base.h b/src/index/base.h[m
+[33mindex 59eefab29..df4bdff1e 100644[m
+[33m--- a/src/index/base.h[m
+[33m+++ b/src/index/base.h[m
+[36m@@ -12,6 +12,7 @@[m
+ #include <validationinterface.h>[m
+ [m
+ class CBlockIndex;[m
+[32m+[m[32mclass CChainState;[m
+ [m
+ struct IndexSummary {[m
+     std::string name;[m
+[36m@@ -75,8 +76,9 @@[m [mprivate:[m
+     /// to a chain reorganization), the index must halt until Commit succeeds or else it could end up[m
+     /// getting corrupted.[m
+     bool Commit();[m
+[31m-[m
+ protected:[m
+[32m+[m[32m    CChainState* m_chainstate{nullptr};[m
+[32m+[m
+     void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex) override;[m
+ [m
+     void ChainStateFlushed(const CBlockLocator& locator) override;[m
+[36m@@ -117,7 +119,7 @@[m [mpublic:[m
+ [m
+     /// Start initializes the sync state and registers the instance as a[m
+     /// ValidationInterface so that it stays in sync with blockchain updates.[m
+[31m-    [[nodiscard]] bool Start();[m
+[32m+[m[32m    [[nodiscard]] bool Start(CChainState& active_chainstate);[m
+ [m
+     /// Stops the instance from staying in sync with blockchain updates.[m
+     void Stop();[m
+[33mdiff --git a/src/index/coinstatsindex.cpp b/src/index/coinstatsindex.cpp[m
+[33mindex 7c8b2b186..6f841f166 100644[m
+[33m--- a/src/index/coinstatsindex.cpp[m
+[33m+++ b/src/index/coinstatsindex.cpp[m
+[36m@@ -266,7 +266,7 @@[m [mbool CoinStatsIndex::Rewind(const CBlockIndex* current_tip, const CBlockIndex* n[m
+ [m
+     {[m
+         LOCK(cs_main);[m
+[31m-        CBlockIndex* iter_tip{g_chainman.m_blockman.LookupBlockIndex(current_tip->GetBlockHash())};[m
+[32m+[m[32m        CBlockIndex* iter_tip{m_chainstate->m_blockman.LookupBlockIndex(current_tip->GetBlockHash())};[m
+         const auto& consensus_params{Params().GetConsensus()};[m
+ [m
+         do {[m
+[33mdiff --git a/src/index/txindex.cpp b/src/index/txindex.cpp[m
+[33mindex 3feefe861..09984b1ab 100644[m
+[33m--- a/src/index/txindex.cpp[m
+[33m+++ b/src/index/txindex.cpp[m
+[36m@@ -204,7 +204,7 @@[m [mbool TxIndex::Init()[m
+     // Attempt to migrate txindex from the old database to the new one. Even if[m
+     // chain_tip is null, the node could be reindexing and we still want to[m
+     // delete txindex records in the old database.[m
+[31m-    if (!m_db->MigrateData(*pblocktree, ::ChainActive().GetLocator())) {[m
+[32m+[m[32m    if (!m_db->MigrateData(*pblocktree, m_chainstate->m_chain.GetLocator())) {[m
+         return false;[m
+     }[m
+ [m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex 89e152e56..cd77e8da3 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -1550,21 +1550,21 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+     // ********************************************************* Step 8: start indexers[m
+     if (args.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {[m
+         g_txindex = std::make_unique<TxIndex>(nTxIndexCache, false, fReindex);[m
+[31m-        if (!g_txindex->Start()) {[m
+[32m+[m[32m        if (!g_txindex->Start(::ChainstateActive())) {[m
+             return false;[m
+         }[m
+     }[m
+ [m
+     for (const auto& filter_type : g_enabled_filter_types) {[m
+         InitBlockFilterIndex(filter_type, filter_index_cache, false, fReindex);[m
+[31m-        if (!GetBlockFilterIndex(filter_type)->Start()) {[m
+[32m+[m[32m        if (!GetBlockFilterIndex(filter_type)->Start(::ChainstateActive())) {[m
+             return false;[m
+         }[m
+     }[m
+ [m
+     if (args.GetBoolArg("-coinstatsindex", DEFAULT_COINSTATSINDEX)) {[m
+         g_coin_stats_index = std::make_unique<CoinStatsIndex>(/* cache size */ 0, false, fReindex);[m
+[31m-        if (!g_coin_stats_index->Start()) {[m
+[32m+[m[32m        if (!g_coin_stats_index->Start(::ChainstateActive())) {[m
+             return false;[m
+         }[m
+     }[m
+[33mdiff --git a/src/miner.cpp b/src/miner.cpp[m
+[33mindex 3bc7fdd45..eccddbb04 100644[m
+[33m--- a/src/miner.cpp[m
+[33m+++ b/src/miner.cpp[m
+[36m@@ -39,13 +39,21 @@[m [mint64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParam[m
+     return nNewTime - nOldTime;[m
+ }[m
+ [m
+[31m-void RegenerateCommitments(CBlock& block, CBlockIndex* prev_block)[m
+[32m+[m[32mvoid RegenerateCommitments(CBlock& block, ChainstateManager& chainman)[m
+ {[m
+     CMutableTransaction tx{*block.vtx.at(0)};[m
+     tx.vout.erase(tx.vout.begin() + GetWitnessCommitmentIndex(block));[m
+     block.vtx.at(0) = MakeTransactionRef(tx);[m
+ [m
+[31m-    WITH_LOCK(::cs_main, assert(g_chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock) == prev_block));[m
+[32m+[m[32m    CBlockIndex* prev_block;[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // TODO: Temporary scope to check correctness of refactored code.[m
+[32m+[m[32m        // Should be removed manually after merge of[m
+[32m+[m[32m        // https://github.com/bitcoin/bitcoin/pull/20158[m
+[32m+[m[32m        LOCK(::cs_main);[m
+[32m+[m[32m        assert(std::addressof(g_chainman.m_blockman) == std::addressof(chainman.m_blockman));[m
+[32m+[m[32m        prev_block = chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock);[m
+[32m+[m[32m    }[m
+     GenerateCoinbaseCommitment(block, prev_block, Params().GetConsensus());[m
+ [m
+     block.hashMerkleRoot = BlockMerkleRoot(block);[m
+[33mdiff --git a/src/miner.h b/src/miner.h[m
+[33mindex becf362b7..10a80f439 100644[m
+[33m--- a/src/miner.h[m
+[33m+++ b/src/miner.h[m
+[36m@@ -203,6 +203,6 @@[m [mvoid IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned[m
+ int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev);[m
+ [m
+ /** Update an old GenerateCoinbaseCommitment from CreateNewBlock after the block txs have changed */[m
+[31m-void RegenerateCommitments(CBlock& block, CBlockIndex* prev_block);[m
+[32m+[m[32mvoid RegenerateCommitments(CBlock& block, ChainstateManager& chainman);[m
+ [m
+ #endif // BITCOIN_MINER_H[m
+[33mdiff --git a/src/rest.cpp b/src/rest.cpp[m
+[33mindex d41f374c4..747c7aea1 100644[m
+[33m--- a/src/rest.cpp[m
+[33m+++ b/src/rest.cpp[m
+[36m@@ -107,6 +107,27 @@[m [mstatic CTxMemPool* GetMemPool(const std::any& context, HTTPRequest* req)[m
+     return node_context->mempool.get();[m
+ }[m
+ [m
+[32m+[m[32m/**[m
+[32m+[m[32m * Get the node context chainstatemanager.[m
+[32m+[m[32m *[m
+[32m+[m[32m * @param[in]  req The HTTP request, whose status code will be set if node[m
+[32m+[m[32m *                 context chainstatemanager is not found.[m
+[32m+[m[32m * @returns        Pointer to the chainstatemanager or nullptr if none found.[m
+[32m+[m[32m */[m
+[32m+[m[32mstatic ChainstateManager* GetChainman(const std::any& context, HTTPRequest* req)[m
+[32m+[m[32m{[m
+[32m+[m[32m    auto node_context = util::AnyPtr<NodeContext>(context);[m
+[32m+[m[32m    if (!node_context || !node_context->chainman) {[m
+[32m+[m[32m        RESTERR(req, HTTP_INTERNAL_SERVER_ERROR,[m
+[32m+[m[32m                strprintf("%s:%d (%s)\n"[m
+[32m+[m[32m                          "Internal bug detected: Chainman disabled or instance not found!\n"[m
+[32m+[m[32m                          "You may report this issue here: %s\n",[m
+[32m+[m[32m                          __FILE__, __LINE__, __func__, PACKAGE_BUGREPORT));[m
+[32m+[m[32m        return nullptr;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return node_context->chainman;[m
+[32m+[m[32m}[m
+[32m+[m
+ static RetFormat ParseDataFormat(std::string& param, const std::string& strReq)[m
+ {[m
+     const std::string::size_type pos = strReq.rfind('.');[m
+[36m@@ -181,7 +202,9 @@[m [mstatic bool rest_headers(const std::any& context,[m
+     std::vector<const CBlockIndex *> headers;[m
+     headers.reserve(count);[m
+     {[m
+[31m-        ChainstateManager& chainman = EnsureAnyChainman(context);[m
+[32m+[m[32m        ChainstateManager* maybe_chainman = GetChainman(context, req);[m
+[32m+[m[32m        if (!maybe_chainman) return false;[m
+[32m+[m[32m        ChainstateManager& chainman = *maybe_chainman;[m
+         LOCK(cs_main);[m
+         CChain& active_chain = chainman.ActiveChain();[m
+         tip = active_chain.Tip();[m
+[36m@@ -252,7 +275,9 @@[m [mstatic bool rest_block(const std::any& context,[m
+     CBlockIndex* pblockindex = nullptr;[m
+     CBlockIndex* tip = nullptr;[m
+     {[m
+[31m-        ChainstateManager& chainman = EnsureAnyChainman(context);[m
+[32m+[m[32m        ChainstateManager* maybe_chainman = GetChainman(context, req);[m
+[32m+[m[32m        if (!maybe_chainman) return false;[m
+[32m+[m[32m        ChainstateManager& chainman = *maybe_chainman;[m
+         LOCK(cs_main);[m
+         tip = chainman.ActiveChain().Tip();[m
+         pblockindex = chainman.m_blockman.LookupBlockIndex(hash);[m
+[36m@@ -541,7 +566,9 @@[m [mstatic bool rest_getutxos(const std::any& context, HTTPRequest* req, const std::[m
+     std::string bitmapStringRepresentation;[m
+     std::vector<bool> hits;[m
+     bitmap.resize((vOutPoints.size() + 7) / 8);[m
+[31m-    ChainstateManager& chainman = EnsureAnyChainman(context);[m
+[32m+[m[32m    ChainstateManager* maybe_chainman = GetChainman(context, req);[m
+[32m+[m[32m    if (!maybe_chainman) return false;[m
+[32m+[m[32m    ChainstateManager& chainman = *maybe_chainman;[m
+     {[m
+         auto process_utxos = [&vOutPoints, &outs, &hits](const CCoinsView& view, const CTxMemPool& mempool) {[m
+             for (const COutPoint& vOutPoint : vOutPoints) {[m
+[36m@@ -644,7 +671,9 @@[m [mstatic bool rest_blockhash_by_height(const std::any& context, HTTPRequest* req,[m
+ [m
+     CBlockIndex* pblockindex = nullptr;[m
+     {[m
+[31m-        ChainstateManager& chainman = EnsureAnyChainman(context);[m
+[32m+[m[32m        ChainstateManager* maybe_chainman = GetChainman(context, req);[m
+[32m+[m[32m        if (!maybe_chainman) return false;[m
+[32m+[m[32m        ChainstateManager& chainman = *maybe_chainman;[m
+         LOCK(cs_main);[m
+         const CChain& active_chain = chainman.ActiveChain();[m
+         if (blockheight > active_chain.Height()) {[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex f2b99579b..fb1c7c73a 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -1196,7 +1196,7 @@[m [mstatic RPCHelpMan gettxoutsetinfo()[m
+             CCoinsStats prev_stats{hash_type};[m
+ [m
+             if (pindex->nHeight > 0) {[m
+[31m-                GetUTXOStats(coins_view, WITH_LOCK(::cs_main, return std::ref(g_chainman.m_blockman)), prev_stats, node.rpc_interruption_point, pindex->pprev);[m
+[32m+[m[32m                GetUTXOStats(coins_view, *blockman, prev_stats, node.rpc_interruption_point, pindex->pprev);[m
+             }[m
+ [m
+             UniValue block_info(UniValue::VOBJ);[m
+[33mdiff --git a/src/rpc/mining.cpp b/src/rpc/mining.cpp[m
+[33mindex 8190a2f00..6826e6fd0 100644[m
+[33m--- a/src/rpc/mining.cpp[m
+[33m+++ b/src/rpc/mining.cpp[m
+[36m@@ -378,8 +378,7 @@[m [mstatic RPCHelpMan generateblock()[m
+ [m
+     // Add transactions[m
+     block.vtx.insert(block.vtx.end(), txs.begin(), txs.end());[m
+[31m-    CBlockIndex* prev_block = WITH_LOCK(::cs_main, return chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock));[m
+[31m-    RegenerateCommitments(block, prev_block);[m
+[32m+[m[32m    RegenerateCommitments(block, chainman);[m
+ [m
+     {[m
+         LOCK(cs_main);[m
+[33mdiff --git a/src/test/blockfilter_index_tests.cpp b/src/test/blockfilter_index_tests.cpp[m
+[33mindex 1cb1c002f..2f532ef59 100644[m
+[33m--- a/src/test/blockfilter_index_tests.cpp[m
+[33m+++ b/src/test/blockfilter_index_tests.cpp[m
+[36m@@ -131,7 +131,7 @@[m [mBOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, BuildChainTestingSetup)[m
+     // BlockUntilSyncedToCurrentChain should return false before index is started.[m
+     BOOST_CHECK(!filter_index.BlockUntilSyncedToCurrentChain());[m
+ [m
+[31m-    BOOST_REQUIRE(filter_index.Start());[m
+[32m+[m[32m    BOOST_REQUIRE(filter_index.Start(::ChainstateActive()));[m
+ [m
+     // Allow filter index to catch up with the block index.[m
+     constexpr int64_t timeout_ms = 10 * 1000;[m
+[33mdiff --git a/src/test/coinstatsindex_tests.cpp b/src/test/coinstatsindex_tests.cpp[m
+[33mindex bf7a80ae5..106fcd2a3 100644[m
+[33m--- a/src/test/coinstatsindex_tests.cpp[m
+[33m+++ b/src/test/coinstatsindex_tests.cpp[m
+[36m@@ -32,7 +32,7 @@[m [mBOOST_FIXTURE_TEST_CASE(coinstatsindex_initial_sync, TestChain100Setup)[m
+     // is started.[m
+     BOOST_CHECK(!coin_stats_index.BlockUntilSyncedToCurrentChain());[m
+ [m
+[31m-    BOOST_REQUIRE(coin_stats_index.Start());[m
+[32m+[m[32m    BOOST_REQUIRE(coin_stats_index.Start(::ChainstateActive()));[m
+ [m
+     // Allow the CoinStatsIndex to catch up with the block index that is syncing[m
+     // in a background thread.[m
+[33mdiff --git a/src/test/txindex_tests.cpp b/src/test/txindex_tests.cpp[m
+[33mindex 082655d81..d47c54fd6 100644[m
+[33m--- a/src/test/txindex_tests.cpp[m
+[33m+++ b/src/test/txindex_tests.cpp[m
+[36m@@ -7,6 +7,7 @@[m
+ #include <script/standard.h>[m
+ #include <test/util/setup_common.h>[m
+ #include <util/time.h>[m
+[32m+[m[32m#include <validation.h>[m
+ [m
+ #include <boost/test/unit_test.hpp>[m
+ [m
+[36m@@ -27,7 +28,7 @@[m [mBOOST_FIXTURE_TEST_CASE(txindex_initial_sync, TestChain100Setup)[m
+     // BlockUntilSyncedToCurrentChain should return false before txindex is started.[m
+     BOOST_CHECK(!txindex.BlockUntilSyncedToCurrentChain());[m
+ [m
+[31m-    BOOST_REQUIRE(txindex.Start());[m
+[32m+[m[32m    BOOST_REQUIRE(txindex.Start(::ChainstateActive()));[m
+ [m
+     // Allow tx index to catch up with the block index.[m
+     constexpr int64_t timeout_ms = 10 * 1000;[m
+[33mdiff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp[m
+[33mindex f92e4c4b9..f53c505e7 100644[m
+[33m--- a/src/test/util/setup_common.cpp[m
+[33m+++ b/src/test/util/setup_common.cpp[m
+[36m@@ -246,8 +246,7 @@[m [mCBlock TestChain100Setup::CreateAndProcessBlock(const std::vector<CMutableTransa[m
+     for (const CMutableTransaction& tx : txns) {[m
+         block.vtx.push_back(MakeTransactionRef(tx));[m
+     }[m
+[31m-    CBlockIndex* prev_block = WITH_LOCK(::cs_main, return g_chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock));[m
+[31m-    RegenerateCommitments(block, prev_block);[m
+[32m+[m[32m    RegenerateCommitments(block, *Assert(m_node.chainman));[m
+ [m
+     while (!CheckProofOfWork(block.GetHash(), block.nBits, chainparams.GetConsensus())) ++block.nNonce;[m
+ [m

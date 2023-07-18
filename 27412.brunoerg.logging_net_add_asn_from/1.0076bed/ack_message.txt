@@ -1,0 +1,4 @@
+ACK 0076bed45eb2b42111fa3f4c95181393c685a42e ([`jamesob/ackr/27412.1.brunoerg.logging_net_add_asn_from`](https://github.com/jamesob/bitcoin/tree/ackr/27412.1.brunoerg.logging_net_add_asn_from))
+
+Reviewed code, built locally. Change looks good. Going to test with -asmap today.
+

@@ -1,0 +1,1899 @@
+[33mdiff --git a/src/index/base.cpp b/src/index/base.cpp[m
+[33mindex 2368189da2..dc2c828cfa 100644[m
+[33m--- a/src/index/base.cpp[m
+[33m+++ b/src/index/base.cpp[m
+[36m@@ -5,12 +5,13 @@[m
+ #include <chainparams.h>[m
+ #include <index/base.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/handler.h>[m
+ #include <kernel/chain.h>[m
+ #include <node/blockstorage.h>[m
+[31m-#include <node/context.h>[m
+ #include <node/interface_ui.h>[m
+ #include <shutdown.h>[m
+ #include <tinyformat.h>[m
+[32m+[m[32m#include <undo.h>[m
+ #include <util/syscall_sandbox.h>[m
+ #include <util/system.h>[m
+ #include <util/thread.h>[m
+[36m@@ -18,6 +19,7 @@[m
+ #include <validation.h> // For g_chainman[m
+ #include <warnings.h>[m
+ [m
+[32m+[m[32musing interfaces::FoundBlock;[m
+ using node::ReadBlockFromDisk;[m
+ [m
+ constexpr uint8_t DB_BEST_BLOCK{'B'};[m
+[36m@@ -44,298 +46,207 @@[m [mCBlockLocator GetLocator(interfaces::Chain& chain, const uint256& block_hash)[m
+     return locator;[m
+ }[m
+ [m
+[2m-BaseIndex::DB::DB(const fs::path& path, size_t n_cache_size, bool f_memory, bool f_wipe, bool f_obfuscate) :[m
+[2m-    CDBWrapper(path, n_cache_size, f_memory, f_wipe, f_obfuscate)[m
+[2m-{}[m
+[31m-[m
+[2m-bool BaseIndex::DB::ReadBestBlock(CBlockLocator& locator) const[m
+[32m+[m[32mclass BaseIndexNotifications : public interfaces::Chain::Notifications[m
+ {[m
+[2m-    bool success = Read(DB_BEST_BLOCK, locator);[m
+[2m-    if (!success) {[m
+[2m-        locator.SetNull();[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    BaseIndexNotifications(BaseIndex& index) : m_index(index) {}[m
+[32m+[m[32m    void blockConnected(const interfaces::BlockInfo& block) override;[m
+[32m+[m[32m    void blockDisconnected(const interfaces::BlockInfo& block) override;[m
+[32m+[m[32m    void chainStateFlushed(const CBlockLocator& locator) override;[m
+[32m+[m[32m    std::optional<interfaces::BlockKey> getBest()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        LOCK(m_index.m_mutex);[m
+[32m+[m[32m        return m_index.m_best_block;[m
+     }[m
+[31m-    return success;[m
+[31m-}[m
+[31m-[m
+[2m-void BaseIndex::DB::WriteBestBlock(CDBBatch& batch, const CBlockLocator& locator)[m
+[31m-{[m
+[2m-    batch.Write(DB_BEST_BLOCK, locator);[m
+[2m-}[m
+[31m-[m
+[2m-BaseIndex::BaseIndex(std::unique_ptr<interfaces::Chain> chain)[m
+[2m-    : m_chain{std::move(chain)} {}[m
+[31m-[m
+[31m-BaseIndex::~BaseIndex()[m
+[31m-{[m
+[31m-    Interrupt();[m
+[31m-    Stop();[m
+[31m-}[m
+[31m-[m
+[31m-bool BaseIndex::Init()[m
+[31m-{[m
+[2m-    CBlockLocator locator;[m
+[2m-    if (!GetDB().ReadBestBlock(locator)) {[m
+[2m-        locator.SetNull();[m
+[32m+[m[32m    void setBest(const interfaces::BlockKey& block)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        assert(!block.hash.IsNull());[m
+[32m+[m[32m        assert(block.height >= 0);[m
+[32m+[m[32m        m_index.SetBestBlock(block);[m
+     }[m
+ [m
+[31m-    LOCK(cs_main);[m
+[31m-    CChain& active_chain = m_chainstate->m_chain;[m
+[31m-    if (locator.IsNull()) {[m
+[31m-        SetBestBlockIndex(nullptr);[m
+[31m-    } else {[m
+[31m-        SetBestBlockIndex(m_chainstate->FindForkInGlobalIndex(locator));[m
+[32m+[m[32m    BaseIndex& m_index;[m
+[32m+[m[32m    std::optional<bool> m_init_result;[m
+[32m+[m[32m    std::chrono::steady_clock::time_point m_last_log_time{0s};[m
+[32m+[m[32m    std::chrono::steady_clock::time_point m_last_locator_write_time{0s};[m
+[32m+[m[32m    //! As blocks are disconnected, index is updated but not committed to until[m
+[32m+[m[32m    //! the next flush or block connection. start/end variables record the first[m
+[32m+[m[32m    //! and last disconnected blocks as an inclusive range. If start is set and[m
+[32m+[m[32m    //! end is null it means an error has occurred, and the index will stop[m
+[32m+[m[32m    //! trying to rewind and handle the error on the next new block or flush.[m
+[32m+[m[32m    std::optional<interfaces::BlockKey> m_rewind_start;[m
+[32m+[m[32m    std::optional<interfaces::BlockKey> m_rewind_end;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mvoid BaseIndexNotifications::blockConnected(const interfaces::BlockInfo& block)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (!block.error.empty()) {[m
+[32m+[m[32m        FatalError("%s", block.error);[m
+[32m+[m[32m        return m_index.Interrupt();[m
+     }[m
+[31m-    m_synced = m_best_block_index.load() == active_chain.Tip();[m
+[31m-    if (!m_synced) {[m
+[2m-        bool prune_violation = false;[m
+[31m-        if (!m_best_block_index) {[m
+[31m-            // index is not built yet[m
+[2m-            // make sure we have all block data back to the genesis[m
+[31m-            prune_violation = m_chainstate->m_blockman.GetFirstStoredBlock(*active_chain.Tip()) != active_chain.Genesis();[m
+[32m+[m[32m    if (!m_index.m_synced && !block.data) {[m
+[32m+[m[32m        // Before sync, attachChain will send an initial blockConnected event[m
+[32m+[m[32m        // without any block data, indicating the starting block (based on the[m
+[32m+[m[32m        // index locator) where the index was last synced. If the index is[m
+[32m+[m[32m        // already synced at this point, block.chain_tip will be true, and[m
+[32m+[m[32m        // m_synced can latch to true. Otherwise, more blockConnected events[m
+[32m+[m[32m        // will be sent with block data, followed by a final blockConnected[m
+[32m+[m[32m        // event without block data, to finish the sync and update[m
+[32m+[m[32m        // m_best_block and m_synced.[m
+[32m+[m[32m        if (block.height >= 0) {[m
+[32m+[m[32m            setBest({block.hash, block.height});[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            assert(!getBest());[m
+         }[m
+[2m-        // in case the index has a best block set and is not fully synced[m
+[2m-        // check if we have the required blocks to continue building the index[m
+[2m-        else {[m
+[31m-            const CBlockIndex* block_to_test = m_best_block_index.load();[m
+[2m-            if (!active_chain.Contains(block_to_test)) {[m
+[2m-                // if the bestblock is not part of the mainchain, find the fork[m
+[2m-                // and make sure we have all data down to the fork[m
+[2m-                block_to_test = active_chain.FindFork(block_to_test);[m
+[2m-            }[m
+[2m-            const CBlockIndex* block = active_chain.Tip();[m
+[2m-            prune_violation = true;[m
+[2m-            // check backwards from the tip if we have all block data until we reach the indexes bestblock[m
+[2m-            while (block_to_test && block && (block->nStatus & BLOCK_HAVE_DATA)) {[m
+[2m-                if (block_to_test == block) {[m
+[2m-                    prune_violation = false;[m
+[2m-                    break;[m
+[2m-                }[m
+[2m-                // block->pprev must exist at this point, since block_to_test is part of the chain[m
+[2m-                // and thus must be encountered when going backwards from the tip[m
+[2m-                assert(block->pprev);[m
+[2m-                block = block->pprev;[m
+[32m+[m[32m        if (block.chain_tip) {[m
+[32m+[m[32m            m_index.m_synced = true;[m
+[32m+[m[32m            if (block.height >= 0) {[m
+[32m+[m[32m                LogPrintf("%s is enabled at height %d\n", m_index.GetName(), block.height);[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                LogPrintf("%s is enabled\n", m_index.GetName());[m
+             }[m
+         }[m
+[31m-        if (prune_violation) {[m
+[31m-            return InitError(strprintf(Untranslated("%s best block of the index goes beyond pruned data. Please disable the index or reindex (which will download the whole blockchain again)"), GetName()));[m
+[32m+[m[32m        if (!m_init_result) {[m
+[32m+[m[32m            m_init_result = m_index.CustomInit(block.height >= 0 ? std::make_optional(interfaces::BlockKey{block.hash, block.height}) : std::nullopt);[m
+[32m+[m[32m            if (!*m_init_result) return m_index.Interrupt();[m
+         }[m
+     }[m
+[31m-    return true;[m
+[31m-}[m
+[31m-[m
+[31m-static const CBlockIndex* NextSyncBlock(const CBlockIndex* pindex_prev, CChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+[31m-{[m
+[31m-    AssertLockHeld(cs_main);[m
+ [m
+[31m-    if (!pindex_prev) {[m
+[31m-        return chain.Genesis();[m
+[32m+[m[32m    if (!block.data) return;[m
+[32m+[m
+[32m+[m[32m    bool success = !m_rewind_start || m_rewind_end;[m
+[32m+[m[32m    if (m_rewind_start && success) {[m
+[32m+[m[32m        auto best_block = getBest();[m
+[32m+[m[32m        // Assert m_best_block is null or is parent of new connected block, or is[m
+[32m+[m[32m        // descendant of parent of new connected block.[m
+[32m+[m[32m        if (best_block && best_block->hash != *block.prev_hash) {[m
+[32m+[m[32m            uint256 best_ancestor_hash;[m
+[32m+[m[32m            assert(m_index.m_chain->findAncestorByHeight(best_block->hash, block.height - 1, FoundBlock().hash(best_ancestor_hash)));[m
+[32m+[m[32m            assert(best_ancestor_hash == *block.prev_hash);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        setBest({*block.prev_hash, block.height-1});[m
+[32m+[m[32m        chainStateFlushed(GetLocator(*m_index.m_chain, *block.prev_hash));[m
+[32m+[m[32m        success = getBest()->hash == *block.prev_hash;[m
+     }[m
+[31m-[m
+[31m-    const CBlockIndex* pindex = chain.Next(pindex_prev);[m
+[31m-    if (pindex) {[m
+[31m-        return pindex;[m
+[32m+[m[32m    if (!success) {[m
+[32m+[m[32m        FatalError("%s: Failed to rewind index %s to a previous chain tip",[m
+[32m+[m[32m                   __func__, m_index.GetName());[m
+[32m+[m[32m        return m_index.Interrupt();[m
+     }[m
+ [m
+[31m-    return chain.Next(chain.FindFork(pindex_prev));[m
+[31m-}[m
+[31m-[m
+[31m-void BaseIndex::ThreadSync()[m
+[31m-{[m
+[31m-    SetSyscallSandboxPolicy(SyscallSandboxPolicy::TX_INDEX);[m
+[31m-    const CBlockIndex* pindex = m_best_block_index.load();[m
+[31m-    if (!m_synced) {[m
+[2m-        auto& consensus_params = Params().GetConsensus();[m
+[31m-[m
+[31m-        std::chrono::steady_clock::time_point last_log_time{0s};[m
+[31m-        std::chrono::steady_clock::time_point last_locator_write_time{0s};[m
+[31m-        while (true) {[m
+[31m-            if (m_interrupt) {[m
+[31m-                SetBestBlockIndex(pindex);[m
+[31m-                // No need to handle errors in Commit. If it fails, the error will be already be[m
+[31m-                // logged. The best way to recover is to continue, as index cannot be corrupted by[m
+[31m-                // a missed commit to disk for an advanced index state.[m
+[31m-                Commit();[m
+[31m-                return;[m
+[31m-            }[m
+[31m-[m
+[31m-            {[m
+[31m-                LOCK(cs_main);[m
+[31m-                const CBlockIndex* pindex_next = NextSyncBlock(pindex, m_chainstate->m_chain);[m
+[31m-                if (!pindex_next) {[m
+[31m-                    SetBestBlockIndex(pindex);[m
+[31m-                    m_synced = true;[m
+[31m-                    // No need to handle errors in Commit. See rationale above.[m
+[31m-                    Commit();[m
+[31m-                    break;[m
+[31m-                }[m
+[31m-                if (pindex_next->pprev != pindex && !Rewind(pindex, pindex_next->pprev)) {[m
+[31m-                    FatalError("%s: Failed to rewind index %s to a previous chain tip",[m
+[31m-                               __func__, GetName());[m
+[31m-                    return;[m
+[31m-                }[m
+[31m-                pindex = pindex_next;[m
+[31m-            }[m
+[31m-[m
+[31m-            auto current_time{std::chrono::steady_clock::now()};[m
+[31m-            if (last_log_time + SYNC_LOG_INTERVAL < current_time) {[m
+[31m-                LogPrintf("Syncing %s with block chain from height %d\n",[m
+[31m-                          GetName(), pindex->nHeight);[m
+[31m-                last_log_time = current_time;[m
+[31m-            }[m
+[31m-[m
+[31m-            if (last_locator_write_time + SYNC_LOCATOR_WRITE_INTERVAL < current_time) {[m
+[31m-                SetBestBlockIndex(pindex->pprev);[m
+[31m-                last_locator_write_time = current_time;[m
+[31m-                // No need to handle errors in Commit. See rationale above.[m
+[31m-                Commit();[m
+[31m-            }[m
+[31m-[m
+[31m-            CBlock block;[m
+[31m-            interfaces::BlockInfo block_info = kernel::MakeBlockInfo(pindex);[m
+[31m-            if (!ReadBlockFromDisk(block, pindex, consensus_params)) {[m
+[31m-                FatalError("%s: Failed to read block %s from disk",[m
+[31m-                           __func__, pindex->GetBlockHash().ToString());[m
+[31m-                return;[m
+[31m-            } else {[m
+[31m-                block_info.data = &block;[m
+[31m-            }[m
+[31m-            if (!CustomAppend(block_info)) {[m
+[31m-                FatalError("%s: Failed to write block %s to index database",[m
+[31m-                           __func__, pindex->GetBlockHash().ToString());[m
+[31m-                return;[m
+[31m-            }[m
+[32m+[m[32m    std::chrono::steady_clock::time_point current_time{0s};[m
+[32m+[m[32m    bool synced = m_index.m_synced;[m
+[32m+[m[32m    if (!synced) {[m
+[32m+[m[32m        current_time = std::chrono::steady_clock::now();[m
+[32m+[m[32m        if (m_last_log_time + SYNC_LOG_INTERVAL < current_time) {[m
+[32m+[m[32m            LogPrintf("Syncing %s with block chain from height %d\n",[m
+[32m+[m[32m                      m_index.GetName(), block.height);[m
+[32m+[m[32m            m_last_log_time = current_time;[m
+         }[m
+     }[m
+[31m-[m
+[31m-    if (pindex) {[m
+[31m-        LogPrintf("%s is enabled at height %d\n", GetName(), pindex->nHeight);[m
+[31m-    } else {[m
+[31m-        LogPrintf("%s is enabled\n", GetName());[m
+[32m+[m[32m    if (!m_index.CustomAppend(block)) {[m
+[2m+[m[2m        FatalError("%s: Failed to write block %s to index",[m
+[32m+[m[32m                   __func__, block.hash.ToString());[m
+[32m+[m[32m        return m_index.Interrupt();[m
+[32m+[m[32m    }[m
+[32m+[m[32m    // Only update m_best_block between flushes if synced. Unclear why[m
+[32m+[m[32m    // best block is not updated here before sync, but this has been[m
+[32m+[m[32m    // longstanding behavior since syncing was introduced in #13033 so care[m
+[32m+[m[32m    // should be taken if changing m_best_block semantics.[m
+[32m+[m[32m    assert(synced == m_index.m_synced);[m
+[32m+[m[32m    if (synced) {[m
+[32m+[m[32m        setBest({block.hash, block.height});[m
+[32m+[m[32m    } else if (m_last_locator_write_time + SYNC_LOCATOR_WRITE_INTERVAL < current_time) {[m
+[32m+[m[32m        setBest({block.hash, block.height});[m
+[32m+[m[32m        m_last_locator_write_time = current_time;[m
+[32m+[m[32m        // No need to handle errors in Commit. If it fails, the error will be already be[m
+[32m+[m[32m        // logged. The best way to recover is to continue, as index cannot be corrupted by[m
+[32m+[m[32m        // a missed commit to disk for an advanced index state.[m
+[32m+[m[32m        m_index.Commit(GetLocator(*m_index.m_chain, block.hash));[m
+     }[m
+ }[m
+ [m
+[31m-bool BaseIndex::Commit()[m
+[32m+[m[32mvoid BaseIndexNotifications::blockDisconnected(const interfaces::BlockInfo& block)[m
+ {[m
+[2m-    // Don't commit anything if we haven't indexed any block yet[m
+[2m-    // (this could happen if init is interrupted).[m
+[31m-    bool ok = m_best_block_index != nullptr;[m
+[2m-    if (ok) {[m
+[2m-        CDBBatch batch(GetDB());[m
+[2m-        ok = CustomCommit(batch);[m
+[2m-        if (ok) {[m
+[31m-            GetDB().WriteBestBlock(batch, GetLocator(*m_chain, m_best_block_index.load()->GetBlockHash()));[m
+[2m-            ok = GetDB().WriteBatch(batch);[m
+[2m-        }[m
+[31m-    }[m
+[2m-    if (!ok) {[m
+[2m-        return error("%s: Failed to commit latest %s state", __func__, GetName());[m
+[32m+[m[32m    if (!block.error.empty()) {[m
+[32m+[m[32m        FatalError("%s", block.error);[m
+[32m+[m[32m        return m_index.Interrupt();[m
+     }[m
+[31m-    return true;[m
+[31m-}[m
+ [m
+[31m-bool BaseIndex::Rewind(const CBlockIndex* current_tip, const CBlockIndex* new_tip)[m
+[31m-{[m
+[31m-    assert(current_tip == m_best_block_index);[m
+[31m-    assert(current_tip->GetAncestor(new_tip->nHeight) == new_tip);[m
+[32m+[m[32m    auto best_block = getBest();[m
+[32m+[m[32m    if (!m_rewind_start || m_rewind_end) m_rewind_end = best_block;[m
+[32m+[m[32m    if (!m_rewind_start) m_rewind_start = best_block;[m
+ [m
+[31m-    if (!CustomRewind({current_tip->GetBlockHash(), current_tip->nHeight}, {new_tip->GetBlockHash(), new_tip->nHeight})) {[m
+[31m-        return false;[m
+[32m+[m[32m    if (m_rewind_end && !m_index.CustomRemove(block)) {[m
+[32m+[m[32m        m_rewind_end = std::nullopt;[m
+     }[m
+[32m+[m[32m}[m
+ [m
+[32m+[m[32mvoid BaseIndexNotifications::chainStateFlushed(const CBlockLocator& locator)[m
+[32m+[m[32m{[m
+[2m+[m[2m    // No need to handle errors in Commit. If it fails, the error will be already be logged. The[m
+[2m+[m[2m    // best way to recover is to continue, as index cannot be corrupted by a missed commit to disk[m
+[2m+[m[2m    // for an advanced index state.[m
+     // In the case of a reorg, ensure persisted block locator is not stale.[m
+     // Pruning has a minimum of 288 blocks-to-keep and getting the index[m
+     // out of sync may be possible but a users fault.[m
+     // In case we reorg beyond the pruned depth, ReadBlockFromDisk would[m
+     // throw and lead to a graceful shutdown[m
+[31m-    SetBestBlockIndex(new_tip);[m
+[31m-    if (!Commit()) {[m
+[32m+[m[32m    if (!m_index.Commit(locator) && m_rewind_start) {[m
+         // If commit fails, revert the best block index to avoid corruption.[m
+[31m-        SetBestBlockIndex(current_tip);[m
+[31m-        return false;[m
+[32m+[m[32m        setBest(*m_rewind_start);[m
+     }[m
+[31m-[m
+[31m-    return true;[m
+[32m+[m[32m    m_rewind_start = std::nullopt;[m
+ }[m
+ [m
+[31m-void BaseIndex::BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex)[m
+[31m-{[m
+[31m-    if (!m_synced) {[m
+[31m-        return;[m
+[31m-    }[m
+[2m+[m[2mBaseIndex::DB::DB(const fs::path& path, size_t n_cache_size, bool f_memory, bool f_wipe, bool f_obfuscate) :[m
+[2m+[m[2m    CDBWrapper(path, n_cache_size, f_memory, f_wipe, f_obfuscate)[m
+[2m+[m[2m{}[m
+ [m
+[31m-    const CBlockIndex* best_block_index = m_best_block_index.load();[m
+[31m-    if (!best_block_index) {[m
+[31m-        if (pindex->nHeight != 0) {[m
+[31m-            FatalError("%s: First block connected is not the genesis block (height=%d)",[m
+[31m-                       __func__, pindex->nHeight);[m
+[31m-            return;[m
+[31m-        }[m
+[31m-    } else {[m
+[31m-        // Ensure block connects to an ancestor of the current best block. This should be the case[m
+[31m-        // most of the time, but may not be immediately after the sync thread catches up and sets[m
+[31m-        // m_synced. Consider the case where there is a reorg and the blocks on the stale branch are[m
+[31m-        // in the ValidationInterface queue backlog even after the sync thread has caught up to the[m
+[31m-        // new chain tip. In this unlikely event, log a warning and let the queue clear.[m
+[31m-        if (best_block_index->GetAncestor(pindex->nHeight - 1) != pindex->pprev) {[m
+[31m-            LogPrintf("%s: WARNING: Block %s does not connect to an ancestor of " /* Continued */[m
+[31m-                      "known best chain (tip=%s); not updating index\n",[m
+[31m-                      __func__, pindex->GetBlockHash().ToString(),[m
+[31m-                      best_block_index->GetBlockHash().ToString());[m
+[31m-            return;[m
+[31m-        }[m
+[31m-        if (best_block_index != pindex->pprev && !Rewind(best_block_index, pindex->pprev)) {[m
+[31m-            FatalError("%s: Failed to rewind index %s to a previous chain tip",[m
+[31m-                       __func__, GetName());[m
+[31m-            return;[m
+[31m-        }[m
+[31m-    }[m
+[31m-    interfaces::BlockInfo block_info = kernel::MakeBlockInfo(pindex, block.get());[m
+[31m-    if (CustomAppend(block_info)) {[m
+[31m-        SetBestBlockIndex(pindex);[m
+[31m-    } else {[m
+[2m-        FatalError("%s: Failed to write block %s to index",[m
+[31m-                   __func__, pindex->GetBlockHash().ToString());[m
+[31m-        return;[m
+[2m+[m[2mbool BaseIndex::DB::ReadBestBlock(CBlockLocator& locator) const[m
+[32m+[m[32m{[m
+[2m+[m[2m    bool success = Read(DB_BEST_BLOCK, locator);[m
+[2m+[m[2m    if (!success) {[m
+[2m+[m[2m        locator.SetNull();[m
+     }[m
+[32m+[m[32m    return success;[m
+ }[m
+ [m
+[31m-void BaseIndex::ChainStateFlushed(const CBlockLocator& locator)[m
+[2m+[m[2mvoid BaseIndex::DB::WriteBestBlock(CDBBatch& batch, const CBlockLocator& locator)[m
+ {[m
+[31m-    if (!m_synced) {[m
+[31m-        return;[m
+[31m-    }[m
+[2m+[m[2m    batch.Write(DB_BEST_BLOCK, locator);[m
+[2m+[m[2m}[m
+ [m
+[31m-    const uint256& locator_tip_hash = locator.vHave.front();[m
+[31m-    const CBlockIndex* locator_tip_index;[m
+[31m-    {[m
+[31m-        LOCK(cs_main);[m
+[31m-        locator_tip_index = m_chainstate->m_blockman.LookupBlockIndex(locator_tip_hash);[m
+[31m-    }[m
+[2m+[m[2mBaseIndex::BaseIndex(std::unique_ptr<interfaces::Chain> chain)[m
+[2m+[m[2m    : m_chain{std::move(chain)} {}[m
+ [m
+[31m-    if (!locator_tip_index) {[m
+[31m-        FatalError("%s: First block (hash=%s) in locator was not found",[m
+[31m-                   __func__, locator_tip_hash.ToString());[m
+[31m-        return;[m
+[31m-    }[m
+[32m+[m[32mBaseIndex::~BaseIndex()[m
+[32m+[m[32m{[m
+[32m+[m[32m    //! Assert Stop() was called before this base destructor. Notification[m
+[32m+[m[32m    //! handlers call pure virtual methods like GetName(), so if they are still[m
+[32m+[m[32m    //! being called at this point, they would segfault.[m
+[32m+[m[32m    LOCK(m_mutex);[m
+[32m+[m[32m    assert(!m_notifications);[m
+[32m+[m[32m    assert(!m_handler);[m
+[32m+[m[32m}[m
+ [m
+[31m-    // This checks that ChainStateFlushed callbacks are received after BlockConnected. The check may fail[m
+[31m-    // immediately after the sync thread catches up and sets m_synced. Consider the case where[m
+[31m-    // there is a reorg and the blocks on the stale branch are in the ValidationInterface queue[m
+[31m-    // backlog even after the sync thread has caught up to the new chain tip. In this unlikely[m
+[31m-    // event, log a warning and let the queue clear.[m
+[31m-    const CBlockIndex* best_block_index = m_best_block_index.load();[m
+[31m-    if (best_block_index->GetAncestor(locator_tip_index->nHeight) != locator_tip_index) {[m
+[31m-        LogPrintf("%s: WARNING: Locator contains block (hash=%s) not on known best " /* Continued */[m
+[31m-                  "chain (tip=%s); not writing index locator\n",[m
+[31m-                  __func__, locator_tip_hash.ToString(),[m
+[31m-                  best_block_index->GetBlockHash().ToString());[m
+[31m-        return;[m
+[32m+[m[32mbool BaseIndex::Commit(const CBlockLocator& locator)[m
+[32m+[m[32m{[m
+[2m+[m[2m    // Don't commit anything if we haven't indexed any block yet[m
+[2m+[m[2m    // (this could happen if init is interrupted).[m
+[32m+[m[32m    bool ok = !locator.IsNull();[m
+[2m+[m[2m    if (ok) {[m
+[2m+[m[2m        CDBBatch batch(GetDB());[m
+[2m+[m[2m        ok = CustomCommit(batch);[m
+[2m+[m[2m        if (ok) {[m
+[32m+[m[32m            GetDB().WriteBestBlock(batch, locator);[m
+[2m+[m[2m            ok = GetDB().WriteBatch(batch);[m
+[2m+[m[2m        }[m
+     }[m
+[31m-[m
+[2m-    // No need to handle errors in Commit. If it fails, the error will be already be logged. The[m
+[2m-    // best way to recover is to continue, as index cannot be corrupted by a missed commit to disk[m
+[2m-    // for an advanced index state.[m
+[31m-    Commit();[m
+[2m+[m[2m    if (!ok) {[m
+[2m+[m[2m        return error("%s: Failed to commit latest %s state", __func__, GetName());[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return true;[m
+ }[m
+ [m
+ bool BaseIndex::BlockUntilSyncedToCurrentChain() const[m
+[36m@@ -346,53 +257,61 @@[m [mbool BaseIndex::BlockUntilSyncedToCurrentChain() const[m
+         return false;[m
+     }[m
+ [m
+[31m-    {[m
+[32m+[m[32m    if (const auto best_block = WITH_LOCK(m_mutex, return m_best_block)) {[m
+         // Skip the queue-draining stuff if we know we're caught up with[m
+         // m_chain.Tip().[m
+[31m-        LOCK(cs_main);[m
+[31m-        const CBlockIndex* chain_tip = m_chainstate->m_chain.Tip();[m
+[31m-        const CBlockIndex* best_block_index = m_best_block_index.load();[m
+[31m-        if (best_block_index->GetAncestor(chain_tip->nHeight) == chain_tip) {[m
+[32m+[m[32m        interfaces::BlockKey tip;[m
+[32m+[m[32m        uint256 ancestor;[m
+[32m+[m[32m        if (m_chain->getTip(FoundBlock().hash(tip.hash).height(tip.height)) &&[m
+[32m+[m[32m            m_chain->findAncestorByHeight(best_block->hash, tip.height, FoundBlock().hash(ancestor)) &&[m
+[32m+[m[32m            ancestor == tip.hash) {[m
+             return true;[m
+         }[m
+     }[m
+ [m
+     LogPrintf("%s: %s is catching up on block notifications\n", __func__, GetName());[m
+[31m-    SyncWithValidationInterfaceQueue();[m
+[32m+[m[32m    m_chain->waitForPendingNotifications();[m
+     return true;[m
+ }[m
+ [m
+ void BaseIndex::Interrupt()[m
+ {[m
+[31m-    m_interrupt();[m
+[32m+[m[32m    LOCK(m_mutex);[m
+[32m+[m[32m    if (m_handler) m_handler->interrupt();[m
+[32m+[m[32m    m_notifications.reset();[m
+ }[m
+ [m
+ bool BaseIndex::Start()[m
+ {[m
+[31m-    // m_chainstate member gives indexing code access to node internals. It is[m
+[31m-    // removed in followup https://github.com/bitcoin/bitcoin/pull/24230[m
+[31m-    m_chainstate = &m_chain->context()->chainman->ActiveChainstate();[m
+[31m-    // Need to register this ValidationInterface before running Init(), so that[m
+[31m-    // callbacks are not missed if Init sets m_synced to true.[m
+[31m-    RegisterValidationInterface(this);[m
+[31m-    if (!Init()) return false;[m
+[31m-[m
+[31m-    const CBlockIndex* index = m_best_block_index.load();[m
+[31m-    if (!CustomInit(index ? std::make_optional(interfaces::BlockKey{index->GetBlockHash(), index->nHeight}) : std::nullopt)) {[m
+[31m-        return false;[m
+[2m+[m[2m    CBlockLocator locator;[m
+[2m+[m[2m    if (!GetDB().ReadBestBlock(locator)) {[m
+[2m+[m[2m        locator.SetNull();[m
+     }[m
+ [m
+[31m-    m_thread_sync = std::thread(&util::TraceThread, GetName(), [this] { ThreadSync(); });[m
+[31m-    return true;[m
+[32m+[m[32m    auto options = CustomOptions();[m
+[32m+[m[32m    options.thread_name = GetName();[m
+[32m+[m[32m    auto notifications = std::make_shared<BaseIndexNotifications>(*this);[m
+[32m+[m[32m    auto handler = m_chain->attachChain(notifications, locator, options);[m
+[32m+[m[32m    if (!handler) {[m
+[32m+[m[32m        return InitError(strprintf(Untranslated("%s best block of the index goes beyond pruned data. Please disable the index or reindex (which will download the whole blockchain again)"), GetName()));[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m        LOCK(m_mutex);[m
+[32m+[m[32m        m_notifications = std::move(notifications);[m
+[32m+[m[32m        m_handler = std::move(handler);[m
+[32m+[m[32m        assert(m_notifications->m_init_result.has_value());[m
+[32m+[m[32m        return m_notifications->m_init_result.value();[m
+[32m+[m[32m    }[m
+ }[m
+ [m
+ void BaseIndex::Stop()[m
+ {[m
+[31m-    UnregisterValidationInterface(this);[m
+[31m-[m
+[31m-    if (m_thread_sync.joinable()) {[m
+[31m-        m_thread_sync.join();[m
+[31m-    }[m
+[32m+[m[32m    Interrupt();[m
+[32m+[m[32m    // Call handler destructor after releasing m_mutex. Locking the mutex is[m
+[32m+[m[32m    // required to access m_handler, but the lock should not be held while[m
+[32m+[m[32m    // destroying the handler, because the handler destructor waits for the last[m
+[32m+[m[32m    // notification to be processed, so holding the lock would deadlock if that[m
+[32m+[m[32m    // last notification also needs the lock.[m
+[32m+[m[32m    auto handler = WITH_LOCK(m_mutex, return std::move(m_handler));[m
+ }[m
+ [m
+ IndexSummary BaseIndex::GetSummary() const[m
+[36m@@ -400,17 +319,18 @@[m [mIndexSummary BaseIndex::GetSummary() const[m
+     IndexSummary summary{};[m
+     summary.name = GetName();[m
+     summary.synced = m_synced;[m
+[31m-    summary.best_block_height = m_best_block_index ? m_best_block_index.load()->nHeight : 0;[m
+[32m+[m[32m    const auto best_block = WITH_LOCK(m_mutex, return m_best_block);[m
+[32m+[m[32m    summary.best_block_height = best_block ? best_block->height : 0;[m
+     return summary;[m
+ }[m
+ [m
+[31m-void BaseIndex::SetBestBlockIndex(const CBlockIndex* block) {[m
+[32m+[m[32mvoid BaseIndex::SetBestBlock(const interfaces::BlockKey& block) {[m
+     assert(!node::fPruneMode || AllowPrune());[m
+ [m
+[31m-    m_best_block_index = block;[m
+[31m-    if (AllowPrune() && block) {[m
+[32m+[m[32m    WITH_LOCK(m_mutex, m_best_block = block);[m
+[32m+[m[32m    if (AllowPrune()) {[m
+         node::PruneLockInfo prune_lock;[m
+[31m-        prune_lock.height_first = block->nHeight;[m
+[31m-        WITH_LOCK(::cs_main, m_chainstate->m_blockman.UpdatePruneLock(GetName(), prune_lock));[m
+[32m+[m[32m        prune_lock.height_first = block.height;[m
+[32m+[m[32m        m_chain->updatePruneLock(GetName(), prune_lock);[m
+     }[m
+ }[m
+[33mdiff --git a/src/index/base.h b/src/index/base.h[m
+[33mindex 77c46dd428..87d4283fae 100644[m
+[33m--- a/src/index/base.h[m
+[33m+++ b/src/index/base.h[m
+[36m@@ -7,11 +7,12 @@[m
+ [m
+ #include <dbwrapper.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/handler.h>[m
+ #include <threadinterrupt.h>[m
+ #include <validationinterface.h>[m
+ [m
+[32m+[m[32mclass BaseIndexNotifications;[m
+ class CBlock;[m
+[31m-class CBlockIndex;[m
+ class CChainState;[m
+ namespace interfaces {[m
+ class Chain;[m
+[36m@@ -24,11 +25,11 @@[m [mstruct IndexSummary {[m
+ };[m
+ [m
+ /**[m
+[31m- * Base class for indices of blockchain data. This implements[m
+[31m- * CValidationInterface and ensures blocks are indexed sequentially according[m
+[31m- * to their position in the active chain.[m
+[32m+[m[32m * Base class for indices of blockchain data. This handles block connected and[m
+[32m+[m[32m * disconnected notifications and ensures blocks are indexed sequentially[m
+[32m+[m[32m * according to their position in the active chain.[m
+  */[m
+[31m-class BaseIndex : public CValidationInterface[m
+[32m+[m[32mclass BaseIndex[m
+ {[m
+ protected:[m
+     /**[m
+[36m@@ -58,21 +59,11 @@[m [mprivate:[m
+     std::atomic<bool> m_synced{false};[m
+ [m
+     /// The last block in the chain that the index is in sync with.[m
+[31m-    std::atomic<const CBlockIndex*> m_best_block_index{nullptr};[m
+[31m-[m
+[31m-    std::thread m_thread_sync;[m
+[2m-    CThreadInterrupt m_interrupt;[m
+[32m+[m[32m    std::optional<interfaces::BlockKey> m_best_block GUARDED_BY(m_mutex);[m
+ [m
+     /// Read best block locator and check that data needed to sync has not been pruned.[m
+     bool Init();[m
+ [m
+[31m-    /// Sync the index with the block index starting from the current best block.[m
+[31m-    /// Intended to be run in its own thread, m_thread_sync, and can be[m
+[31m-    /// interrupted with m_interrupt. Once the index gets in sync, the m_synced[m
+[31m-    /// flag is set and the BlockConnected ValidationInterface callback takes[m
+[31m-    /// over and the sync thread exits.[m
+[31m-    void ThreadSync();[m
+[31m-[m
+     /// Write the current index state (eg. chain block locator and subclass-specific items) to disk.[m
+     ///[m
+     /// Recommendations for error handling:[m
+[36m@@ -81,20 +72,23 @@[m [mprivate:[m
+     /// from further behind on reboot. If the new state is not a successor of the previous state (due[m
+     /// to a chain reorganization), the index must halt until Commit succeeds or else it could end up[m
+     /// getting corrupted.[m
+[31m-    bool Commit();[m
+[32m+[m[32m    bool Commit(const CBlockLocator& locator);[m
+ [m
+[31m-    /// Loop over disconnected blocks and call CustomRewind.[m
+[31m-    bool Rewind(const CBlockIndex* current_tip, const CBlockIndex* new_tip);[m
+[32m+[m[32m    /// Loop over disconnected blocks and call CustomRemove.[m
+[32m+[m[32m    bool Rewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip);[m
+ [m
+     virtual bool AllowPrune() const = 0;[m
+ [m
+[32m+[m[32m    mutable Mutex m_mutex;[m
+[32m+[m[32m    friend class BaseIndexNotifications;[m
+[32m+[m[32m    std::shared_ptr<BaseIndexNotifications> m_notifications GUARDED_BY(m_mutex);[m
+[32m+[m[32m    std::unique_ptr<interfaces::Handler> m_handler GUARDED_BY(m_mutex);[m
+[32m+[m
+ protected:[m
+     std::unique_ptr<interfaces::Chain> m_chain;[m
+[31m-    CChainState* m_chainstate{nullptr};[m
+[31m-[m
+[31m-    void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex) override;[m
+ [m
+[31m-    void ChainStateFlushed(const CBlockLocator& locator) override;[m
+[32m+[m[32m    /// Return custom notification options for index.[m
+[32m+[m[32m    [[nodiscard]] virtual interfaces::Chain::NotifyOptions CustomOptions() { return {}; }[m
+ [m
+     /// Initialize internal state from the database and block index.[m
+     [[nodiscard]] virtual bool CustomInit(const std::optional<interfaces::BlockKey>& block) { return true; }[m
+[36m@@ -106,9 +100,8 @@[m [mprotected:[m
+     /// commit more index state.[m
+     virtual bool CustomCommit(CDBBatch& batch) { return true; }[m
+ [m
+[31m-    /// Rewind index to an earlier chain tip during a chain reorg. The tip must[m
+[31m-    /// be an ancestor of the current best block.[m
+[31m-    [[nodiscard]] virtual bool CustomRewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip) { return true; }[m
+[32m+[m[32m    /// Rewind index by one block during a chain reorg.[m
+[32m+[m[32m    [[nodiscard]] virtual bool CustomRemove(const interfaces::BlockInfo& block) { return true; }[m
+ [m
+     virtual DB& GetDB() const = 0;[m
+ [m
+[36m@@ -116,11 +109,10 @@[m [mprotected:[m
+     virtual const char* GetName() const = 0;[m
+ [m
+     /// Update the internal best block index as well as the prune lock.[m
+[31m-    void SetBestBlockIndex(const CBlockIndex* block);[m
+[32m+[m[32m    void SetBestBlock(const interfaces::BlockKey& block) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);[m
+ [m
+ public:[m
+     BaseIndex(std::unique_ptr<interfaces::Chain> chain);[m
+[31m-    /// Destructor interrupts sync thread if running and blocks until it exits.[m
+     virtual ~BaseIndex();[m
+ [m
+     /// Blocks the current thread until the index is caught up to the current[m
+[36m@@ -128,19 +120,19 @@[m [mpublic:[m
+     /// sync once and only needs to process blocks in the ValidationInterface[m
+     /// queue. If the index is catching up from far behind, this method does[m
+     /// not block and immediately returns false.[m
+[31m-    bool BlockUntilSyncedToCurrentChain() const LOCKS_EXCLUDED(::cs_main);[m
+[32m+[m[32m    bool BlockUntilSyncedToCurrentChain() const LOCKS_EXCLUDED(::cs_main) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);[m
+ [m
+[31m-    void Interrupt();[m
+[32m+[m[32m    void Interrupt() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);[m
+ [m
+     /// Start initializes the sync state and registers the instance as a[m
+     /// ValidationInterface so that it stays in sync with blockchain updates.[m
+[31m-    [[nodiscard]] bool Start();[m
+[32m+[m[32m    [[nodiscard]] bool Start() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);[m
+ [m
+     /// Stops the instance from staying in sync with blockchain updates.[m
+[31m-    void Stop();[m
+[32m+[m[32m    void Stop() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);[m
+ [m
+     /// Get a summary of the index and its state.[m
+[31m-    IndexSummary GetSummary() const;[m
+[32m+[m[32m    IndexSummary GetSummary() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);[m
+ };[m
+ [m
+ #endif // BITCOIN_INDEX_BASE_H[m
+[33mdiff --git a/src/index/blockfilterindex.cpp b/src/index/blockfilterindex.cpp[m
+[33mindex 8232567230..9c47afd382 100644[m
+[33m--- a/src/index/blockfilterindex.cpp[m
+[33m+++ b/src/index/blockfilterindex.cpp[m
+[36m@@ -11,7 +11,7 @@[m
+ #include <util/system.h>[m
+ #include <validation.h>[m
+ [m
+[2m-using node::UndoReadFromDisk;[m
+[32m+[m[32musing interfaces::FoundBlock;[m
+ [m
+ /* The index database stores three items for each block: the disk location of the encoded filter,[m
+  * its dSHA256 hash, and the header. Those belonging to blocks on the active chain are indexed by[m
+[36m@@ -110,6 +110,13 @@[m [mBlockFilterIndex::BlockFilterIndex(std::unique_ptr<interfaces::Chain> chain, Blo[m
+     m_filter_fileseq = std::make_unique<FlatFileSeq>(std::move(path), "fltr", FLTR_FILE_CHUNK_SIZE);[m
+ }[m
+ [m
+[32m+[m[32minterfaces::Chain::NotifyOptions BlockFilterIndex::CustomOptions()[m
+[32m+[m[32m{[m
+[32m+[m[32m    interfaces::Chain::NotifyOptions options;[m
+[32m+[m[32m    options.connect_undo_data = true;[m
+[32m+[m[32m    return options;[m
+[32m+[m[32m}[m
+[32m+[m
+ bool BlockFilterIndex::CustomInit(const std::optional<interfaces::BlockKey>& block)[m
+ {[m
+     if (!m_db->Read(DB_FILTER_POS, m_next_filter_pos)) {[m
+[36m@@ -217,17 +224,9 @@[m [msize_t BlockFilterIndex::WriteFilterToDisk(FlatFilePos& pos, const BlockFilter&[m
+ [m
+ bool BlockFilterIndex::CustomAppend(const interfaces::BlockInfo& block)[m
+ {[m
+[31m-    CBlockUndo block_undo;[m
+     uint256 prev_header;[m
+ [m
+     if (block.height > 0) {[m
+[31m-        // pindex variable gives indexing code access to node internals. It[m
+[31m-        // will be removed in upcoming commit[m
+[31m-        const CBlockIndex* pindex = WITH_LOCK(cs_main, return m_chainstate->m_blockman.LookupBlockIndex(block.hash));[m
+[31m-        if (!UndoReadFromDisk(block_undo, pindex)) {[m
+[31m-            return false;[m
+[31m-        }[m
+[31m-[m
+         std::pair<uint256, DBVal> read_out;[m
+         if (!m_db->Read(DBHeightKey(block.height - 1), read_out)) {[m
+             return false;[m
+[36m@@ -242,7 +241,7 @@[m [mbool BlockFilterIndex::CustomAppend(const interfaces::BlockInfo& block)[m
+         prev_header = read_out.second.header;[m
+     }[m
+ [m
+[31m-    BlockFilter filter(m_filter_type, *Assert(block.data), block_undo);[m
+[32m+[m[32m    BlockFilter filter(m_filter_type, *Assert(block.data), block.undo_data ? *block.undo_data : CBlockUndo());[m
+ [m
+     size_t bytes_written = WriteFilterToDisk(m_next_filter_pos, filter);[m
+     if (bytes_written == 0) return false;[m
+[36m@@ -287,7 +286,7 @@[m [mstatic bool CopyHeightIndexToHashIndex(CDBIterator& db_it, CDBBatch& batch,[m
+     return true;[m
+ }[m
+ [m
+[31m-bool BlockFilterIndex::CustomRewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip)[m
+[32m+[m[32mbool BlockFilterIndex::CustomRemove(const interfaces::BlockInfo& block)[m
+ {[m
+     CDBBatch batch(*m_db);[m
+     std::unique_ptr<CDBIterator> db_it(m_db->NewIterator());[m
+[36m@@ -295,7 +294,7 @@[m [mbool BlockFilterIndex::CustomRewind(const interfaces::BlockKey& current_tip, con[m
+     // During a reorg, we need to copy all filters for blocks that are getting disconnected from the[m
+     // height index to the hash index so we can still find them when the height index entries are[m
+     // overwritten.[m
+[31m-    if (!CopyHeightIndexToHashIndex(*db_it, batch, m_name, new_tip.height, current_tip.height)) {[m
+[32m+[m[32m    if (!CopyHeightIndexToHashIndex(*db_it, batch, m_name, block.height - 1, block.height)) {[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -308,42 +307,42 @@[m [mbool BlockFilterIndex::CustomRewind(const interfaces::BlockKey& current_tip, con[m
+     return true;[m
+ }[m
+ [m
+[31m-static bool LookupOne(const CDBWrapper& db, const CBlockIndex* block_index, DBVal& result)[m
+[32m+[m[32mstatic bool LookupOne(const CDBWrapper& db, const interfaces::BlockKey& block, DBVal& result)[m
+ {[m
+     // First check if the result is stored under the height index and the value there matches the[m
+     // block hash. This should be the case if the block is on the active chain.[m
+     std::pair<uint256, DBVal> read_out;[m
+[31m-    if (!db.Read(DBHeightKey(block_index->nHeight), read_out)) {[m
+[32m+[m[32m    if (!db.Read(DBHeightKey(block.height), read_out)) {[m
+         return false;[m
+     }[m
+[31m-    if (read_out.first == block_index->GetBlockHash()) {[m
+[32m+[m[32m    if (read_out.first == block.hash) {[m
+         result = std::move(read_out.second);[m
+         return true;[m
+     }[m
+ [m
+     // If value at the height index corresponds to an different block, the result will be stored in[m
+     // the hash index.[m
+[31m-    return db.Read(DBHashKey(block_index->GetBlockHash()), result);[m
+[32m+[m[32m    return db.Read(DBHashKey(block.hash), result);[m
+ }[m
+ [m
+[31m-static bool LookupRange(CDBWrapper& db, const std::string& index_name, int start_height,[m
+[31m-                        const CBlockIndex* stop_index, std::vector<DBVal>& results)[m
+[32m+[m[32mstatic bool LookupRange(CDBWrapper& db, const std::string& index_name, interfaces::Chain& chain, int start_height,[m
+[32m+[m[32m                        const interfaces::BlockKey& stop, std::vector<DBVal>& results)[m
+ {[m
+     if (start_height < 0) {[m
+         return error("%s: start height (%d) is negative", __func__, start_height);[m
+     }[m
+[31m-    if (start_height > stop_index->nHeight) {[m
+[32m+[m[32m    if (start_height > stop.height) {[m
+         return error("%s: start height (%d) is greater than stop height (%d)",[m
+[31m-                     __func__, start_height, stop_index->nHeight);[m
+[32m+[m[32m                     __func__, start_height, stop.height);[m
+     }[m
+ [m
+[31m-    size_t results_size = static_cast<size_t>(stop_index->nHeight - start_height + 1);[m
+[32m+[m[32m    size_t results_size = static_cast<size_t>(stop.height - start_height + 1);[m
+     std::vector<std::pair<uint256, DBVal>> values(results_size);[m
+ [m
+     DBHeightKey key(start_height);[m
+     std::unique_ptr<CDBIterator> db_it(db.NewIterator());[m
+     db_it->Seek(DBHeightKey(start_height));[m
+[31m-    for (int height = start_height; height <= stop_index->nHeight; ++height) {[m
+[32m+[m[32m    for (int height = start_height; height <= stop.height; ++height) {[m
+         if (!db_it->Valid() || !db_it->GetKey(key) || key.height != height) {[m
+             return false;[m
+         }[m
+[36m@@ -361,12 +360,13 @@[m [mstatic bool LookupRange(CDBWrapper& db, const std::string& index_name, int start[m
+ [m
+     // Iterate backwards through block indexes collecting results in order to access the block hash[m
+     // of each entry in case we need to look it up in the hash index.[m
+[31m-    for (const CBlockIndex* block_index = stop_index;[m
+[31m-         block_index && block_index->nHeight >= start_height;[m
+[31m-         block_index = block_index->pprev) {[m
+[31m-        uint256 block_hash = block_index->GetBlockHash();[m
+[31m-[m
+[31m-        size_t i = static_cast<size_t>(block_index->nHeight - start_height);[m
+[32m+[m[32m    uint256 block_hash = stop.hash;[m
+[32m+[m[32m    for (int block_height = stop.height; block_height >= start_height; --block_height) {[m
+[32m+[m[32m        if (block_height < stop.height) {[m
+[32m+[m[32m            bool found_hash = chain.findAncestorByHeight(block_hash, block_height, FoundBlock().hash(block_hash));[m
+[32m+[m[32m            assert(found_hash);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        size_t i = static_cast<size_t>(block_height - start_height);[m
+         if (block_hash == values[i].first) {[m
+             results[i] = std::move(values[i].second);[m
+             continue;[m
+[36m@@ -381,25 +381,25 @@[m [mstatic bool LookupRange(CDBWrapper& db, const std::string& index_name, int start[m
+     return true;[m
+ }[m
+ [m
+[31m-bool BlockFilterIndex::LookupFilter(const CBlockIndex* block_index, BlockFilter& filter_out) const[m
+[32m+[m[32mbool BlockFilterIndex::LookupFilter(const interfaces::BlockKey& block, BlockFilter& filter_out) const[m
+ {[m
+     DBVal entry;[m
+[31m-    if (!LookupOne(*m_db, block_index, entry)) {[m
+[32m+[m[32m    if (!LookupOne(*m_db, block, entry)) {[m
+         return false;[m
+     }[m
+ [m
+     return ReadFilterFromDisk(entry.pos, entry.hash, filter_out);[m
+ }[m
+ [m
+[31m-bool BlockFilterIndex::LookupFilterHeader(const CBlockIndex* block_index, uint256& header_out)[m
+[32m+[m[32mbool BlockFilterIndex::LookupFilterHeader(const interfaces::BlockKey& block, uint256& header_out)[m
+ {[m
+     LOCK(m_cs_headers_cache);[m
+ [m
+[31m-    bool is_checkpoint{block_index->nHeight % CFCHECKPT_INTERVAL == 0};[m
+[32m+[m[32m    bool is_checkpoint{block.height % CFCHECKPT_INTERVAL == 0};[m
+ [m
+     if (is_checkpoint) {[m
+         // Try to find the block in the headers cache if this is a checkpoint height.[m
+[31m-        auto header = m_headers_cache.find(block_index->GetBlockHash());[m
+[32m+[m[32m        auto header = m_headers_cache.find(block.hash);[m
+         if (header != m_headers_cache.end()) {[m
+             header_out = header->second;[m
+             return true;[m
+[36m@@ -407,25 +407,26 @@[m [mbool BlockFilterIndex::LookupFilterHeader(const CBlockIndex* block_index, uint25[m
+     }[m
+ [m
+     DBVal entry;[m
+[31m-    if (!LookupOne(*m_db, block_index, entry)) {[m
+[32m+[m[32m    if (!LookupOne(*m_db, block, entry)) {[m
+         return false;[m
+     }[m
+ [m
+     if (is_checkpoint &&[m
+         m_headers_cache.size() < CF_HEADERS_CACHE_MAX_SZ) {[m
+         // Add to the headers cache if this is a checkpoint height.[m
+[31m-        m_headers_cache.emplace(block_index->GetBlockHash(), entry.header);[m
+[32m+[m[32m        m_headers_cache.emplace(block.hash, entry.header);[m
+     }[m
+ [m
+     header_out = entry.header;[m
+     return true;[m
+ }[m
+ [m
+[31m-bool BlockFilterIndex::LookupFilterRange(int start_height, const CBlockIndex* stop_index,[m
+[32m+[m[32mbool BlockFilterIndex::LookupFilterRange(int start_height, const interfaces::BlockKey& stop_index,[m
+                                          std::vector<BlockFilter>& filters_out) const[m
+ {[m
+     std::vector<DBVal> entries;[m
+[31m-    if (!LookupRange(*m_db, m_name, start_height, stop_index, entries)) {[m
+[32m+[m[32m    assert(m_chain);[m
+[32m+[m[32m    if (!LookupRange(*m_db, m_name, *m_chain, start_height, stop_index, entries)) {[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -441,12 +442,13 @@[m [mbool BlockFilterIndex::LookupFilterRange(int start_height, const CBlockIndex* st[m
+     return true;[m
+ }[m
+ [m
+[31m-bool BlockFilterIndex::LookupFilterHashRange(int start_height, const CBlockIndex* stop_index,[m
+[32m+[m[32mbool BlockFilterIndex::LookupFilterHashRange(int start_height, const interfaces::BlockKey& stop_index,[m
+                                              std::vector<uint256>& hashes_out) const[m
+ [m
+ {[m
+     std::vector<DBVal> entries;[m
+[31m-    if (!LookupRange(*m_db, m_name, start_height, stop_index, entries)) {[m
+[32m+[m[32m    assert(m_chain);[m
+[32m+[m[32m    if (!LookupRange(*m_db, m_name, *m_chain, start_height, stop_index, entries)) {[m
+         return false;[m
+     }[m
+ [m
+[33mdiff --git a/src/index/blockfilterindex.h b/src/index/blockfilterindex.h[m
+[33mindex 968eccb6b3..e57ba617de 100644[m
+[33m--- a/src/index/blockfilterindex.h[m
+[33m+++ b/src/index/blockfilterindex.h[m
+[36m@@ -41,13 +41,15 @@[m [mprivate:[m
+     bool AllowPrune() const override { return true; }[m
+ [m
+ protected:[m
+[32m+[m[32m    interfaces::Chain::NotifyOptions CustomOptions() override;[m
+[32m+[m
+     bool CustomInit(const std::optional<interfaces::BlockKey>& block) override;[m
+ [m
+     bool CustomCommit(CDBBatch& batch) override;[m
+ [m
+     bool CustomAppend(const interfaces::BlockInfo& block) override;[m
+ [m
+[31m-    bool CustomRewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip) override;[m
+[32m+[m[32m    bool CustomRemove(const interfaces::BlockInfo& block) override;[m
+ [m
+     BaseIndex::DB& GetDB() const override { return *m_db; }[m
+ [m
+[36m@@ -61,17 +63,17 @@[m [mpublic:[m
+     BlockFilterType GetFilterType() const { return m_filter_type; }[m
+ [m
+     /** Get a single filter by block. */[m
+[31m-    bool LookupFilter(const CBlockIndex* block_index, BlockFilter& filter_out) const;[m
+[32m+[m[32m    bool LookupFilter(const interfaces::BlockKey& block, BlockFilter& filter_out) const;[m
+ [m
+     /** Get a single filter header by block. */[m
+[31m-    bool LookupFilterHeader(const CBlockIndex* block_index, uint256& header_out) EXCLUSIVE_LOCKS_REQUIRED(!m_cs_headers_cache);[m
+[32m+[m[32m    bool LookupFilterHeader(const interfaces::BlockKey& block, uint256& header_out) EXCLUSIVE_LOCKS_REQUIRED(!m_cs_headers_cache);[m
+ [m
+     /** Get a range of filters between two heights on a chain. */[m
+[31m-    bool LookupFilterRange(int start_height, const CBlockIndex* stop_index,[m
+[32m+[m[32m    bool LookupFilterRange(int start_height, const interfaces::BlockKey& stop_index,[m
+                            std::vector<BlockFilter>& filters_out) const;[m
+ [m
+     /** Get a range of filter hashes between two heights on a chain. */[m
+[31m-    bool LookupFilterHashRange(int start_height, const CBlockIndex* stop_index,[m
+[32m+[m[32m    bool LookupFilterHashRange(int start_height, const interfaces::BlockKey& stop_index,[m
+                                std::vector<uint256>& hashes_out) const;[m
+ };[m
+ [m
+[33mdiff --git a/src/index/coinstatsindex.cpp b/src/index/coinstatsindex.cpp[m
+[33mindex b9029e946a..3155ff8da6 100644[m
+[33m--- a/src/index/coinstatsindex.cpp[m
+[33m+++ b/src/index/coinstatsindex.cpp[m
+[36m@@ -18,7 +18,6 @@[m [musing kernel::GetBogoSize;[m
+ using kernel::TxOutSer;[m
+ [m
+ using node::ReadBlockFromDisk;[m
+[2m-using node::UndoReadFromDisk;[m
+ [m
+ static constexpr uint8_t DB_BLOCK_HASH{'s'};[m
+ static constexpr uint8_t DB_BLOCK_HEIGHT{'t'};[m
+[36m@@ -114,19 +113,11 @@[m [mCoinStatsIndex::CoinStatsIndex(std::unique_ptr<interfaces::Chain> chain, size_t[m
+ [m
+ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)[m
+ {[m
+[31m-    CBlockUndo block_undo;[m
+     const CAmount block_subsidy{GetBlockSubsidy(block.height, Params().GetConsensus())};[m
+     m_total_subsidy += block_subsidy;[m
+ [m
+     // Ignore genesis block[m
+     if (block.height > 0) {[m
+[31m-        // pindex variable gives indexing code access to node internals. It[m
+[31m-        // will be removed in upcoming commit[m
+[31m-        const CBlockIndex* pindex = WITH_LOCK(cs_main, return m_chainstate->m_blockman.LookupBlockIndex(block.hash));[m
+[31m-        if (!UndoReadFromDisk(block_undo, pindex)) {[m
+[31m-            return false;[m
+[31m-        }[m
+[31m-[m
+         std::pair<uint256, DBVal> read_out;[m
+         if (!m_db->Read(DBHeightKey(block.height - 1), read_out)) {[m
+             return false;[m
+[36m@@ -149,6 +140,7 @@[m [mbool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)[m
+ [m
+         // Add the new utxos created from the block[m
+         assert(block.data);[m
+[32m+[m[32m        assert(block.undo_data);[m
+         for (size_t i = 0; i < block.data->vtx.size(); ++i) {[m
+             const auto& tx{block.data->vtx.at(i)};[m
+ [m
+[36m@@ -186,7 +178,7 @@[m [mbool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)[m
+ [m
+             // The coinbase tx has no undo data since no former output is spent[m
+             if (!tx->IsCoinBase()) {[m
+[31m-                const auto& tx_undo{block_undo.vtxundo.at(i - 1)};[m
+[32m+[m[32m                const auto& tx_undo{block.undo_data->vtxundo.at(i - 1)};[m
+ [m
+                 for (size_t j = 0; j < tx_undo.vprevout.size(); ++j) {[m
+                     Coin coin{tx_undo.vprevout[j]};[m
+[36m@@ -266,7 +258,7 @@[m [mstatic bool CopyHeightIndexToHashIndex(CDBIterator& db_it, CDBBatch& batch,[m
+     return true;[m
+ }[m
+ [m
+[31m-bool CoinStatsIndex::CustomRewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip)[m
+[32m+[m[32mbool CoinStatsIndex::CustomRemove(const interfaces::BlockInfo& block)[m
+ {[m
+     CDBBatch batch(*m_db);[m
+     std::unique_ptr<CDBIterator> db_it(m_db->NewIterator());[m
+[36m@@ -274,31 +266,13 @@[m [mbool CoinStatsIndex::CustomRewind(const interfaces::BlockKey& current_tip, const[m
+     // During a reorg, we need to copy all hash digests for blocks that are[m
+     // getting disconnected from the height index to the hash index so we can[m
+     // still find them when the height index entries are overwritten.[m
+[31m-    if (!CopyHeightIndexToHashIndex(*db_it, batch, m_name, new_tip.height, current_tip.height)) {[m
+[32m+[m[32m    if (!CopyHeightIndexToHashIndex(*db_it, batch, m_name, block.height - 1, block.height)) {[m
+         return false;[m
+     }[m
+ [m
+     if (!m_db->WriteBatch(batch)) return false;[m
+ [m
+[31m-    {[m
+[31m-        LOCK(cs_main);[m
+[31m-        const CBlockIndex* iter_tip{m_chainstate->m_blockman.LookupBlockIndex(current_tip.hash)};[m
+[31m-        const CBlockIndex* new_tip_index{m_chainstate->m_blockman.LookupBlockIndex(new_tip.hash)};[m
+[31m-        const auto& consensus_params{Params().GetConsensus()};[m
+[31m-[m
+[31m-        do {[m
+[31m-            CBlock block;[m
+[31m-[m
+[31m-            if (!ReadBlockFromDisk(block, iter_tip, consensus_params)) {[m
+[31m-                return error("%s: Failed to read block %s from disk",[m
+[31m-                             __func__, iter_tip->GetBlockHash().ToString());[m
+[31m-            }[m
+[31m-[m
+[31m-            ReverseBlock(block, iter_tip);[m
+[31m-[m
+[31m-            iter_tip = iter_tip->GetAncestor(iter_tip->nHeight - 1);[m
+[31m-        } while (new_tip_index != iter_tip);[m
+[31m-    }[m
+[32m+[m[32m    ReverseBlock(block);[m
+ [m
+     return true;[m
+ }[m
+[36m@@ -322,13 +296,13 @@[m [mstatic bool LookUpOne(const CDBWrapper& db, const interfaces::BlockKey& block, D[m
+     return db.Read(DBHashKey(block.hash), result);[m
+ }[m
+ [m
+[31m-std::optional<CCoinsStats> CoinStatsIndex::LookUpStats(const CBlockIndex* block_index) const[m
+[32m+[m[32mstd::optional<CCoinsStats> CoinStatsIndex::LookUpStats(const interfaces::BlockKey& block) const[m
+ {[m
+[31m-    CCoinsStats stats{Assert(block_index)->nHeight, block_index->GetBlockHash()};[m
+[32m+[m[32m    CCoinsStats stats{block.height, block.hash};[m
+     stats.index_used = true;[m
+ [m
+     DBVal entry;[m
+[31m-    if (!LookUpOne(*m_db, {block_index->GetBlockHash(), block_index->nHeight}, entry)) {[m
+[32m+[m[32m    if (!LookUpOne(*m_db, block, entry)) {[m
+         return std::nullopt;[m
+     }[m
+ [m
+[36m@@ -400,26 +374,30 @@[m [mbool CoinStatsIndex::CustomCommit(CDBBatch& batch)[m
+     return true;[m
+ }[m
+ [m
+[32m+[m[32minterfaces::Chain::NotifyOptions CoinStatsIndex::CustomOptions()[m
+[32m+[m[32m{[m
+[32m+[m[32m    interfaces::Chain::NotifyOptions options;[m
+[32m+[m[32m    options.connect_undo_data = true;[m
+[32m+[m[32m    options.disconnect_data = true;[m
+[32m+[m[32m    options.disconnect_undo_data = true;[m
+[32m+[m[32m    return options;[m
+[32m+[m[32m}[m
+[32m+[m
+ // Reverse a single block as part of a reorg[m
+[31m-bool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex)[m
+[32m+[m[32mbool CoinStatsIndex::ReverseBlock(const interfaces::BlockInfo& block)[m
+ {[m
+[31m-    CBlockUndo block_undo;[m
+     std::pair<uint256, DBVal> read_out;[m
+ [m
+[31m-    const CAmount block_subsidy{GetBlockSubsidy(pindex->nHeight, Params().GetConsensus())};[m
+[32m+[m[32m    const CAmount block_subsidy{GetBlockSubsidy(block.height, Params().GetConsensus())};[m
+     m_total_subsidy -= block_subsidy;[m
+ [m
+     // Ignore genesis block[m
+[31m-    if (pindex->nHeight > 0) {[m
+[31m-        if (!UndoReadFromDisk(block_undo, pindex)) {[m
+[31m-            return false;[m
+[31m-        }[m
+[31m-[m
+[31m-        if (!m_db->Read(DBHeightKey(pindex->nHeight - 1), read_out)) {[m
+[32m+[m[32m    if (block.height > 0) {[m
+[32m+[m[32m        if (!m_db->Read(DBHeightKey(block.height - 1), read_out)) {[m
+             return false;[m
+         }[m
+ [m
+[31m-        uint256 expected_block_hash{pindex->pprev->GetBlockHash()};[m
+[32m+[m[32m        uint256 expected_block_hash{*block.prev_hash};[m
+         if (read_out.first != expected_block_hash) {[m
+             LogPrintf("WARNING: previous block header belongs to unexpected block %s; expected %s\n",[m
+                       read_out.first.ToString(), expected_block_hash.ToString());[m
+[36m@@ -432,13 +410,15 @@[m [mbool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex[m
+     }[m
+ [m
+     // Remove the new UTXOs that were created from the block[m
+[31m-    for (size_t i = 0; i < block.vtx.size(); ++i) {[m
+[31m-        const auto& tx{block.vtx.at(i)};[m
+[32m+[m[32m    assert(block.data);[m
+[32m+[m[32m    assert(block.undo_data);[m
+[32m+[m[32m    for (size_t i = 0; i < block.data->vtx.size(); ++i) {[m
+[32m+[m[32m        const auto& tx{block.data->vtx.at(i)};[m
+ [m
+         for (uint32_t j = 0; j < tx->vout.size(); ++j) {[m
+             const CTxOut& out{tx->vout[j]};[m
+             COutPoint outpoint{tx->GetHash(), j};[m
+[31m-            Coin coin{out, pindex->nHeight, tx->IsCoinBase()};[m
+[32m+[m[32m            Coin coin{out, block.height, tx->IsCoinBase()};[m
+ [m
+             // Skip unspendable coins[m
+             if (coin.out.scriptPubKey.IsUnspendable()) {[m
+[36m@@ -462,7 +442,7 @@[m [mbool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex[m
+ [m
+         // The coinbase tx has no undo data since no former output is spent[m
+         if (!tx->IsCoinBase()) {[m
+[31m-            const auto& tx_undo{block_undo.vtxundo.at(i - 1)};[m
+[32m+[m[32m            const auto& tx_undo{block.undo_data->vtxundo.at(i - 1)};[m
+ [m
+             for (size_t j = 0; j < tx_undo.vprevout.size(); ++j) {[m
+                 Coin coin{tx_undo.vprevout[j]};[m
+[33mdiff --git a/src/index/coinstatsindex.h b/src/index/coinstatsindex.h[m
+[33mindex c4af223388..3c061acaeb 100644[m
+[33m--- a/src/index/coinstatsindex.h[m
+[33m+++ b/src/index/coinstatsindex.h[m
+[36m@@ -34,18 +34,20 @@[m [mprivate:[m
+     CAmount m_total_unspendables_scripts{0};[m
+     CAmount m_total_unspendables_unclaimed_rewards{0};[m
+ [m
+[31m-    bool ReverseBlock(const CBlock& block, const CBlockIndex* pindex);[m
+[32m+[m[32m    bool ReverseBlock(const interfaces::BlockInfo& block);[m
+ [m
+     bool AllowPrune() const override { return true; }[m
+ [m
+ protected:[m
+[32m+[m[32m    interfaces::Chain::NotifyOptions CustomOptions() override;[m
+[32m+[m
+     bool CustomInit(const std::optional<interfaces::BlockKey>& block) override;[m
+ [m
+     bool CustomCommit(CDBBatch& batch) override;[m
+ [m
+     bool CustomAppend(const interfaces::BlockInfo& block) override;[m
+ [m
+[31m-    bool CustomRewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip) override;[m
+[32m+[m[32m    bool CustomRemove(const interfaces::BlockInfo& block) override;[m
+ [m
+     BaseIndex::DB& GetDB() const override { return *m_db; }[m
+ [m
+[36m@@ -55,8 +57,8 @@[m [mpublic:[m
+     // Constructs the index, which becomes available to be queried.[m
+     explicit CoinStatsIndex(std::unique_ptr<interfaces::Chain> chain, size_t n_cache_size, bool f_memory = false, bool f_wipe = false);[m
+ [m
+[31m-    // Look up stats for a specific block using CBlockIndex[m
+[31m-    std::optional<kernel::CCoinsStats> LookUpStats(const CBlockIndex* block_index) const;[m
+[32m+[m[32m    // Look up stats for a specific block using hash and height[m
+[32m+[m[32m    std::optional<kernel::CCoinsStats> LookUpStats(const interfaces::BlockKey& block) const;[m
+ };[m
+ [m
+ /// The global UTXO set hash object.[m
+[33mdiff --git a/src/interfaces/chain.h b/src/interfaces/chain.h[m
+[33mindex 5fc0e540a9..07c23ea9db 100644[m
+[33m--- a/src/interfaces/chain.h[m
+[33m+++ b/src/interfaces/chain.h[m
+[36m@@ -31,6 +31,7 @@[m [mstruct CBlockLocator;[m
+ struct FeeCalculation;[m
+ namespace node {[m
+ struct NodeContext;[m
+[32m+[m[32mstruct PruneLockInfo;[m
+ } // namespace node[m
+ [m
+ namespace interfaces {[m
+[36m@@ -86,6 +87,9 @@[m [mstruct BlockInfo {[m
+     unsigned data_pos = 0;[m
+     const CBlock* data = nullptr;[m
+     const CBlockUndo* undo_data = nullptr;[m
+[32m+[m[32m    //! Block is from the tip of the chain (always true except when first calling attachChain and reading old blocks).[m
+[32m+[m[32m    bool chain_tip = true;[m
+[32m+[m[32m    std::string error;[m
+ [m
+     BlockInfo(const uint256& hash LIFETIMEBOUND) : hash(hash) {}[m
+ };[m
+[36m@@ -131,6 +135,9 @@[m [mpublic:[m
+     //! pruned), and contains transactions.[m
+     virtual bool haveBlockOnDisk(int height) = 0;[m
+ [m
+[32m+[m[32m    //! Get tip information.[m
+[32m+[m[32m    virtual bool getTip(const FoundBlock& block={}) = 0;[m
+[32m+[m
+     //! Get locator for the current chain tip.[m
+     virtual CBlockLocator getTipLocator() = 0;[m
+ [m
+[36m@@ -231,6 +238,9 @@[m [mpublic:[m
+     //! Relay dust fee setting (-dustrelayfee), reflecting lowest rate it's economical to spend.[m
+     virtual CFeeRate relayDustFee() = 0;[m
+ [m
+[32m+[m[32m    //! Set or remove a prune lock.[m
+[32m+[m[32m    virtual void updatePruneLock(const std::string& name, const node::PruneLockInfo& lock_info) = 0;[m
+[32m+[m
+     //! Check if any block has been pruned.[m
+     virtual bool havePruned() = 0;[m
+ [m
+[36m@@ -262,15 +272,40 @@[m [mpublic:[m
+         virtual ~Notifications() {}[m
+         virtual void transactionAddedToMempool(const CTransactionRef& tx, uint64_t mempool_sequence) {}[m
+         virtual void transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) {}[m
+[32m+[m[32m        //! Notification sent when a new block is connected, and also called[m
+[32m+[m[32m        //! when first calling attachChain() to send information about the most[m
+[32m+[m[32m        //! recent connected previous block. The block.data pointer is non-null[m
+[32m+[m[32m        //! when sending information about a new block, and null when sending[m
+[32m+[m[32m        //! information about the most recent previous block.[m
+         virtual void blockConnected(const BlockInfo& block) {}[m
+         virtual void blockDisconnected(const BlockInfo& block) {}[m
+         virtual void updatedBlockTip() {}[m
+         virtual void chainStateFlushed(const CBlockLocator& locator) {}[m
+     };[m
+ [m
+[32m+[m[32m    struct NotifyOptions[m
+[32m+[m[32m    {[m
+[32m+[m[32m        //! Include undo data with block connected notifications.[m
+[32m+[m[32m        bool connect_undo_data = false;[m
+[32m+[m[32m        //! Include block data with block disconnected notifications.[m
+[32m+[m[32m        bool disconnect_data = false;[m
+[32m+[m[32m        //! Include undo data with block disconnected notifications.[m
+[32m+[m[32m        bool disconnect_undo_data = false;[m
+[32m+[m[32m        //! Name to use for attachChain sync thread.[m
+[32m+[m[32m        const char* thread_name = nullptr;[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    //! Register handler for notifications if all blocks needed to sync from[m
+[32m+[m[32m    //! start block to current tip are present. Return null if necessary blocks[m
+[32m+[m[32m    //! were pruned.[m
+[32m+[m[32m    virtual std::unique_ptr<Handler> attachChain(std::shared_ptr<Notifications> notifications, const CBlockLocator& locator, const NotifyOptions& options) = 0;[m
+[32m+[m
+     //! Register handler for notifications.[m
+     virtual std::unique_ptr<Handler> handleNotifications(std::shared_ptr<Notifications> notifications) = 0;[m
+ [m
+[32m+[m[32m    //! Wait for pending notifications.[m
+[32m+[m[32m    virtual void waitForPendingNotifications() = 0;[m
+[32m+[m
+     //! Wait for pending notifications to be processed unless block hash points to the current[m
+     //! chain tip.[m
+     virtual void waitForNotificationsIfTipChanged(const uint256& old_tip) = 0;[m
+[33mdiff --git a/src/interfaces/handler.h b/src/interfaces/handler.h[m
+[33mindex 11baf9dd65..75932c113d 100644[m
+[33m--- a/src/interfaces/handler.h[m
+[33m+++ b/src/interfaces/handler.h[m
+[36m@@ -24,7 +24,10 @@[m [mclass Handler[m
+ public:[m
+     virtual ~Handler() {}[m
+ [m
+[31m-    //! Disconnect the handler.[m
+[32m+[m[32m    //! Interrupt the handler, set flag for notification threads (if any) to quit.[m
+[32m+[m[32m    virtual void interrupt() {};[m
+[32m+[m
+[32m+[m[32m    //! Disconnect the handler, stop receiving notifications.[m
+     virtual void disconnect() = 0;[m
+ };[m
+ [m
+[33mdiff --git a/src/kernel/chain.cpp b/src/kernel/chain.cpp[m
+[33mindex 82e77125d7..1eb680909b 100644[m
+[33m--- a/src/kernel/chain.cpp[m
+[33m+++ b/src/kernel/chain.cpp[m
+[36m@@ -3,12 +3,20 @@[m
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+ [m
+ #include <chain.h>[m
+[32m+[m[32m#include <chainparams.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <kernel/chain.h>[m
+ #include <sync.h>[m
+[32m+[m[32m#include <threadinterrupt.h>[m
+ #include <uint256.h>[m
+[32m+[m[32m#include <undo.h>[m
+[32m+[m[32m#include <validation.h>[m
+ [m
+ class CBlock;[m
+ [m
+[32m+[m[32musing node::ReadBlockFromDisk;[m
+[2m+[m[2musing node::UndoReadFromDisk;[m
+[32m+[m
+ namespace kernel {[m
+ interfaces::BlockInfo MakeBlockInfo(const CBlockIndex* index, const CBlock* data)[m
+ {[m
+[36m@@ -23,4 +31,74 @@[m [minterfaces::BlockInfo MakeBlockInfo(const CBlockIndex* index, const CBlock* data[m
+     info.data = data;[m
+     return info;[m
+ }[m
+[32m+[m
+[32m+[m[32mbool ReadBlockData(const CBlockIndex* block, CBlock* data, CBlockUndo* undo_data, interfaces::BlockInfo& info)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (data) {[m
+[2m+[m[2m        auto& consensus_params = Params().GetConsensus();[m
+[32m+[m[32m        if (ReadBlockFromDisk(*data, block, consensus_params)) {[m
+[32m+[m[32m            info.data = data;[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            info.error = strprintf("%s: Failed to read block %s from disk", __func__, block->GetBlockHash().ToString());[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m    if (undo_data && block->nHeight > 0) {[m
+[32m+[m[32m        if (UndoReadFromDisk(*undo_data, block)) {[m
+[32m+[m[32m            info.undo_data = undo_data;[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            info.error = strprintf("%s: Failed to read block %s undo data from disk", __func__, block->GetBlockHash().ToString());[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return true;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mbool SyncChain(const CChain& chain, const CBlockIndex* block, std::shared_ptr<interfaces::Chain::Notifications> notifications, const CThreadInterrupt& interrupt, std::function<void()> on_sync)[m
+[32m+[m[32m{[m
+[32m+[m[32m    while (true) {[m
+[32m+[m[32m        AssertLockNotHeld(::cs_main);[m
+[32m+[m[32m        WAIT_LOCK(::cs_main, main_lock);[m
+[32m+[m
+[32m+[m[32m        bool rewind = false;[m
+[32m+[m[32m        if (!block) {[m
+[32m+[m[32m            block = chain.Genesis();[m
+[32m+[m[32m        } else if (chain.Contains(block)) {[m
+[32m+[m[32m            block = chain.Next(block);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            rewind = true;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        if (block) {[m
+[32m+[m[32m            // Release cs_main while reading block data and sending notifications.[m
+[32m+[m[32m            REVERSE_LOCK(main_lock);[m
+[32m+[m[32m            interfaces::BlockInfo block_info = MakeBlockInfo(block);[m
+[32m+[m[32m            block_info.chain_tip = false;[m
+[32m+[m[32m            CBlock data;[m
+[32m+[m[32m            CBlockUndo undo_data;[m
+[32m+[m[32m            ReadBlockData(block, &data, &undo_data, block_info);[m
+[32m+[m[32m            if (rewind) {[m
+[32m+[m[32m                notifications->blockDisconnected(block_info);[m
+[32m+[m[32m                block = Assert(block->pprev);[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                notifications->blockConnected(block_info);[m
+[32m+[m[32m            }[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            block = chain.Tip();[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        bool synced = block == chain.Tip();[m
+[32m+[m[32m        if (synced || interrupt) {[m
+[32m+[m[32m            if (synced && on_sync) on_sync();[m
+[32m+[m[32m            if (block) {[m
+[32m+[m[32m                CBlockLocator locator = chain.GetLocator(block);[m
+[32m+[m[32m                // Release cs_main while calling notification handlers.[m
+[32m+[m[32m                REVERSE_LOCK(main_lock);[m
+[32m+[m[32m                if (synced) notifications->blockConnected(MakeBlockInfo(block));[m
+[32m+[m[32m                notifications->chainStateFlushed(locator);[m
+[32m+[m[32m            }[m
+[32m+[m[32m            return synced;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+ } // namespace kernel[m
+[33mdiff --git a/src/kernel/chain.h b/src/kernel/chain.h[m
+[33mindex f0750f8266..bcdb2b9657 100644[m
+[33m--- a/src/kernel/chain.h[m
+[33m+++ b/src/kernel/chain.h[m
+[36m@@ -5,15 +5,38 @@[m
+ #ifndef BITCOIN_KERNEL_CHAIN_H[m
+ #define BITCOIN_KERNEL_CHAIN_H[m
+ [m
+[32m+[m[32m#include <interfaces/chain.h>[m
+[32m+[m
+[32m+[m[32m#include <functional>[m
+[32m+[m
+ class CBlock;[m
+ class CBlockIndex;[m
+[31m-namespace interfaces {[m
+[31m-struct BlockInfo;[m
+[31m-} // namespace interfaces[m
+[32m+[m[32mclass CChain;[m
+[32m+[m[32mclass CThreadInterrupt;[m
+ [m
+ namespace kernel {[m
+ //! Return data from block index.[m
+ interfaces::BlockInfo MakeBlockInfo(const CBlockIndex* block_index, const CBlock* data = nullptr);[m
+[32m+[m
+[32m+[m[32m//! Read block data and/or undo data from disk and update BlockInfo with pointers and errors.[m
+[32m+[m[32mbool ReadBlockData(const CBlockIndex* block, CBlock* data, CBlockUndo* undo_data, interfaces::BlockInfo& info);[m
+[32m+[m
+[32m+[m[32m//! Send blockConnected and blockDisconnected notifications needed to sync from[m
+[32m+[m[32m//! a specified block to the chain tip. This sync function locks the ::cs_main[m
+[32m+[m[32m//! mutex intermittently, releasing it while sending notifications and reading[m
+[32m+[m[32m//! block data, so it follows the tip if the tip changes, and follows any[m
+[32m+[m[32m//! reorgs.[m
+[32m+[m[32m//![m
+[32m+[m[32m//! @param chain - chain to sync to[m
+[32m+[m[32m//! @param block - starting block to sync from[m
+[32m+[m[32m//! @param notifications - object to send notifications to[m
+[32m+[m[32m//! @param interrupt - flag to interrupt the sync[m
+[32m+[m[32m//! @param on_sync - optional callback invoked when reaching the chain tip[m
+[32m+[m[32m//!                  while cs_main is still held, before sending a final[m
+[32m+[m[32m//!                  blockConnected notification. This can be used to[m
+[32m+[m[32m//!                  synchronously register for new notifications.[m
+[32m+[m[32m//! @return true if synced, false if interrupted[m
+[32m+[m[32mbool SyncChain(const CChain& chain, const CBlockIndex* block, std::shared_ptr<interfaces::Chain::Notifications> notifications, const CThreadInterrupt& interrupt, std::function<void()> on_sync);[m
+ } // namespace kernel[m
+ [m
+ #endif // BITCOIN_KERNEL_CHAIN_H[m
+[33mdiff --git a/src/net_processing.cpp b/src/net_processing.cpp[m
+[33mindex 74d1bf44d2..01e53e4601 100644[m
+[33m--- a/src/net_processing.cpp[m
+[33m+++ b/src/net_processing.cpp[m
+[36m@@ -2667,7 +2667,7 @@[m [mvoid PeerManagerImpl::ProcessGetCFilters(CNode& node,Peer& peer, CDataStream& vR[m
+     }[m
+ [m
+     std::vector<BlockFilter> filters;[m
+[31m-    if (!filter_index->LookupFilterRange(start_height, stop_index, filters)) {[m
+[32m+[m[32m    if (!filter_index->LookupFilterRange(start_height, {stop_index->GetBlockHash(), stop_index->nHeight}, filters)) {[m
+         LogPrint(BCLog::NET, "Failed to find block filter in index: filter_type=%s, start_height=%d, stop_hash=%s\n",[m
+                      BlockFilterTypeName(filter_type), start_height, stop_hash.ToString());[m
+         return;[m
+[36m@@ -2701,7 +2701,7 @@[m [mvoid PeerManagerImpl::ProcessGetCFHeaders(CNode& node, Peer& peer, CDataStream&[m
+     if (start_height > 0) {[m
+         const CBlockIndex* const prev_block =[m
+             stop_index->GetAncestor(static_cast<int>(start_height - 1));[m
+[31m-        if (!filter_index->LookupFilterHeader(prev_block, prev_header)) {[m
+[32m+[m[32m        if (!filter_index->LookupFilterHeader({prev_block->GetBlockHash(), prev_block->nHeight}, prev_header)) {[m
+             LogPrint(BCLog::NET, "Failed to find block filter header in index: filter_type=%s, block_hash=%s\n",[m
+                          BlockFilterTypeName(filter_type), prev_block->GetBlockHash().ToString());[m
+             return;[m
+[36m@@ -2709,7 +2709,7 @@[m [mvoid PeerManagerImpl::ProcessGetCFHeaders(CNode& node, Peer& peer, CDataStream&[m
+     }[m
+ [m
+     std::vector<uint256> filter_hashes;[m
+[31m-    if (!filter_index->LookupFilterHashRange(start_height, stop_index, filter_hashes)) {[m
+[32m+[m[32m    if (!filter_index->LookupFilterHashRange(start_height, {stop_index->GetBlockHash(), stop_index->nHeight}, filter_hashes)) {[m
+         LogPrint(BCLog::NET, "Failed to find block filter hashes in index: filter_type=%s, start_height=%d, stop_hash=%s\n",[m
+                      BlockFilterTypeName(filter_type), start_height, stop_hash.ToString());[m
+         return;[m
+[36m@@ -2749,7 +2749,7 @@[m [mvoid PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream&[m
+         int height = (i + 1) * CFCHECKPT_INTERVAL;[m
+         block_index = block_index->GetAncestor(height);[m
+ [m
+[31m-        if (!filter_index->LookupFilterHeader(block_index, headers[i])) {[m
+[32m+[m[32m        if (!filter_index->LookupFilterHeader({block_index->GetBlockHash(), block_index->nHeight}, headers[i])) {[m
+             LogPrint(BCLog::NET, "Failed to find block filter header in index: filter_type=%s, block_hash=%s\n",[m
+                          BlockFilterTypeName(filter_type), block_index->GetBlockHash().ToString());[m
+             return;[m
+[33mdiff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp[m
+[33mindex 56b5a928ad..356cd12c65 100644[m
+[33m--- a/src/node/interfaces.cpp[m
+[33m+++ b/src/node/interfaces.cpp[m
+[36m@@ -39,9 +39,12 @@[m
+ #include <timedata.h>[m
+ #include <txmempool.h>[m
+ #include <uint256.h>[m
+[32m+[m[32m#include <undo.h>[m
+ #include <univalue.h>[m
+ #include <util/check.h>[m
+[32m+[m[32m#include <util/syscall_sandbox.h>[m
+ #include <util/system.h>[m
+[32m+[m[32m#include <util/thread.h>[m
+ #include <util/translation.h>[m
+ #include <validation.h>[m
+ #include <validationinterface.h>[m
+[36m@@ -52,6 +55,7 @@[m
+ #endif[m
+ [m
+ #include <any>[m
+[32m+[m[32m#include <future>[m
+ #include <memory>[m
+ #include <optional>[m
+ #include <utility>[m
+[36m@@ -415,8 +419,8 @@[m [mbool FillBlock(const CBlockIndex* index, const FoundBlock& block, UniqueLock<Rec[m
+ class NotificationsProxy : public CValidationInterface[m
+ {[m
+ public:[m
+[31m-    explicit NotificationsProxy(std::shared_ptr<Chain::Notifications> notifications)[m
+[31m-        : m_notifications(std::move(notifications)) {}[m
+[32m+[m[32m    explicit NotificationsProxy(std::shared_ptr<Chain::Notifications> notifications, const Chain::NotifyOptions& options)[m
+[32m+[m[32m        : m_notifications(std::move(notifications)), m_options(options) {}[m
+     virtual ~NotificationsProxy() = default;[m
+     void TransactionAddedToMempool(const CTransactionRef& tx, uint64_t mempool_sequence) override[m
+     {[m
+[36m@@ -428,37 +432,78 @@[m [mpublic:[m
+     }[m
+     void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* index) override[m
+     {[m
+[31m-        m_notifications->blockConnected(kernel::MakeBlockInfo(index, block.get()));[m
+[32m+[m[32m        interfaces::BlockInfo block_info = kernel::MakeBlockInfo(index, block.get());[m
+[32m+[m[32m        CBlockUndo undo_data;[m
+[32m+[m[32m        kernel::ReadBlockData(index, /*data=*/nullptr, m_options.connect_undo_data ? &undo_data : nullptr, block_info);[m
+[32m+[m[32m        m_notifications->blockConnected(block_info);[m
+     }[m
+     void BlockDisconnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* index) override[m
+     {[m
+[31m-        m_notifications->blockDisconnected(kernel::MakeBlockInfo(index, block.get()));[m
+[32m+[m[32m        interfaces::BlockInfo block_info = kernel::MakeBlockInfo(index, block.get());[m
+[32m+[m[32m        CBlockUndo undo_data;[m
+[32m+[m[32m        kernel::ReadBlockData(index, /*data=*/nullptr, m_options.disconnect_undo_data ? &undo_data : nullptr, block_info);[m
+[32m+[m[32m        m_notifications->blockDisconnected(block_info);[m
+     }[m
+     void UpdatedBlockTip(const CBlockIndex* index, const CBlockIndex* fork_index, bool is_ibd) override[m
+     {[m
+         m_notifications->updatedBlockTip();[m
+     }[m
+     void ChainStateFlushed(const CBlockLocator& locator) override { m_notifications->chainStateFlushed(locator); }[m
+[32m+[m[32m    static void connect(std::shared_ptr<NotificationsProxy> self) EXCLUSIVE_LOCKS_REQUIRED(!self->m_mutex)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        LOCK(self->m_mutex);[m
+[32m+[m[32m        if (self->m_state == INIT) {[m
+[32m+[m[32m            RegisterSharedValidationInterface(self);[m
+[32m+[m[32m            self->m_state = CONNECTED;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m    static void disconnect(std::shared_ptr<NotificationsProxy> self) EXCLUSIVE_LOCKS_REQUIRED(!self->m_mutex)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        LOCK(self->m_mutex);[m
+[32m+[m[32m        if (self->m_state == CONNECTED) {[m
+[32m+[m[32m            UnregisterSharedValidationInterface(self);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        self->m_state = DISCONNECTED;[m
+[32m+[m[32m    }[m
+     std::shared_ptr<Chain::Notifications> m_notifications;[m
+[32m+[m[32m    Chain::NotifyOptions m_options;[m
+[32m+[m[32m    Mutex m_mutex;[m
+[32m+[m[32m    //! State reflecting whether proxy is registered to receive notifcations[m
+[32m+[m[32m    //! from validationinterface, and whether the handler is connected to[m
+[32m+[m[32m    //! receive notifications from the proxy. The implementation needs to avoid[m
+[32m+[m[32m    //! registering the proxy if the handler is disconnected first, and avoid[m
+[32m+[m[32m    //! unregistering the proxy if it wasn't registered first. State needs to be[m
+[32m+[m[32m    //! guarded by mutex because connect() is called from a[m
+[32m+[m[32m    //! CallFunctionInValidationInterfaceQueue callback in validationinterface[m
+[32m+[m[32m    //! thread, and disconnect() is called from the application thread which[m
+[32m+[m[32m    //! owns the handler, and the two calls could happen at any time in any[m
+[32m+[m[32m    //! order.[m
+[32m+[m[32m    enum State { INIT, CONNECTED, DISCONNECTED } m_state GUARDED_BY(m_mutex) = INIT;[m
+ };[m
+ [m
+ class NotificationsHandlerImpl : public Handler[m
+ {[m
+ public:[m
+[31m-    explicit NotificationsHandlerImpl(std::shared_ptr<Chain::Notifications> notifications)[m
+[31m-        : m_proxy(std::make_shared<NotificationsProxy>(std::move(notifications)))[m
+[32m+[m[32m    explicit NotificationsHandlerImpl(std::shared_ptr<Chain::Notifications> notifications, const Chain::NotifyOptions& options)[m
+[32m+[m[32m        : m_proxy(std::make_shared<NotificationsProxy>(std::move(notifications), options))[m
+     {[m
+[31m-        RegisterSharedValidationInterface(m_proxy);[m
+     }[m
+     ~NotificationsHandlerImpl() override { disconnect(); }[m
+[32m+[m[32m    void interrupt() override { m_interrupt(); }[m
+     void disconnect() override[m
+     {[m
+[32m+[m[32m        m_interrupt();[m
+         if (m_proxy) {[m
+[31m-            UnregisterSharedValidationInterface(m_proxy);[m
+[32m+[m[32m            NotificationsProxy::disconnect(m_proxy);[m
+             m_proxy.reset();[m
+         }[m
+[32m+[m[32m        if (m_thread_sync.joinable()) {[m
+[32m+[m[32m            m_thread_sync.join();[m
+[32m+[m[32m        }[m
+     }[m
+     std::shared_ptr<NotificationsProxy> m_proxy;[m
+[32m+[m[32m    std::thread m_thread_sync; //!< Sync thread that may be created by attachChain.[m
+[2m+[m[2m    CThreadInterrupt m_interrupt;[m
+ };[m
+ [m
+ class RpcHandlerImpl : public Handler[m
+[36m@@ -531,6 +576,12 @@[m [mpublic:[m
+         CBlockIndex* block = active[height];[m
+         return block && ((block->nStatus & BLOCK_HAVE_DATA) != 0) && block->nTx > 0;[m
+     }[m
+[32m+[m[32m    bool getTip(const FoundBlock& block) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        WAIT_LOCK(cs_main, lock);[m
+[32m+[m[32m        const CChain& active = Assert(m_node.chainman)->ActiveChain();[m
+[32m+[m[32m        return FillBlock(active.Tip(), block, lock, active);[m
+[32m+[m[32m    }[m
+     CBlockLocator getTipLocator() override[m
+     {[m
+         LOCK(::cs_main);[m
+[36m@@ -700,6 +751,11 @@[m [mpublic:[m
+     CFeeRate relayMinFee() override { return ::minRelayTxFee; }[m
+     CFeeRate relayIncrementalFee() override { return ::incrementalRelayFee; }[m
+     CFeeRate relayDustFee() override { return ::dustRelayFee; }[m
+[32m+[m[32m    void updatePruneLock(const std::string& name, const PruneLockInfo& lock_info) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        LOCK(cs_main);[m
+[32m+[m[32m        m_node.chainman->m_blockman.UpdatePruneLock(name, lock_info);[m
+[32m+[m[32m    }[m
+     bool havePruned() override[m
+     {[m
+         LOCK(::cs_main);[m
+[36m@@ -717,9 +773,96 @@[m [mpublic:[m
+     {[m
+         ::uiInterface.ShowProgress(title, progress, resume_possible);[m
+     }[m
+[32m+[m[32m    bool checkBlocks(const CBlockIndex* start_block) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {[m
+[32m+[m[32m        const CChain& active_chain = Assert(m_node.chainman)->ActiveChain();[m
+[2m+[m[2m        bool prune_violation = false;[m
+[32m+[m[32m        if (!start_block) {[m
+[2m+[m[2m            // make sure we have all block data back to the genesis[m
+[32m+[m[32m            prune_violation = m_node.chainman->m_blockman.GetFirstStoredBlock(*active_chain.Tip()) != active_chain.Genesis();[m
+[32m+[m[32m        }[m
+[2m+[m[2m        // in case the index has a best block set and is not fully synced[m
+[2m+[m[2m        // check if we have the required blocks to continue building the index[m
+[2m+[m[2m        else {[m
+[32m+[m[32m            const CBlockIndex* block_to_test = start_block;[m
+[2m+[m[2m            if (!active_chain.Contains(block_to_test)) {[m
+[2m+[m[2m                // if the bestblock is not part of the mainchain, find the fork[m
+[2m+[m[2m                // and make sure we have all data down to the fork[m
+[2m+[m[2m                block_to_test = active_chain.FindFork(block_to_test);[m
+[2m+[m[2m            }[m
+[2m+[m[2m            const CBlockIndex* block = active_chain.Tip();[m
+[2m+[m[2m            prune_violation = true;[m
+[2m+[m[2m            // check backwards from the tip if we have all block data until we reach the indexes bestblock[m
+[2m+[m[2m            while (block_to_test && block && (block->nStatus & BLOCK_HAVE_DATA)) {[m
+[2m+[m[2m                if (block_to_test == block) {[m
+[2m+[m[2m                    prune_violation = false;[m
+[2m+[m[2m                    break;[m
+[2m+[m[2m                }[m
+[2m+[m[2m                // block->pprev must exist at this point, since block_to_test is part of the chain[m
+[2m+[m[2m                // and thus must be encountered when going backwards from the tip[m
+[2m+[m[2m                assert(block->pprev);[m
+[2m+[m[2m                block = block->pprev;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return !prune_violation;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::unique_ptr<Handler> attachChain(std::shared_ptr<Notifications> notifications, const CBlockLocator& locator, const NotifyOptions& options) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        std::unique_ptr<NotificationsHandlerImpl> handler;[m
+[32m+[m[32m        std::optional<interfaces::BlockInfo> block_info;[m
+[32m+[m[32m        // std::promise to wait for the first blockConnected notification, so[m
+[32m+[m[32m        // caller is notified about the starting block before this returns.[m
+[32m+[m[32m        // It might be good in the future to return without waiting for this,[m
+[32m+[m[32m        // and allow more initialization code to run in parallel.[m
+[32m+[m[32m        std::promise<void> promise;[m
+[32m+[m[32m        {[m
+[32m+[m[32m        // Lock cs_main while finding forks and determining which blocks to[m
+[32m+[m[32m        // rescan. Release cs_main while processing blocks and while calling[m
+[32m+[m[32m        // RegisterSharedValidationInterface in the notifications thread.[m
+[32m+[m[32m        //[m
+[32m+[m[32m        // To prevent older, stale notifications currently in the validation[m
+[32m+[m[32m        // queue from being received, it is important to not to register for[m
+[32m+[m[32m        // notifications immediately, but to delay registration with[m
+[32m+[m[32m        // CallFunctionInValidationInterfaceQueue, registering the notification[m
+[32m+[m[32m        // proxy inside the queue, so older notifications in the queue before it[m
+[32m+[m[32m        // get processed before the proxy is registered.[m
+[32m+[m[32m        //[m
+[32m+[m[32m        // To prevent new notifications that may be happening in the background[m
+[32m+[m[32m        // from being lost, it is important to keep cs_main locked while calling[m
+[32m+[m[32m        // CallFunctionInValidationInterfaceQueue, so the new notifications will[m
+[32m+[m[32m        // be added to the queue after the queue entry which connects the proxy.[m
+[32m+[m[32m        AssertLockNotHeld(::cs_main);[m
+[32m+[m[32m        LOCK(cs_main);[m
+[32m+[m[32m        const CChainState& active = Assert(m_node.chainman)->ActiveChainstate();[m
+[32m+[m[32m        const CBlockIndex* start_block = locator.IsNull() ? nullptr : active.FindForkInGlobalIndex(locator);[m
+[32m+[m[32m        block_info.emplace(kernel::MakeBlockInfo(start_block));[m
+[32m+[m[32m        block_info->chain_tip = start_block == active.m_chain.Tip();[m
+[32m+[m[32m        if (!block_info->chain_tip && !checkBlocks(start_block)) return nullptr;[m
+[32m+[m[32m        handler = std::make_unique<NotificationsHandlerImpl>(notifications, options);[m
+[32m+[m[32m        assert(!handler->m_thread_sync.joinable());[m
+[32m+[m[32m        handler->m_thread_sync = std::thread(&util::TraceThread, options.thread_name,[m
+[32m+[m[32m            [&block_info, &promise, &active, start_block, notifications, &interrupt = handler->m_interrupt, proxy = handler->m_proxy] {[m
+[32m+[m[32m            SetSyscallSandboxPolicy(SyscallSandboxPolicy::TX_INDEX);[m
+[32m+[m[32m            notifications->blockConnected(*block_info);[m
+[32m+[m[32m            promise.set_value();[m
+[32m+[m[32m            kernel::SyncChain(active.m_chain, start_block, notifications, interrupt,[m
+[32m+[m[32m                              /*on_sync=*/[proxy] { CallFunctionInValidationInterfaceQueue([proxy] { NotificationsProxy::connect(proxy); }); });[m
+[32m+[m[32m        });[m
+[32m+[m[32m        }[m
+[32m+[m[32m        // Wait for blockConnected() call in sync thread so attachChain()[m
+[32m+[m[32m        // caller knows the last block synced and sync status before this[m
+[32m+[m[32m        // returns.[m
+[32m+[m[32m        promise.get_future().wait();[m
+[32m+[m[32m        return handler;[m
+[32m+[m[32m    }[m
+     std::unique_ptr<Handler> handleNotifications(std::shared_ptr<Notifications> notifications) override[m
+     {[m
+[31m-        return std::make_unique<NotificationsHandlerImpl>(std::move(notifications));[m
+[32m+[m[32m        auto handler = std::make_unique<NotificationsHandlerImpl>(std::move(notifications), Chain::NotifyOptions{});[m
+[32m+[m[32m        NotificationsProxy::connect(handler->m_proxy);[m
+[32m+[m[32m        return handler;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    void waitForPendingNotifications() override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        SyncWithValidationInterfaceQueue();[m
+     }[m
+     void waitForNotificationsIfTipChanged(const uint256& old_tip) override[m
+     {[m
+[33mdiff --git a/src/rest.cpp b/src/rest.cpp[m
+[33mindex 43c248b03b..9c9f22a5b2 100644[m
+[33m--- a/src/rest.cpp[m
+[33m+++ b/src/rest.cpp[m
+[36m@@ -417,7 +417,7 @@[m [mstatic bool rest_filter_header(const std::any& context, HTTPRequest* req, const[m
+     filter_headers.reserve(*parsed_count);[m
+     for (const CBlockIndex* pindex : headers) {[m
+         uint256 filter_header;[m
+[31m-        if (!index->LookupFilterHeader(pindex, filter_header)) {[m
+[32m+[m[32m        if (!index->LookupFilterHeader({pindex->GetBlockHash(), pindex->nHeight}, filter_header)) {[m
+             std::string errmsg = "Filter not found.";[m
+ [m
+             if (!index_ready) {[m
+[36m@@ -516,7 +516,7 @@[m [mstatic bool rest_block_filter(const std::any& context, HTTPRequest* req, const s[m
+     bool index_ready = index->BlockUntilSyncedToCurrentChain();[m
+ [m
+     BlockFilter filter;[m
+[31m-    if (!index->LookupFilter(block_index, filter)) {[m
+[32m+[m[32m    if (!index->LookupFilter({block_index->GetBlockHash(), block_index->nHeight}, filter)) {[m
+         std::string errmsg = "Filter not found.";[m
+ [m
+         if (!block_was_connected) {[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex 88ceeadea4..676b80ba92 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -832,10 +832,10 @@[m [mstatic std::optional<kernel::CCoinsStats> GetUTXOStats(CCoinsView* view, node::B[m
+     // Use CoinStatsIndex if it is requested and available and a hash_type of Muhash or None was requested[m
+     if ((hash_type == kernel::CoinStatsHashType::MUHASH || hash_type == kernel::CoinStatsHashType::NONE) && g_coin_stats_index && index_requested) {[m
+         if (pindex) {[m
+[31m-            return g_coin_stats_index->LookUpStats(pindex);[m
+[32m+[m[32m            return g_coin_stats_index->LookUpStats({pindex->GetBlockHash(), pindex->nHeight});[m
+         } else {[m
+             CBlockIndex* block_index = WITH_LOCK(::cs_main, return blockman.LookupBlockIndex(view->GetBestBlock()));[m
+[31m-            return g_coin_stats_index->LookUpStats(block_index);[m
+[32m+[m[32m            return g_coin_stats_index->LookUpStats({block_index->GetBlockHash(), block_index->nHeight});[m
+         }[m
+     }[m
+ [m
+[36m@@ -2237,8 +2237,8 @@[m [mstatic RPCHelpMan getblockfilter()[m
+ [m
+     BlockFilter filter;[m
+     uint256 filter_header;[m
+[31m-    if (!index->LookupFilter(block_index, filter) ||[m
+[31m-        !index->LookupFilterHeader(block_index, filter_header)) {[m
+[32m+[m[32m    if (!index->LookupFilter({block_index->GetBlockHash(), block_index->nHeight}, filter) ||[m
+[32m+[m[32m        !index->LookupFilterHeader({block_index->GetBlockHash(), block_index->nHeight}, filter_header)) {[m
+         int err_code;[m
+         std::string errmsg = "Filter not found.";[m
+ [m
+[33mdiff --git a/src/test/blockfilter_index_tests.cpp b/src/test/blockfilter_index_tests.cpp[m
+[33mindex 1a182209b8..bf17486bac 100644[m
+[33m--- a/src/test/blockfilter_index_tests.cpp[m
+[33m+++ b/src/test/blockfilter_index_tests.cpp[m
+[36m@@ -42,10 +42,10 @@[m [mstatic bool CheckFilterLookups(BlockFilterIndex& filter_index, const CBlockIndex[m
+     std::vector<BlockFilter> filters;[m
+     std::vector<uint256> filter_hashes;[m
+ [m
+[31m-    BOOST_CHECK(filter_index.LookupFilter(block_index, filter));[m
+[31m-    BOOST_CHECK(filter_index.LookupFilterHeader(block_index, filter_header));[m
+[31m-    BOOST_CHECK(filter_index.LookupFilterRange(block_index->nHeight, block_index, filters));[m
+[31m-    BOOST_CHECK(filter_index.LookupFilterHashRange(block_index->nHeight, block_index,[m
+[32m+[m[32m    BOOST_CHECK(filter_index.LookupFilter({block_index->GetBlockHash(), block_index->nHeight}, filter));[m
+[32m+[m[32m    BOOST_CHECK(filter_index.LookupFilterHeader({block_index->GetBlockHash(), block_index->nHeight}, filter_header));[m
+[32m+[m[32m    BOOST_CHECK(filter_index.LookupFilterRange(block_index->nHeight, {block_index->GetBlockHash(), block_index->nHeight}, filters));[m
+[32m+[m[32m    BOOST_CHECK(filter_index.LookupFilterHashRange(block_index->nHeight, {block_index->GetBlockHash(), block_index->nHeight},[m
+                                                    filter_hashes));[m
+ [m
+     BOOST_CHECK_EQUAL(filters.size(), 1U);[m
+[36m@@ -127,10 +127,10 @@[m [mBOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, BuildChainTestingSetup)[m
+         for (const CBlockIndex* block_index = m_node.chainman->ActiveChain().Genesis();[m
+              block_index != nullptr;[m
+              block_index = m_node.chainman->ActiveChain().Next(block_index)) {[m
+[31m-            BOOST_CHECK(!filter_index.LookupFilter(block_index, filter));[m
+[31m-            BOOST_CHECK(!filter_index.LookupFilterHeader(block_index, filter_header));[m
+[31m-            BOOST_CHECK(!filter_index.LookupFilterRange(block_index->nHeight, block_index, filters));[m
+[31m-            BOOST_CHECK(!filter_index.LookupFilterHashRange(block_index->nHeight, block_index,[m
+[32m+[m[32m            BOOST_CHECK(!filter_index.LookupFilter({block_index->GetBlockHash(), block_index->nHeight}, filter));[m
+[32m+[m[32m            BOOST_CHECK(!filter_index.LookupFilterHeader({block_index->GetBlockHash(), block_index->nHeight}, filter_header));[m
+[32m+[m[32m            BOOST_CHECK(!filter_index.LookupFilterRange(block_index->nHeight, {block_index->GetBlockHash(), block_index->nHeight}, filters));[m
+[32m+[m[32m            BOOST_CHECK(!filter_index.LookupFilterHashRange(block_index->nHeight, {block_index->GetBlockHash(), block_index->nHeight},[m
+                                                             filter_hashes));[m
+         }[m
+     }[m
+[36m@@ -259,8 +259,8 @@[m [mBOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, BuildChainTestingSetup)[m
+         LOCK(cs_main);[m
+         tip = m_node.chainman->ActiveChain().Tip();[m
+     }[m
+[31m-    BOOST_CHECK(filter_index.LookupFilterRange(0, tip, filters));[m
+[31m-    BOOST_CHECK(filter_index.LookupFilterHashRange(0, tip, filter_hashes));[m
+[32m+[m[32m    BOOST_CHECK(filter_index.LookupFilterRange(0, {tip->GetBlockHash(), tip->nHeight}, filters));[m
+[32m+[m[32m    BOOST_CHECK(filter_index.LookupFilterHashRange(0, {tip->GetBlockHash(), tip->nHeight}, filter_hashes));[m
+ [m
+     assert(tip->nHeight >= 0);[m
+     BOOST_CHECK_EQUAL(filters.size(), tip->nHeight + 1U);[m
+[33mdiff --git a/src/test/coinstatsindex_tests.cpp b/src/test/coinstatsindex_tests.cpp[m
+[33mindex c93d05a93b..6eec9f99f3 100644[m
+[33m--- a/src/test/coinstatsindex_tests.cpp[m
+[33m+++ b/src/test/coinstatsindex_tests.cpp[m
+[36m@@ -38,7 +38,7 @@[m [mBOOST_FIXTURE_TEST_CASE(coinstatsindex_initial_sync, TestChain100Setup)[m
+     }[m
+ [m
+     // CoinStatsIndex should not be found before it is started.[m
+[31m-    BOOST_CHECK(!coin_stats_index.LookUpStats(block_index));[m
+[32m+[m[32m    BOOST_CHECK(!coin_stats_index.LookUpStats({block_index->GetBlockHash(), block_index->nHeight}));[m
+ [m
+     // BlockUntilSyncedToCurrentChain should return false before CoinStatsIndex[m
+     // is started.[m
+[36m@@ -54,10 +54,10 @@[m [mBOOST_FIXTURE_TEST_CASE(coinstatsindex_initial_sync, TestChain100Setup)[m
+         LOCK(cs_main);[m
+         genesis_block_index = m_node.chainman->ActiveChain().Genesis();[m
+     }[m
+[31m-    BOOST_CHECK(coin_stats_index.LookUpStats(genesis_block_index));[m
+[32m+[m[32m    BOOST_CHECK(coin_stats_index.LookUpStats({genesis_block_index->GetBlockHash(), genesis_block_index->nHeight}));[m
+ [m
+     // Check that CoinStatsIndex updates with new blocks.[m
+[31m-    BOOST_CHECK(coin_stats_index.LookUpStats(block_index));[m
+[32m+[m[32m    BOOST_CHECK(coin_stats_index.LookUpStats({block_index->GetBlockHash(), block_index->nHeight}));[m
+ [m
+     const CScript script_pub_key{CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG};[m
+     std::vector<CMutableTransaction> noTxns;[m
+[36m@@ -71,7 +71,7 @@[m [mBOOST_FIXTURE_TEST_CASE(coinstatsindex_initial_sync, TestChain100Setup)[m
+         LOCK(cs_main);[m
+         new_block_index = m_node.chainman->ActiveChain().Tip();[m
+     }[m
+[31m-    BOOST_CHECK(coin_stats_index.LookUpStats(new_block_index));[m
+[32m+[m[32m    BOOST_CHECK(coin_stats_index.LookUpStats({new_block_index->GetBlockHash(), new_block_index->nHeight}));[m
+ [m
+     BOOST_CHECK(block_index != new_block_index);[m
+ [m
+[36m@@ -109,7 +109,8 @@[m [mBOOST_FIXTURE_TEST_CASE(coinstatsindex_unclean_shutdown, TestChain100Setup)[m
+         // Send block connected notification, then stop the index without[m
+         // sending a chainstate flushed notification. Prior to #24138, this[m
+         // would cause the index to be corrupted and fail to reload.[m
+[31m-        ValidationInterfaceTest::BlockConnected(index, new_block, new_block_index);[m
+[32m+[m[32m        GetMainSignals().BlockConnected(new_block, new_block_index);[m
+[32m+[m[32m        SyncWithValidationInterfaceQueue();[m
+         index.Stop();[m
+     }[m
+ [m
+[33mdiff --git a/test/lint/lint-circular-dependencies.py b/test/lint/lint-circular-dependencies.py[m
+[33mindex a0f17ac119..f44ed8f7c7 100755[m
+[33m--- a/test/lint/lint-circular-dependencies.py[m
+[33m+++ b/test/lint/lint-circular-dependencies.py[m
+[36m@@ -23,9 +23,6 @@[m [mEXPECTED_CIRCULAR_DEPENDENCIES = ([m
+     "wallet/wallet -> wallet/walletdb -> wallet/wallet",[m
+     "kernel/coinstats -> validation -> kernel/coinstats",[m
+     "kernel/mempool_persist -> validation -> kernel/mempool_persist",[m
+[31m-[m
+[31m-    # Temporary, removed in followup https://github.com/bitcoin/bitcoin/pull/24230[m
+[31m-    "index/base -> node/context -> net_processing -> index/blockfilterindex -> index/base",[m
+ )[m
+ [m
+ CODE_DIR = "src"[m

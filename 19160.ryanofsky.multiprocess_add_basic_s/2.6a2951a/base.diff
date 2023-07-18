@@ -1,0 +1,1143 @@
+[33mdiff --git a/build_msvc/bitcoind/bitcoind.vcxproj b/build_msvc/bitcoind/bitcoind.vcxproj[m
+[33mindex 48dfafaee0..c2c32af838 100644[m
+[33m--- a/build_msvc/bitcoind/bitcoind.vcxproj[m
+[33m+++ b/build_msvc/bitcoind/bitcoind.vcxproj[m
+[36m@@ -10,6 +10,9 @@[m
+   </PropertyGroup>[m
+   <ItemGroup>[m
+     <ClCompile Include="..\..\src\bitcoind.cpp" />[m
+[32m+[m[32m    <ClCompile Include="..\..\src\init\bitcoind.cpp">[m
+[32m+[m[32m      <ObjectFileName>$(IntDir)init_bitcoind.obj</ObjectFileName>[m
+[32m+[m[32m    </ClCompile>[m
+   </ItemGroup>[m
+   <ItemGroup>[m
+     <ProjectReference Include="..\libbitcoinconsensus\libbitcoinconsensus.vcxproj">[m
+[33mdiff --git a/depends/packages/native_libmultiprocess.mk b/depends/packages/native_libmultiprocess.mk[m
+[33mindex c50fdc3f6b..14653ce9fb 100644[m
+[33m--- a/depends/packages/native_libmultiprocess.mk[m
+[33m+++ b/depends/packages/native_libmultiprocess.mk[m
+[36m@@ -1,8 +1,8 @@[m
+ package=native_libmultiprocess[m
+[31m-$(package)_version=5741d750a04e644a03336090d8979c6d033e32c0[m
+[32m+[m[32m$(package)_version=d576d975debdc9090bd2582f83f49c76c0061698[m
+ $(package)_download_path=https://github.com/chaincodelabs/libmultiprocess/archive[m
+ $(package)_file_name=$($(package)_version).tar.gz[m
+[31m-$(package)_sha256_hash=ac848db49a6ed53e423c62d54bd87f1f08cbb0326254a8667e10bbfe5bf032a4[m
+[32m+[m[32m$(package)_sha256_hash=9f8b055c8bba755dc32fe799b67c20b91e7b13e67cadafbc54c0f1def057a370[m
+ $(package)_dependencies=native_capnp[m
+ [m
+ define $(package)_config_cmds[m
+[33mdiff --git a/doc/multiprocess.md b/doc/multiprocess.md[m
+[33mindex 471d8561f7..9f6769f7ec 100644[m
+[33m--- a/doc/multiprocess.md[m
+[33m+++ b/doc/multiprocess.md[m
+[36m@@ -15,7 +15,7 @@[m [mSpecific next steps after [#10102](https://github.com/bitcoin/bitcoin/pull/10102[m
+ [m
+ ## Debugging[m
+ [m
+[31m-After [#10102](https://github.com/bitcoin/bitcoin/pull/10102), the `-debug=ipc` command line option can be used to see requests and responses between processes.[m
+[32m+[m[32mThe `-debug=ipc` command line option can be used to see requests and responses between processes.[m
+ [m
+ ## Installation[m
+ [m
+[36m@@ -33,3 +33,40 @@[m [mBITCOIND=bitcoin-node test/functional/test_runner.py[m
+ The configure script will pick up settings and library locations from the depends directory, so there is no need to pass `--enable-multiprocess` as a separate flag when using the depends system (it's controlled by the `MULTIPROCESS=1` option).[m
+ [m
+ Alternately, you can install [Cap'n Proto](https://capnproto.org/) and [libmultiprocess](https://github.com/chaincodelabs/libmultiprocess) packages on your system, and just run `./configure --enable-multiprocess` without using the depends system. The configure script will be able to locate the installed packages via [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/). See [Installation](https://github.com/chaincodelabs/libmultiprocess#installation) section of the libmultiprocess readme for install steps. See [build-unix.md](build-unix.md) and [build-osx.md](build-osx.md) for information about installing dependencies in general.[m
+[32m+[m
+[32m+[m[32m## IPC implementation details[m
+[32m+[m
+[32m+[m[32mCross process Node, Wallet, and Chain interfaces are defined in[m
+[32m+[m[32m[`src/interfaces/`](../src/interfaces/). These are C++ classes which follow[m
+[32m+[m[32m[conventions](developer-notes.md#internal-interface-guidelines), like passing[m
+[32m+[m[32mserializable arguments so they can be called from different processes, and[m
+[32m+[m[32mmaking methods pure virtual so they can have proxy implementations that forward[m
+[32m+[m[32mcalls between processes.[m
+[32m+[m
+[32m+[m[32mWhen Wallet, Node, and Chain code is running in the same process, calling any[m
+[32m+[m[32minterface method invokes the implementation directly. When code is running in[m
+[32m+[m[32mdifferent processes, calling an interface method invokes a proxy interface[m
+[32m+[m[32mimplementation that communicates with a remote process and invokes the real[m
+[32m+[m[32mimplementation in the remote process. The[m
+[32m+[m[32m[libmultiprocess](https://github.com/chaincodelabs/libmultiprocess) code[m
+[32m+[m[32mgeneration tool internally generates proxy client classes and proxy server[m
+[32m+[m[32mclasses for this purpose that are thin wrappers around Cap'n Proto[m
+[32m+[m[32m[client](https://capnproto.org/cxxrpc.html#clients) and[m
+[32m+[m[32m[server](https://capnproto.org/cxxrpc.html#servers) classes, which handle the[m
+[32m+[m[32mactual serialization and socket communication.[m
+[32m+[m
+[32m+[m[32mAs much as possible, calls between processes are meant to work the same as[m
+[32m+[m[32mcalls within a single process without adding limitations or requiring extra[m
+[32m+[m[32mimplementation effort. Processes communicate with each other by calling regular[m
+[32m+[m[32m[C++ interface methods](../src/interfaces/README.md). Method arguments and[m
+[32m+[m[32mreturn values are automatically serialized and sent between processes. Object[m
+[32m+[m[32mreferences and `std::function` arguments are automatically tracked and mapped[m
+[32m+[m[32mto allow invoked code to call back into invoking code at any time, and there is[m
+[32m+[m[32ma 1:1 threading model where any thread invoking a method in another process has[m
+[32m+[m[32ma corresponding thread in the invoked process responsible for executing all[m
+[32m+[m[32mmethod calls from the source thread, without blocking I/O or holding up another[m
+[32m+[m[32mcalls, and using the same thread local variables, locks, and callbacks between[m
+[32m+[m[32mcalls. The forwarding, tracking, and threading is implemented inside the[m
+[32m+[m[32m[libmultiprocess](https://github.com/chaincodelabs/libmultiprocess) library[m
+[32m+[m[32mwhich has the design goal of making calls between processes look like calls in[m
+[32m+[m[32mthe same process to the extent possible.[m
+[33mdiff --git a/src/Makefile.am b/src/Makefile.am[m
+[33mindex 9903c2e9b3..0bc5a2dc85 100644[m
+[33m--- a/src/Makefile.am[m
+[33m+++ b/src/Makefile.am[m
+[36m@@ -74,6 +74,7 @@[m [mEXTRA_LIBRARIES += \[m
+   $(LIBBITCOIN_CONSENSUS) \[m
+   $(LIBBITCOIN_SERVER) \[m
+   $(LIBBITCOIN_CLI) \[m
+[32m+[m[32m  $(LIBBITCOIN_IPC) \[m
+   $(LIBBITCOIN_WALLET) \[m
+   $(LIBBITCOIN_WALLET_TOOL) \[m
+   $(LIBBITCOIN_ZMQ)[m
+[36m@@ -156,7 +157,10 @@[m [mBITCOIN_CORE_H = \[m
+   indirectmap.h \[m
+   init.h \[m
+   interfaces/chain.h \[m
+[32m+[m[32m  interfaces/echo.h \[m
+   interfaces/handler.h \[m
+[32m+[m[32m  interfaces/init.h \[m
+[32m+[m[32m  interfaces/ipc.h \[m
+   interfaces/node.h \[m
+   interfaces/wallet.h \[m
+   key.h \[m
+[36m@@ -298,6 +302,8 @@[m [mobj/build.h: FORCE[m
+ 	  "$(abs_top_srcdir)"[m
+ libbitcoin_util_a-clientversion.$(OBJEXT): obj/build.h[m
+ [m
+[32m+[m[32mipc/capnp/libbitcoin_ipc_a-ipc.$(OBJEXT): $(libbitcoin_ipc_mpgen_input:=.h)[m
+[32m+[m
+ # server: shared between bitcoind and bitcoin-qt[m
+ # Contains code accessing mempool and chain state that is meant to be separated[m
+ # from wallet and gui code (see node/README.md). Shared code should go in[m
+[36m@@ -555,7 +561,9 @@[m [mlibbitcoin_util_a_SOURCES = \[m
+   compat/glibcxx_sanity.cpp \[m
+   compat/strnlen.cpp \[m
+   fs.cpp \[m
+[32m+[m[32m  interfaces/echo.cpp \[m
+   interfaces/handler.cpp \[m
+[32m+[m[32m  interfaces/init.cpp \[m
+   logging.cpp \[m
+   random.cpp \[m
+   randomenv.cpp \[m
+[36m@@ -631,17 +639,17 @@[m [mbitcoin_bin_ldadd = \[m
+ [m
+ bitcoin_bin_ldadd += $(BOOST_LIBS) $(BDB_LIBS) $(MINIUPNPC_LIBS) $(NATPMP_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) $(SQLITE_LIBS)[m
+ [m
+[31m-bitcoind_SOURCES = $(bitcoin_daemon_sources)[m
+[32m+[m[32mbitcoind_SOURCES = $(bitcoin_daemon_sources) init/bitcoind.cpp[m
+ bitcoind_CPPFLAGS = $(bitcoin_bin_cppflags)[m
+ bitcoind_CXXFLAGS = $(bitcoin_bin_cxxflags)[m
+ bitcoind_LDFLAGS = $(bitcoin_bin_ldflags)[m
+ bitcoind_LDADD = $(LIBBITCOIN_SERVER) $(bitcoin_bin_ldadd)[m
+ [m
+[31m-bitcoin_node_SOURCES = $(bitcoin_daemon_sources)[m
+[32m+[m[32mbitcoin_node_SOURCES = $(bitcoin_daemon_sources) init/bitcoin-node.cpp[m
+ bitcoin_node_CPPFLAGS = $(bitcoin_bin_cppflags)[m
+ bitcoin_node_CXXFLAGS = $(bitcoin_bin_cxxflags)[m
+ bitcoin_node_LDFLAGS = $(bitcoin_bin_ldflags)[m
+[31m-bitcoin_node_LDADD = $(LIBBITCOIN_SERVER) $(bitcoin_bin_ldadd)[m
+[32m+[m[32mbitcoin_node_LDADD = $(LIBBITCOIN_SERVER) $(bitcoin_bin_ldadd) $(LIBBITCOIN_IPC) $(LIBMULTIPROCESS_LIBS)[m
+ [m
+ # bitcoin-cli binary #[m
+ bitcoin_cli_SOURCES = bitcoin-cli.cpp[m
+[36m@@ -805,6 +813,39 @@[m [mif HARDEN[m
+ 	$(AM_V_at) OBJDUMP=$(OBJDUMP) OTOOL=$(OTOOL) $(PYTHON) $(top_srcdir)/contrib/devtools/security-check.py $(bin_PROGRAMS)[m
+ endif[m
+ [m
+[32m+[m[32mlibbitcoin_ipc_mpgen_input = \[m
+[32m+[m[32m  ipc/capnp/echo.capnp \[m
+[32m+[m[32m  ipc/capnp/init.capnp[m
+[32m+[m[32mEXTRA_DIST += $(libbitcoin_ipc_mpgen_input)[m
+[32m+[m[32m%.capnp:[m
+[32m+[m
+[32m+[m[32mif BUILD_MULTIPROCESS[m
+[32m+[m[32mLIBBITCOIN_IPC=libbitcoin_ipc.a[m
+[32m+[m[32mlibbitcoin_ipc_a_SOURCES = \[m
+[32m+[m[32m  ipc/capnp/init-types.h \[m
+[32m+[m[32m  ipc/capnp/protocol.cpp \[m
+[32m+[m[32m  ipc/capnp/protocol.h \[m
+[32m+[m[32m  ipc/exception.h \[m
+[32m+[m[32m  ipc/interfaces.cpp \[m
+[32m+[m[32m  ipc/process.cpp \[m
+[32m+[m[32m  ipc/process.h \[m
+[32m+[m[32m  ipc/protocol.h[m
+[32m+[m[32mlibbitcoin_ipc_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)[m
+[32m+[m[32mlibbitcoin_ipc_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) $(LIBMULTIPROCESS_CFLAGS)[m
+[32m+[m
+[32m+[m[32minclude $(MPGEN_PREFIX)/include/mpgen.mk[m
+[32m+[m[32mlibbitcoin_ipc_mpgen_output = \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.c++) \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.h) \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.proxy-client.c++) \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.proxy-server.c++) \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.proxy-types.c++) \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.proxy-types.h) \[m
+[32m+[m[32m  $(libbitcoin_ipc_mpgen_input:=.proxy.h)[m
+[32m+[m[32mnodist_libbitcoin_ipc_a_SOURCES = $(libbitcoin_ipc_mpgen_output)[m
+[32m+[m[32mCLEANFILES += $(libbitcoin_ipc_mpgen_output)[m
+[32m+[m[32mendif[m
+[32m+[m
+ if EMBEDDED_LEVELDB[m
+ include Makefile.crc32c.include[m
+ include Makefile.leveldb.include[m
+[33mdiff --git a/src/bitcoind.cpp b/src/bitcoind.cpp[m
+[33mindex 1b4ca3e9a8..94f7f6c061 100644[m
+[33m--- a/src/bitcoind.cpp[m
+[33m+++ b/src/bitcoind.cpp[m
+[36m@@ -12,6 +12,7 @@[m
+ #include <compat.h>[m
+ #include <init.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+ #include <node/context.h>[m
+ #include <node/ui_interface.h>[m
+ #include <noui.h>[m
+[36m@@ -103,10 +104,8 @@[m [mint fork_daemon(bool nochdir, bool noclose, TokenPipeEnd& endpoint)[m
+ [m
+ #endif[m
+ [m
+[31m-static bool AppInit(int argc, char* argv[])[m
+[32m+[m[32mstatic bool AppInit(NodeContext& node, int argc, char* argv[])[m
+ {[m
+[31m-    NodeContext node;[m
+[31m-[m
+     bool fRet = false;[m
+ [m
+     util::ThreadSetInternalName("init");[m
+[36m@@ -253,10 +252,18 @@[m [mint main(int argc, char* argv[])[m
+     util::WinCmdLineArgs winArgs;[m
+     std::tie(argc, argv) = winArgs.get();[m
+ #endif[m
+[32m+[m
+[32m+[m[32m    NodeContext node;[m
+[32m+[m[32m    int exit_status;[m
+[32m+[m[32m    std::unique_ptr<interfaces::Init> init = interfaces::MakeNodeInit(node, argc, argv, exit_status);[m
+[32m+[m[32m    if (!init) {[m
+[32m+[m[32m        return exit_status;[m
+[32m+[m[32m    }[m
+[32m+[m
+     SetupEnvironment();[m
+ [m
+     // Connect bitcoind signal handlers[m
+     noui_connect();[m
+ [m
+[31m-    return (AppInit(argc, argv) ? EXIT_SUCCESS : EXIT_FAILURE);[m
+[32m+[m[32m    return (AppInit(node, argc, argv) ? EXIT_SUCCESS : EXIT_FAILURE);[m
+ }[m
+[33mdiff --git a/src/init/bitcoin-node.cpp b/src/init/bitcoin-node.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..49684ede83[m
+[33m--- /dev/null[m
+[33m+++ b/src/init/bitcoin-node.cpp[m
+[36m@@ -0,0 +1,45 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <interfaces/echo.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m[32m#include <interfaces/ipc.h>[m
+[32m+[m[32m#include <node/context.h>[m
+[32m+[m
+[32m+[m[32m#include <memory>[m
+[32m+[m
+[32m+[m[32mnamespace init {[m
+[32m+[m[32mnamespace {[m
+[32m+[m[32mconst char* EXE_NAME = "bitcoin-node";[m
+[32m+[m
+[32m+[m[32mclass BitcoinNodeInit : public interfaces::Init[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    BitcoinNodeInit(NodeContext& node, const char* arg0)[m
+[32m+[m[32m        : m_node(node),[m
+[32m+[m[32m          m_ipc(interfaces::MakeIpc(EXE_NAME, arg0, *this))[m
+[32m+[m[32m    {[m
+[32m+[m[32m        m_node.init = this;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Echo> makeEcho() override { return interfaces::MakeEcho(); }[m
+[32m+[m[32m    interfaces::Ipc* ipc() override { return m_ipc.get(); }[m
+[32m+[m[32m    NodeContext& m_node;[m
+[32m+[m[32m    std::unique_ptr<interfaces::Ipc> m_ipc;[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace[m
+[32m+[m[32m} // namespace init[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mstd::unique_ptr<Init> MakeNodeInit(NodeContext& node, int argc, char* argv[], int& exit_status)[m
+[32m+[m[32m{[m
+[32m+[m[32m    auto init = std::make_unique<init::BitcoinNodeInit>(node, argc > 0 ? argv[0] : "");[m
+[32m+[m[32m    // Check if bitcoin-node is being invoked as an IPC server. If so, then[m
+[32m+[m[32m    // bypass normal execution and just respond to requests over the IPC[m
+[32m+[m[32m    // channel and return null.[m
+[32m+[m[32m    if (init->m_ipc->startSpawnedProcess(argc, argv, exit_status)) {[m
+[32m+[m[32m        return nullptr;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return init;[m
+[32m+[m[32m}[m
+[32m+[m[32m} // namespace interfaces[m
+[33mdiff --git a/src/init/bitcoind.cpp b/src/init/bitcoind.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..1e17ce4d3c[m
+[33m--- /dev/null[m
+[33m+++ b/src/init/bitcoind.cpp[m
+[36m@@ -0,0 +1,29 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m[32m#include <node/context.h>[m
+[32m+[m
+[32m+[m[32m#include <memory>[m
+[32m+[m
+[32m+[m[32mnamespace init {[m
+[32m+[m[32mnamespace {[m
+[32m+[m[32mclass BitcoindInit : public interfaces::Init[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    BitcoindInit(NodeContext& node) : m_node(node)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        m_node.init = this;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    NodeContext& m_node;[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace[m
+[32m+[m[32m} // namespace init[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mstd::unique_ptr<Init> MakeNodeInit(NodeContext& node, int argc, char* argv[], int& exit_status)[m
+[32m+[m[32m{[m
+[32m+[m[32m    return std::make_unique<init::BitcoindInit>(node);[m
+[32m+[m[32m}[m
+[32m+[m[32m} // namespace interfaces[m
+[33mdiff --git a/src/interfaces/README.md b/src/interfaces/README.md[m
+[33mindex f77d172153..97167d5298 100644[m
+[33m--- a/src/interfaces/README.md[m
+[33m+++ b/src/interfaces/README.md[m
+[36m@@ -12,6 +12,8 @@[m [mThe following interfaces are defined here:[m
+ [m
+ * [`Handler`](handler.h) — returned by `handleEvent` methods on interfaces above and used to manage lifetimes of event handlers.[m
+ [m
+[31m-* [`Init`](init.h) — used by multiprocess code to access interfaces above on startup. Added in [#10102](https://github.com/bitcoin/bitcoin/pull/10102).[m
+[32m+[m[32m* [`Init`](init.h) — used by multiprocess code to access interfaces above on startup. Added in [#19160](https://github.com/bitcoin/bitcoin/pull/19160).[m
+ [m
+[31m-The interfaces above define boundaries between major components of bitcoin code (node, wallet, and gui), making it possible for them to run in different processes, and be tested, developed, and understood independently. These interfaces are not currently designed to be stable or to be used externally.[m
+[32m+[m[32m* [`Ipc`](ipc.h) — used by multiprocess code to access `Init` interface across processes. Added in [#19160](https://github.com/bitcoin/bitcoin/pull/19160).[m
+[32m+[m
+[32m+[m[32mThe interfaces above define boundaries between major components of bitcoin code (node, wallet, and gui), making it possible for them to run in [different processes](../../doc/multiprocess.md), and be tested, developed, and understood independently. These interfaces are not currently designed to be stable or to be used externally.[m
+[33mdiff --git a/src/interfaces/echo.cpp b/src/interfaces/echo.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..8a1901cf80[m
+[33m--- /dev/null[m
+[33m+++ b/src/interfaces/echo.cpp[m
+[36m@@ -0,0 +1,17 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <interfaces/echo.h>[m
+[32m+[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mnamespace {[m
+[32m+[m[32mclass EchoImpl : public Echo[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    std::string echo(const std::string& echo) override { return echo; }[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace[m
+[32m+[m[32mstd::unique_ptr<Echo> MakeEcho() { return std::make_unique<EchoImpl>(); }[m
+[32m+[m[32m} // namespace interfaces[m
+[33mdiff --git a/src/interfaces/echo.h b/src/interfaces/echo.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..5578d9d9e6[m
+[33m--- /dev/null[m
+[33m+++ b/src/interfaces/echo.h[m
+[36m@@ -0,0 +1,26 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_INTERFACES_ECHO_H[m
+[32m+[m[32m#define BITCOIN_INTERFACES_ECHO_H[m
+[32m+[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <string>[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32m//! Simple string echoing interface for testing.[m
+[32m+[m[32mclass Echo[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    virtual ~Echo() {}[m
+[32m+[m
+[32m+[m[32m    //! Echo provided string.[m
+[32m+[m[32m    virtual std::string echo(const std::string& echo) = 0;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m//! Return implementation of Echo interface.[m
+[32m+[m[32mstd::unique_ptr<Echo> MakeEcho();[m
+[32m+[m[32m} // namespace interfaces[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_INTERFACES_ECHO_H[m
+[33mdiff --git a/src/interfaces/init.cpp b/src/interfaces/init.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..a3c949e616[m
+[33m--- /dev/null[m
+[33m+++ b/src/interfaces/init.cpp[m
+[36m@@ -0,0 +1,17 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/echo.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m[32m#include <interfaces/node.h>[m
+[32m+[m[32m#include <interfaces/wallet.h>[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mstd::unique_ptr<Node> Init::makeNode() { return {}; }[m
+[32m+[m[32mstd::unique_ptr<Chain> Init::makeChain() { return {}; }[m
+[32m+[m[32mstd::unique_ptr<WalletClient> Init::makeWalletClient(Chain& chain) { return {}; }[m
+[32m+[m[32mstd::unique_ptr<Echo> Init::makeEcho() { return {}; }[m
+[32m+[m[32mIpc* Init::ipc() { return nullptr; }[m
+[32m+[m[32m} // namespace interfaces[m
+[33mdiff --git a/src/interfaces/init.h b/src/interfaces/init.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..2a38054a17[m
+[33m--- /dev/null[m
+[33m+++ b/src/interfaces/init.h[m
+[36m@@ -0,0 +1,52 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_INTERFACES_INIT_H[m
+[32m+[m[32m#define BITCOIN_INTERFACES_INIT_H[m
+[32m+[m
+[32m+[m[32m#include <memory>[m
+[32m+[m
+[32m+[m[32mstruct NodeContext;[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mclass Chain;[m
+[32m+[m[32mclass Echo;[m
+[32m+[m[32mclass Ipc;[m
+[32m+[m[32mclass Node;[m
+[32m+[m[32mclass WalletClient;[m
+[32m+[m
+[32m+[m[32m//! Initial interface created when a process is first started, and used to give[m
+[32m+[m[32m//! and get access to other interfaces (Node, Chain, Wallet, etc).[m
+[32m+[m[32m//![m
+[32m+[m[32m//! There is a different Init interface implementation for each process[m
+[32m+[m[32m//! (bitcoin-gui, bitcoin-node, bitcoin-wallet, bitcoind, bitcoin-qt) and each[m
+[32m+[m[32m//! implementation can implement the make methods for interfaces it supports.[m
+[32m+[m[32m//! The default make methods all return null.[m
+[32m+[m[32mclass Init[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    virtual ~Init() = default;[m
+[32m+[m[32m    virtual std::unique_ptr<Node> makeNode();[m
+[32m+[m[32m    virtual std::unique_ptr<Chain> makeChain();[m
+[32m+[m[32m    virtual std::unique_ptr<WalletClient> makeWalletClient(Chain& chain);[m
+[32m+[m[32m    virtual std::unique_ptr<Echo> makeEcho();[m
+[32m+[m[32m    virtual Ipc* ipc();[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m//! Return implementation of Init interface for the node process. If the argv[m
+[32m+[m[32m//! indicates that this is a child process spawned to handle requests from a[m
+[32m+[m[32m//! parent process, this blocks and handles requests, then returns null and a[m
+[32m+[m[32m//! status code to exit with. If this returns non-null, the caller can start up[m
+[32m+[m[32m//! normally and use the Init object to spawn and connect to other processes[m
+[32m+[m[32m//! while it is running.[m
+[32m+[m[32mstd::unique_ptr<Init> MakeNodeInit(NodeContext& node, int argc, char* argv[], int& exit_status);[m
+[32m+[m
+[32m+[m[32m//! Return implementation of Init interface for the wallet process.[m
+[32m+[m[32mstd::unique_ptr<Init> MakeWalletInit(int argc, char* argv[], int& exit_status);[m
+[32m+[m
+[32m+[m[32m//! Return implementation of Init interface for the gui process.[m
+[32m+[m[32mstd::unique_ptr<Init> MakeGuiInit(int argc, char* argv[]);[m
+[32m+[m[32m} // namespace interfaces[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_INTERFACES_INIT_H[m
+[33mdiff --git a/src/interfaces/ipc.h b/src/interfaces/ipc.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..e9e6c78053[m
+[33m--- /dev/null[m
+[33m+++ b/src/interfaces/ipc.h[m
+[36m@@ -0,0 +1,71 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_INTERFACES_IPC_H[m
+[32m+[m[32m#define BITCOIN_INTERFACES_IPC_H[m
+[32m+[m
+[32m+[m[32m#include <functional>[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <typeindex>[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mclass Init;[m
+[32m+[m
+[32m+[m[32m//! Interface providing access to interprocess-communication (IPC)[m
+[32m+[m[32m//! functionality. The IPC implementation is responsible for establishing[m
+[32m+[m[32m//! connections between a controlling process and a process being controlled.[m
+[32m+[m[32m//! When a connection is established, the process being controlled returns an[m
+[32m+[m[32m//! interfaces::Init pointer to the controlling process, which the controlling[m
+[32m+[m[32m//! process can use to get access to other interfaces and functionality.[m
+[32m+[m[32m//![m
+[32m+[m[32m//! When spawning a new process, the steps are:[m
+[32m+[m[32m//![m
+[32m+[m[32m//! 1. The controlling process calls interfaces::Ipc::spawnProcess(), which[m
+[32m+[m[32m//!    calls ipc::Process::spawn(), which spawns a new process and returns a[m
+[32m+[m[32m//!    socketpair file descriptor for communicating with it.[m
+[32m+[m[32m//!    interfaces::Ipc::spawnProcess() then calls ipc::Protocol::connect()[m
+[32m+[m[32m//!    passing the socketpair descriptor, which returns a local proxy[m
+[32m+[m[32m//!    interfaces::Init implementation calling remote interfaces::Init methods.[m
+[32m+[m[32m//! 2. The spawned process calls interfaces::Ipc::startSpawnProcess(), which[m
+[32m+[m[32m//!    calls ipc::Process::checkSpawned() to read command line arguments and[m
+[32m+[m[32m//!    determine whether it is a spawned process and what socketpair file[m
+[32m+[m[32m//!    descriptor it should use. It then calls ipc::Protocol::serve() to handle[m
+[32m+[m[32m//!    incoming requests from the socketpair and invoke interfaces::Init[m
+[32m+[m[32m//!    interface methods, and exit when the socket is closed.[m
+[32m+[m[32m//! 3. The controlling process calls local proxy interfaces::Init object methods[m
+[32m+[m[32m//!    to make other proxy objects calling other remote interfaces. It can also[m
+[32m+[m[32m//!    destroy the initial interfaces::Init object to close the connection and[m
+[32m+[m[32m//!    shut down the spawned process.[m
+[32m+[m[32mclass Ipc[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    virtual ~Ipc() = default;[m
+[32m+[m
+[32m+[m[32m    //! Spawn a child process returning pointer to its Init interface.[m
+[32m+[m[32m    virtual std::unique_ptr<Init> spawnProcess(const char* exe_name) = 0;[m
+[32m+[m
+[32m+[m[32m    //! If this is a spawned process, block and handle requests from the parent[m
+[32m+[m[32m    //! process by forwarding them to this process's Init interface, then return[m
+[32m+[m[32m    //! true. If this is not a spawned child process, return false.[m
+[32m+[m[32m    virtual bool startSpawnedProcess(int argc, char* argv[], int& exit_status) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Add cleanup callback to remote interface that will run when the[m
+[32m+[m[32m    //! interface is deleted.[m
+[32m+[m[32m    template<typename Interface>[m
+[32m+[m[32m    void addCleanup(Interface& iface, std::function<void()> cleanup)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        addCleanup(typeid(Interface), &iface, std::move(cleanup));[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32mprotected:[m
+[32m+[m[32m    //! Internal implementation of public addCleanup method (above) as a[m
+[32m+[m[32m    //! type-erased virtual function, since template functions can't be virtual.[m
+[32m+[m[32m    virtual void addCleanup(std::type_index type, void* iface, std::function<void()> cleanup) = 0;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m//! Return implementation of Ipc interface.[m
+[32m+[m[32mstd::unique_ptr<Ipc> MakeIpc(const char* exe_name, const char* process_argv0, Init& init);[m
+[32m+[m[32m} // namespace interfaces[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_INTERFACES_IPC_H[m
+[33mdiff --git a/src/ipc/capnp/.gitignore b/src/ipc/capnp/.gitignore[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..036df1430c[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/.gitignore[m
+[36m@@ -0,0 +1,2 @@[m
+[32m+[m[32m# capnp generated files[m
+[32m+[m[32m*.capnp.*[m
+[33mdiff --git a/src/ipc/capnp/echo.capnp b/src/ipc/capnp/echo.capnp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..df36ee0de3[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/echo.capnp[m
+[36m@@ -0,0 +1,17 @@[m
+[32m+[m[32m# Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m# Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m# file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m@0x888b4f7f51e691f7;[m
+[32m+[m
+[32m+[m[32musing Cxx = import "/capnp/c++.capnp";[m
+[32m+[m[32m$Cxx.namespace("ipc::capnp::messages");[m
+[32m+[m
+[32m+[m[32musing Proxy = import "/mp/proxy.capnp";[m
+[32m+[m[32m$Proxy.include("interfaces/echo.h");[m
+[32m+[m[32m$Proxy.include("ipc/capnp/echo.capnp.h");[m
+[32m+[m
+[32m+[m[32minterface Echo $Proxy.wrap("interfaces::Echo") {[m
+[32m+[m[32m    destroy @0 (context :Proxy.Context) -> ();[m
+[32m+[m[32m    echo @1 (context :Proxy.Context, echo: Text) -> (result :Text);[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/ipc/capnp/init-types.h b/src/ipc/capnp/init-types.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..42031441b5[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/init-types.h[m
+[36m@@ -0,0 +1,10 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_CAPNP_INIT_TYPES_H[m
+[32m+[m[32m#define BITCOIN_IPC_CAPNP_INIT_TYPES_H[m
+[32m+[m
+[32m+[m[32m#include <ipc/capnp/echo.capnp.proxy-types.h>[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_CAPNP_INIT_TYPES_H[m
+[33mdiff --git a/src/ipc/capnp/init.capnp b/src/ipc/capnp/init.capnp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..e6d358c665[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/init.capnp[m
+[36m@@ -0,0 +1,20 @@[m
+[32m+[m[32m# Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m# Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m# file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m@0xf2c5cfa319406aa6;[m
+[32m+[m
+[32m+[m[32musing Cxx = import "/capnp/c++.capnp";[m
+[32m+[m[32m$Cxx.namespace("ipc::capnp::messages");[m
+[32m+[m
+[32m+[m[32musing Proxy = import "/mp/proxy.capnp";[m
+[32m+[m[32m$Proxy.include("interfaces/echo.h");[m
+[32m+[m[32m$Proxy.include("interfaces/init.h");[m
+[32m+[m[32m$Proxy.includeTypes("ipc/capnp/init-types.h");[m
+[32m+[m
+[32m+[m[32musing Echo = import "echo.capnp";[m
+[32m+[m
+[32m+[m[32minterface Init $Proxy.wrap("interfaces::Init") {[m
+[32m+[m[32m    construct @0 (threadMap: Proxy.ThreadMap) -> (threadMap :Proxy.ThreadMap);[m
+[32m+[m[32m    makeEcho @1 (context :Proxy.Context) -> (result :Echo.Echo);[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/ipc/capnp/protocol.cpp b/src/ipc/capnp/protocol.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..74c66c899a[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/protocol.cpp[m
+[36m@@ -0,0 +1,90 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m[32m#include <ipc/capnp/init.capnp.h>[m
+[32m+[m[32m#include <ipc/capnp/init.capnp.proxy.h>[m
+[32m+[m[32m#include <ipc/capnp/protocol.h>[m
+[32m+[m[32m#include <ipc/exception.h>[m
+[32m+[m[32m#include <ipc/protocol.h>[m
+[32m+[m[32m#include <kj/async.h>[m
+[32m+[m[32m#include <logging.h>[m
+[32m+[m[32m#include <mp/proxy-io.h>[m
+[32m+[m[32m#include <mp/proxy-types.h>[m
+[32m+[m[32m#include <mp/util.h>[m
+[32m+[m[32m#include <util/threadnames.h>[m
+[32m+[m
+[32m+[m[32m#include <assert.h>[m
+[32m+[m[32m#include <errno.h>[m
+[32m+[m[32m#include <future>[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <mutex>[m
+[32m+[m[32m#include <optional>[m
+[32m+[m[32m#include <string>[m
+[32m+[m[32m#include <thread>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mnamespace capnp {[m
+[32m+[m[32mnamespace {[m
+[32m+[m[32mvoid IpcLogFn(bool raise, std::string message)[m
+[32m+[m[32m{[m
+[32m+[m[32m    LogPrint(BCLog::IPC, "%s\n", message);[m
+[32m+[m[32m    if (raise) throw Exception(message);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mclass CapnpProtocol : public Protocol[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    ~CapnpProtocol() noexcept(true)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (m_loop) {[m
+[32m+[m[32m            std::unique_lock<std::mutex> lock(m_loop->m_mutex);[m
+[32m+[m[32m            m_loop->removeClient(lock);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if (m_loop_thread.joinable()) m_loop_thread.join();[m
+[32m+[m[32m        assert(!m_loop);[m
+[32m+[m[32m    };[m
+[32m+[m[32m    std::unique_ptr<interfaces::Init> connect(int fd, const char* exe_name) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        startLoop(exe_name);[m
+[32m+[m[32m        return mp::ConnectStream<messages::Init>(*m_loop, fd);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    void serve(int fd, const char* exe_name, interfaces::Init& init) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        assert(!m_loop);[m
+[32m+[m[32m        mp::g_thread_context.thread_name = mp::ThreadName(exe_name);[m
+[32m+[m[32m        m_loop.emplace(exe_name, &IpcLogFn, nullptr);[m
+[32m+[m[32m        mp::ServeStream<messages::Init>(*m_loop, fd, init);[m
+[32m+[m[32m        m_loop->loop();[m
+[32m+[m[32m        m_loop.reset();[m
+[32m+[m[32m    }[m
+[32m+[m[32m    void addCleanup(std::type_index type, void* iface, std::function<void()> cleanup) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        mp::ProxyTypeRegister::types().at(type)(iface).cleanup.emplace_back(std::move(cleanup));[m
+[32m+[m[32m    }[m
+[32m+[m[32m    void startLoop(const char* exe_name)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (m_loop) return;[m
+[32m+[m[32m        std::promise<void> promise;[m
+[32m+[m[32m        m_loop_thread = std::thread([&] {[m
+[32m+[m[32m            util::ThreadRename("capnp-loop");[m
+[32m+[m[32m            m_loop.emplace(exe_name, &IpcLogFn, nullptr);[m
+[32m+[m[32m            {[m
+[32m+[m[32m                std::unique_lock<std::mutex> lock(m_loop->m_mutex);[m
+[32m+[m[32m                m_loop->addClient(lock);[m
+[32m+[m[32m            }[m
+[32m+[m[32m            promise.set_value();[m
+[32m+[m[32m            m_loop->loop();[m
+[32m+[m[32m            m_loop.reset();[m
+[32m+[m[32m        });[m
+[32m+[m[32m        promise.get_future().wait();[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::thread m_loop_thread;[m
+[32m+[m[32m    std::optional<mp::EventLoop> m_loop;[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace[m
+[32m+[m
+[32m+[m[32mstd::unique_ptr<Protocol> MakeCapnpProtocol() { return std::make_unique<CapnpProtocol>(); }[m
+[32m+[m[32m} // namespace capnp[m
+[32m+[m[32m} // namespace ipc[m
+[33mdiff --git a/src/ipc/capnp/protocol.h b/src/ipc/capnp/protocol.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..eb057949d2[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/protocol.h[m
+[36m@@ -0,0 +1,17 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_CAPNP_PROTOCOL_H[m
+[32m+[m[32m#define BITCOIN_IPC_CAPNP_PROTOCOL_H[m
+[32m+[m
+[32m+[m[32m#include <memory>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mclass Protocol;[m
+[32m+[m[32mnamespace capnp {[m
+[32m+[m[32mstd::unique_ptr<Protocol> MakeCapnpProtocol();[m
+[32m+[m[32m} // namespace capnp[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_CAPNP_PROTOCOL_H[m
+[33mdiff --git a/src/ipc/exception.h b/src/ipc/exception.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..53dee8124a[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/exception.h[m
+[36m@@ -0,0 +1,20 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_EXCEPTION_H[m
+[32m+[m[32m#define BITCOIN_IPC_EXCEPTION_H[m
+[32m+[m
+[32m+[m[32m#include <stdexcept>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32m//! Exception class thrown when a call to remote method fails due to an IPC[m
+[32m+[m[32m//! error, like a socket getting disconnected.[m
+[32m+[m[32mclass Exception : public std::runtime_error[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    using std::runtime_error::runtime_error;[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_EXCEPTION_H[m
+[33mdiff --git a/src/ipc/interfaces.cpp b/src/ipc/interfaces.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..ad4b78ed81[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/interfaces.cpp[m
+[36m@@ -0,0 +1,77 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <fs.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m[32m#include <interfaces/ipc.h>[m
+[32m+[m[32m#include <ipc/capnp/protocol.h>[m
+[32m+[m[32m#include <ipc/process.h>[m
+[32m+[m[32m#include <ipc/protocol.h>[m
+[32m+[m[32m#include <logging.h>[m
+[32m+[m[32m#include <tinyformat.h>[m
+[32m+[m[32m#include <util/system.h>[m
+[32m+[m
+[32m+[m[32m#include <functional>[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <stdexcept>[m
+[32m+[m[32m#include <stdio.h>[m
+[32m+[m[32m#include <stdlib.h>[m
+[32m+[m[32m#include <string.h>[m
+[32m+[m[32m#include <string>[m
+[32m+[m[32m#include <unistd.h>[m
+[32m+[m[32m#include <utility>[m
+[32m+[m[32m#include <vector>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mnamespace {[m
+[32m+[m[32mclass IpcImpl : public interfaces::Ipc[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    IpcImpl(const char* exe_name, const char* process_argv0, interfaces::Init& init)[m
+[32m+[m[32m        : m_exe_name(exe_name), m_process_argv0(process_argv0), m_init(init),[m
+[32m+[m[32m          m_protocol(ipc::capnp::MakeCapnpProtocol()), m_process(ipc::MakeProcess())[m
+[32m+[m[32m    {[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Init> spawnProcess(const char* new_exe_name) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        int pid;[m
+[32m+[m[32m        int fd = m_process->spawn(new_exe_name, m_process_argv0, pid);[m
+[32m+[m[32m        LogPrint(::BCLog::IPC, "Process %s pid %i launched\n", new_exe_name, pid);[m
+[32m+[m[32m        auto init = m_protocol->connect(fd, m_exe_name);[m
+[32m+[m[32m        Ipc::addCleanup(*init, [this, new_exe_name, pid] {[m
+[32m+[m[32m            int status = m_process->waitSpawned(pid);[m
+[32m+[m[32m            LogPrint(::BCLog::IPC, "Process %s pid %i exited with status %i\n", new_exe_name, pid, status);[m
+[32m+[m[32m        });[m
+[32m+[m[32m        return init;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    bool startSpawnedProcess(int argc, char* argv[], int& exit_status) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        exit_status = EXIT_FAILURE;[m
+[32m+[m[32m        int32_t fd = -1;[m
+[32m+[m[32m        if (!m_process->checkSpawned(argc, argv, fd)) {[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        m_protocol->serve(fd, m_exe_name, m_init);[m
+[32m+[m[32m        exit_status = EXIT_SUCCESS;[m
+[32m+[m[32m        return true;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    void addCleanup(std::type_index type, void* iface, std::function<void()> cleanup) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        m_protocol->addCleanup(type, iface, std::move(cleanup));[m
+[32m+[m[32m    }[m
+[32m+[m[32m    const char* m_exe_name;[m
+[32m+[m[32m    const char* m_process_argv0;[m
+[32m+[m[32m    interfaces::Init& m_init;[m
+[32m+[m[32m    std::unique_ptr<Protocol> m_protocol;[m
+[32m+[m[32m    std::unique_ptr<Process> m_process;[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mstd::unique_ptr<Ipc> MakeIpc(const char* exe_name, const char* process_argv0, Init& init)[m
+[32m+[m[32m{[m
+[32m+[m[32m    return std::make_unique<ipc::IpcImpl>(exe_name, process_argv0, init);[m
+[32m+[m[32m}[m
+[32m+[m[32m} // namespace interfaces[m
+[33mdiff --git a/src/ipc/process.cpp b/src/ipc/process.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..43ed1f1bae[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/process.cpp[m
+[36m@@ -0,0 +1,61 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <fs.h>[m
+[32m+[m[32m#include <ipc/process.h>[m
+[32m+[m[32m#include <ipc/protocol.h>[m
+[32m+[m[32m#include <mp/util.h>[m
+[32m+[m[32m#include <tinyformat.h>[m
+[32m+[m[32m#include <util/strencodings.h>[m
+[32m+[m
+[32m+[m[32m#include <cstdint>[m
+[32m+[m[32m#include <exception>[m
+[32m+[m[32m#include <iostream>[m
+[32m+[m[32m#include <stdexcept>[m
+[32m+[m[32m#include <stdlib.h>[m
+[32m+[m[32m#include <string.h>[m
+[32m+[m[32m#include <system_error>[m
+[32m+[m[32m#include <unistd.h>[m
+[32m+[m[32m#include <utility>[m
+[32m+[m[32m#include <vector>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mnamespace {[m
+[32m+[m[32mclass ProcessImpl : public Process[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    int spawn(const std::string& new_exe_name, const fs::path& argv0_path, int& pid) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return mp::SpawnProcess(pid, [&](int fd) {[m
+[32m+[m[32m            fs::path path = argv0_path;[m
+[32m+[m[32m            path.remove_filename();[m
+[32m+[m[32m            path.append(new_exe_name);[m
+[32m+[m[32m            return std::vector<std::string>{path.string(), "-ipcfd", strprintf("%i", fd)};[m
+[32m+[m[32m        });[m
+[32m+[m[32m    }[m
+[32m+[m[32m    int waitSpawned(int pid) override { return mp::WaitProcess(pid); }[m
+[32m+[m[32m    bool checkSpawned(int argc, char* argv[], int& fd) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // If this process was not started with a single -ipcfd argument, it is[m
+[32m+[m[32m        // not a process spawned by the spawn() call above, so return false and[m
+[32m+[m[32m        // do not try to serve requests.[m
+[32m+[m[32m        if (argc != 3 || strcmp(argv[1], "-ipcfd") != 0) {[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        // If a single -ipcfd argument was provided, return true and get the[m
+[32m+[m[32m        // file descriptor so Protocol::serve() can be called to handle[m
+[32m+[m[32m        // requests from the parent process. The -ipcfd argument is not valid[m
+[32m+[m[32m        // in combination with other arguments because the parent process[m
+[32m+[m[32m        // should be able to control the child process through the IPC protocol[m
+[32m+[m[32m        // without passing information out of band.[m
+[32m+[m[32m        if (!ParseInt32(argv[2], &fd)) {[m
+[32m+[m[32m            throw std::runtime_error(strprintf("Invalid -ipcfd number '%s'", argv[2]));[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return true;[m
+[32m+[m[32m    }[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace[m
+[32m+[m
+[32m+[m[32mstd::unique_ptr<Process> MakeProcess() { return std::make_unique<ProcessImpl>(); }[m
+[32m+[m[32m} // namespace ipc[m
+[33mdiff --git a/src/ipc/process.h b/src/ipc/process.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..6e6f3fb23b[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/process.h[m
+[36m@@ -0,0 +1,42 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_PROCESS_H[m
+[32m+[m[32m#define BITCOIN_IPC_PROCESS_H[m
+[32m+[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <string>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mclass Protocol;[m
+[32m+[m
+[32m+[m[32m//! IPC process interface for spawning bitcoin processes and serving requests[m
+[32m+[m[32m//! in processes that have been spawned.[m
+[32m+[m[32m//![m
+[32m+[m[32m//! There will different implementations of this interface depending on the[m
+[32m+[m[32m//! platform (e.g. unix, windows).[m
+[32m+[m[32mclass Process[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    virtual ~Process() = default;[m
+[32m+[m
+[32m+[m[32m    //! Spawn process and return socket file descriptor for communicating with[m
+[32m+[m[32m    //! it.[m
+[32m+[m[32m    virtual int spawn(const std::string& new_exe_name, const fs::path& argv0_path, int& pid) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Wait for spawned process to exit and return its exit code.[m
+[32m+[m[32m    virtual int waitSpawned(int pid) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Parse command line and determine if current process is a spawned child[m
+[32m+[m[32m    //! process. If so, return true and a file descriptor for communicating[m
+[32m+[m[32m    //! with the parent process.[m
+[32m+[m[32m    virtual bool checkSpawned(int argc, char* argv[], int& fd) = 0;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m//! Constructor for Process interface. Implementation will vary depending on[m
+[32m+[m[32m//! the platform (unix or windows).[m
+[32m+[m[32mstd::unique_ptr<Process> MakeProcess();[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_PROCESS_H[m
+[33mdiff --git a/src/ipc/protocol.h b/src/ipc/protocol.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..af955b0007[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/protocol.h[m
+[36m@@ -0,0 +1,39 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_PROTOCOL_H[m
+[32m+[m[32m#define BITCOIN_IPC_PROTOCOL_H[m
+[32m+[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m
+[32m+[m[32m#include <functional>[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <typeindex>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32m//! IPC protocol interface for calling IPC methods over sockets.[m
+[32m+[m[32m//![m
+[32m+[m[32m//! There may be different implementations of this interface for different IPC[m
+[32m+[m[32m//! protocols (e.g. Cap'n Proto, gRPC, JSON-RPC, or custom protocols).[m
+[32m+[m[32mclass Protocol[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    virtual ~Protocol() = default;[m
+[32m+[m
+[32m+[m[32m    //! Return Init interface that forwards requests over given socket descriptor.[m
+[32m+[m[32m    //! Socket communication is handled on a background thread.[m
+[32m+[m[32m    virtual std::unique_ptr<interfaces::Init> connect(int fd, const char* exe_name) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Handle requests on provided socket descriptor, forwarding them to the[m
+[32m+[m[32m    //! provided Init interface. Socket communication is handled on the[m
+[32m+[m[32m    //! current thread, and this call blocks until the socket is closed.[m
+[32m+[m[32m    virtual void serve(int fd, const char* exe_name, interfaces::Init& init) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Add cleanup callback to interface that will run when the interface is[m
+[32m+[m[32m    //! deleted.[m
+[32m+[m[32m    virtual void addCleanup(std::type_index type, void* iface, std::function<void()> cleanup) = 0;[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_PROTOCOL_H[m
+[33mdiff --git a/src/logging.cpp b/src/logging.cpp[m
+[33mindex 866213786e..e5187fd596 100644[m
+[33m--- a/src/logging.cpp[m
+[33m+++ b/src/logging.cpp[m
+[36m@@ -157,6 +157,7 @@[m [mconst CLogCategoryDesc LogCategories[] =[m
+     {BCLog::LEVELDB, "leveldb"},[m
+     {BCLog::VALIDATION, "validation"},[m
+     {BCLog::I2P, "i2p"},[m
+[32m+[m[32m    {BCLog::IPC, "ipc"},[m
+     {BCLog::ALL, "1"},[m
+     {BCLog::ALL, "all"},[m
+ };[m
+[33mdiff --git a/src/logging.h b/src/logging.h[m
+[33mindex 436f0cd12e..d04bc99268 100644[m
+[33m--- a/src/logging.h[m
+[33m+++ b/src/logging.h[m
+[36m@@ -58,6 +58,7 @@[m [mnamespace BCLog {[m
+         LEVELDB     = (1 << 20),[m
+         VALIDATION  = (1 << 21),[m
+         I2P         = (1 << 22),[m
+[32m+[m[32m        IPC         = (1 << 23),[m
+         ALL         = ~(uint32_t)0,[m
+     };[m
+ [m
+[33mdiff --git a/src/node/context.h b/src/node/context.h[m
+[33mindex 9b611bf8f5..048d16dbdb 100644[m
+[33m--- a/src/node/context.h[m
+[33m+++ b/src/node/context.h[m
+[36m@@ -21,6 +21,7 @@[m [mclass PeerManager;[m
+ namespace interfaces {[m
+ class Chain;[m
+ class ChainClient;[m
+[32m+[m[32mclass Init;[m
+ class WalletClient;[m
+ } // namespace interfaces[m
+ [m
+[36m@@ -35,6 +36,8 @@[m [mclass WalletClient;[m
+ //! any member functions. It should just be a collection of references that can[m
+ //! be used without pulling in unwanted dependencies or functionality.[m
+ struct NodeContext {[m
+[32m+[m[32m    //! Init interface for initializing current process and connecting to other processes.[m
+[32m+[m[32m    interfaces::Init* init{nullptr};[m
+     std::unique_ptr<CConnman> connman;[m
+     std::unique_ptr<CTxMemPool> mempool;[m
+     std::unique_ptr<CBlockPolicyEstimator> fee_estimator;[m
+[33mdiff --git a/src/rpc/misc.cpp b/src/rpc/misc.cpp[m
+[33mindex 143be1274e..8c365c99cd 100644[m
+[33m--- a/src/rpc/misc.cpp[m
+[33m+++ b/src/rpc/misc.cpp[m
+[36m@@ -7,6 +7,9 @@[m
+ #include <index/blockfilterindex.h>[m
+ #include <index/txindex.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/echo.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+[32m+[m[32m#include <interfaces/ipc.h>[m
+ #include <key_io.h>[m
+ #include <node/context.h>[m
+ #include <outputtype.h>[m
+[36m@@ -644,6 +647,43 @@[m [mstatic RPCHelpMan echo(const std::string& name)[m
+ static RPCHelpMan echo() { return echo("echo"); }[m
+ static RPCHelpMan echojson() { return echo("echojson"); }[m
+ [m
+[32m+[m[32mstatic RPCHelpMan echoipc()[m
+[32m+[m[32m{[m
+[32m+[m[32m    return RPCHelpMan{[m
+[32m+[m[32m        "echoipc",[m
+[32m+[m[32m        "\nEcho back the input argument, passing it through a spawned process in a multiprocess build.\n"[m
+[32m+[m[32m        "This command is for testing.\n",[m
+[32m+[m[32m        {{"arg", RPCArg::Type::STR, RPCArg::Optional::NO, "The string to echo",}},[m
+[32m+[m[32m        RPCResult{RPCResult::Type::STR, "echo", "The echoed string."},[m
+[32m+[m[32m        RPCExamples{HelpExampleCli("echo", "\"Hello world\"") +[m
+[32m+[m[32m                    HelpExampleRpc("echo", "\"Hello world\"")},[m
+[32m+[m[32m        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {[m
+[32m+[m[32m            std::unique_ptr<interfaces::Echo> echo;[m
+[32m+[m[32m            if (interfaces::Ipc* ipc = Assert(EnsureNodeContext(request.context).init)->ipc()) {[m
+[32m+[m[32m                // Spawn a new bitcoin-node process and call makeEcho to get a[m
+[32m+[m[32m                // client pointer to a interfaces::Echo instance running in[m
+[32m+[m[32m                // that process. This is just for testing. A slightly more[m
+[32m+[m[32m                // realistic test spawning a different executable instead of[m
+[32m+[m[32m                // the same executable would add a new bitcoin-echo executable,[m
+[32m+[m[32m                // and spawn bitcoin-echo below instead of bitcoin-node. But[m
+[32m+[m[32m                // using bitcoin-node avoids the need to build and install a[m
+[32m+[m[32m                // new executable just for this one test.[m
+[32m+[m[32m                auto init = ipc->spawnProcess("bitcoin-node");[m
+[32m+[m[32m                echo = init->makeEcho();[m
+[32m+[m[32m                ipc->addCleanup(*echo, [init = init.release()] { delete init; });[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                // IPC support is not available because this is a bitcoind[m
+[32m+[m[32m                // process not a bitcoind-node process, so just create a local[m
+[32m+[m[32m                // interfaces::Echo object and return it so the `echoipc` RPC[m
+[32m+[m[32m                // method will work, and the python test calling `echoipc`[m
+[32m+[m[32m                // can expect the same result.[m
+[32m+[m[32m                echo = interfaces::MakeEcho();[m
+[32m+[m[32m            }[m
+[32m+[m[32m            return echo->echo(request.params[0].get_str());[m
+[32m+[m[32m        },[m
+[32m+[m[32m    };[m
+[32m+[m[32m}[m
+[32m+[m
+ static UniValue SummaryToJSON(const IndexSummary&& summary, std::string index_name)[m
+ {[m
+     UniValue ret_summary(UniValue::VOBJ);[m
+[36m@@ -719,6 +759,7 @@[m [mstatic const CRPCCommand commands[] =[m
+     { "hidden",             &mockscheduler,           },[m
+     { "hidden",             &echo,                    },[m
+     { "hidden",             &echojson,                },[m
+[32m+[m[32m    { "hidden",             &echoipc,                 },[m
+ };[m
+ // clang-format on[m
+     for (const auto& c : commands) {[m
+[33mdiff --git a/test/functional/rpc_misc.py b/test/functional/rpc_misc.py[m
+[33mindex 1398d1237f..a80fa596cd 100755[m
+[33m--- a/test/functional/rpc_misc.py[m
+[33m+++ b/test/functional/rpc_misc.py[m
+[36m@@ -61,6 +61,9 @@[m [mclass RpcMiscTest(BitcoinTestFramework):[m
+         node.logging(include=['qt'])[m
+         assert_equal(node.logging()['qt'], True)[m
+ [m
+[32m+[m[32m        self.log.info("test echoipc (testing spawned process in multiprocess build)")[m
+[32m+[m[32m        assert_equal(node.echoipc("hello"), "hello")[m
+[32m+[m
+         self.log.info("test getindexinfo")[m
+         # Without any indices running the RPC returns an empty object[m
+         assert_equal(node.getindexinfo(), {})[m
+[33mdiff --git a/test/lint/lint-include-guards.sh b/test/lint/lint-include-guards.sh[m
+[33mindex 5cfa41537f..c23b903bce 100755[m
+[33m--- a/test/lint/lint-include-guards.sh[m
+[33m+++ b/test/lint/lint-include-guards.sh[m
+[36m@@ -15,7 +15,7 @@[m [mREGEXP_EXCLUDE_FILES_WITH_PREFIX="src/(crypto/ctaes/|leveldb/|crc32c/|secp256k1/[m
+ EXIT_CODE=0[m
+ for HEADER_FILE in $(git ls-files -- "*.h" | grep -vE "^${REGEXP_EXCLUDE_FILES_WITH_PREFIX}")[m
+ do[m
+[31m-    HEADER_ID_BASE=$(cut -f2- -d/ <<< "${HEADER_FILE}" | sed "s/\.h$//g" | tr / _ | tr "[:lower:]" "[:upper:]")[m
+[32m+[m[32m    HEADER_ID_BASE=$(cut -f2- -d/ <<< "${HEADER_FILE}" | sed "s/\.h$//g" | tr / _ | tr - _ | tr "[:lower:]" "[:upper:]")[m
+     HEADER_ID="${HEADER_ID_PREFIX}${HEADER_ID_BASE}${HEADER_ID_SUFFIX}"[m
+     if [[ $(grep -cE "^#(ifndef|define) ${HEADER_ID}" "${HEADER_FILE}") != 2 ]]; then[m
+         echo "${HEADER_FILE} seems to be missing the expected include guard:"[m

@@ -1,0 +1,87 @@
+[33mdiff --git a/src/chainparams.cpp b/src/chainparams.cpp[m
+[33mindex 58a27e053..eb6c382f2 100644[m
+[33m--- a/src/chainparams.cpp[m
+[33m+++ b/src/chainparams.cpp[m
+[36m@@ -91,8 +91,8 @@[m [mpublic:[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = 1628640000; // August 11th, 2021[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632; // Approximately November 12th, 2021[m
+ [m
+[31m-        consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000001533efd8d716a517fe2c5008");[m
+[31m-        consensus.defaultAssumeValid = uint256S("0x0000000000000000000b9d2ec5a352ecba0592946514a92f14319dc2b367fc72"); // 654683[m
+[32m+[m[32m        consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000001fa4663bbbe19f82de910280");[m
+[32m+[m[32m        consensus.defaultAssumeValid = uint256S("0x00000000000000000008a89e854d57e5667df88f1cdef6fde2fbca1de5b639ad"); // 691719[m
+ [m
+         /**[m
+          * The message start string is designed to be unlikely to occur in normal data.[m
+[36m@@ -105,7 +105,7 @@[m [mpublic:[m
+         pchMessageStart[3] = 0xd9;[m
+         nDefaultPort = 8333;[m
+         nPruneAfterHeight = 100000;[m
+[31m-        m_assumed_blockchain_size = 350;[m
+[32m+[m[32m        m_assumed_blockchain_size = 420;[m
+         m_assumed_chain_state_size = 6;[m
+ [m
+         genesis = CreateGenesisBlock(1231006505, 2083236893, 0x1d00ffff, 1, 50 * COIN);[m
+[36m@@ -166,10 +166,10 @@[m [mpublic:[m
+         };[m
+ [m
+         chainTxData = ChainTxData{[m
+[31m-            // Data from RPC: getchaintxstats 4096 0000000000000000000b9d2ec5a352ecba0592946514a92f14319dc2b367fc72[m
+[31m-            /* nTime    */ 1603995752,[m
+[31m-            /* nTxCount */ 582083445,[m
+[31m-            /* dTxRate  */ 3.508976121410527,[m
+[32m+[m[32m            // Data from RPC: getchaintxstats 4096 00000000000000000008a89e854d57e5667df88f1cdef6fde2fbca1de5b639ad[m
+[32m+[m[32m            /* nTime    */ 1626697539,[m
+[32m+[m[32m            /* nTxCount */ 656509474,[m
+[32m+[m[32m            /* dTxRate  */ 2.424920418708139,[m
+         };[m
+     }[m
+ };[m
+[36m@@ -210,8 +210,8 @@[m [mpublic:[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = 1628640000; // August 11th, 2021[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay[m
+ [m
+[31m-        consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000000001db6ec4ac88cf2272c6");[m
+[31m-        consensus.defaultAssumeValid = uint256S("0x000000000000006433d1efec504c53ca332b64963c425395515b01977bd7b3b0"); // 1864000[m
+[32m+[m[32m        consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000000005180c3bd8290da33a1a");[m
+[32m+[m[32m        consensus.defaultAssumeValid = uint256S("0x0000000000004ae2f3896ca8ecd41c460a35bf6184e145d91558cece1c688a76"); // 2010000[m
+ [m
+         pchMessageStart[0] = 0x0b;[m
+         pchMessageStart[1] = 0x11;[m
+[36m@@ -261,10 +261,10 @@[m [mpublic:[m
+         };[m
+ [m
+         chainTxData = ChainTxData{[m
+[31m-            // Data from RPC: getchaintxstats 4096 000000000000006433d1efec504c53ca332b64963c425395515b01977bd7b3b0[m
+[31m-            /* nTime    */ 1603359686,[m
+[31m-            /* nTxCount */ 58090238,[m
+[31m-            /* dTxRate  */ 0.1232886622799463,[m
+[32m+[m[32m            // Data from RPC: getchaintxstats 4096 0000000000004ae2f3896ca8ecd41c460a35bf6184e145d91558cece1c688a76[m
+[32m+[m[32m            /* nTime    */ 1625727096,[m
+[32m+[m[32m            /* nTxCount */ 60408943,[m
+[32m+[m[32m            /* dTxRate  */ 0.08379062270367649,[m
+         };[m
+     }[m
+ };[m
+[36m@@ -284,15 +284,15 @@[m [mpublic:[m
+             vSeeds.emplace_back("2a01:7c8:d005:390::5");[m
+             vSeeds.emplace_back("v7ajjeirttkbnt32wpy3c6w3emwnfr3fkla7hpxcfokr3ysd3kqtzmqd.onion:38333");[m
+ [m
+[31m-            consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000000000000019fd16269a");[m
+[31m-            consensus.defaultAssumeValid = uint256S("0x0000002a1de0f46379358c1fd09906f7ac59adf3712323ed90eb59e4c183c020"); // 9434[m
+[32m+[m[32m            consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000000000000000008546553c03");[m
+[32m+[m[32m            consensus.defaultAssumeValid = uint256S("0x000000187d4440e5bff91488b700a140441e089a8aaea707414982460edbfe54"); // 47200[m
+             m_assumed_blockchain_size = 1;[m
+             m_assumed_chain_state_size = 0;[m
+             chainTxData = ChainTxData{[m
+[31m-                // Data from RPC: getchaintxstats 4096 0000002a1de0f46379358c1fd09906f7ac59adf3712323ed90eb59e4c183c020[m
+[31m-                /* nTime    */ 1603986000,[m
+[31m-                /* nTxCount */ 9582,[m
+[31m-                /* dTxRate  */ 0.00159272030651341,[m
+[32m+[m[32m                // Data from RPC: getchaintxstats 4096 000000187d4440e5bff91488b700a140441e089a8aaea707414982460edbfe54[m
+[32m+[m[32m                /* nTime    */ 1626696658,[m
+[32m+[m[32m                /* nTxCount */ 387761,[m
+[32m+[m[32m                /* dTxRate  */ 0.04035946932424404,[m
+             };[m
+         } else {[m
+             const auto signet_challenge = args.GetArgs("-signetchallenge");[m

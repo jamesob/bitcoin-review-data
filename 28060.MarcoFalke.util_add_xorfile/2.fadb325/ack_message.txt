@@ -1,0 +1,3 @@
+ACK fadb32556f64a72377c82be71a207195e6fcf68b ([`jamesob/ackr/28060.2.MarcoFalke.util_add_xorfile`](https://github.com/jamesob/bitcoin/tree/ackr/28060.2.MarcoFalke.util_add_xorfile))
+
+Looks good! More concise change now that we're just adding XOR capability to existing classes.

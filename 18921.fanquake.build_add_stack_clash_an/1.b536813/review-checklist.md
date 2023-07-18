@@ -1,0 +1,2 @@
+- [ ] 076183b36b build: add -fcf-protection=full to hardening options
+- [ ] b536813cef build: add -fstack-clash-protection to hardening flags

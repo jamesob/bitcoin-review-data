@@ -1,0 +1,13 @@
+- [ ] c7b0e1e704 refactor: more const annotations for uses of CBlockIndex*
+- [ ] 4b589fa95c style-only: Various blockstorage.cpp cleanups
+- [ ] 0e4b6541d2 move-mostly: Make pindexBestHeader a BlockMan member
+- [ ] fabcf8ce52 Clear pindexBestHeader in BlockManager::Unload()
+- [ ] 83ef231a3d move-mostly: Make fHavePruned a BlockMan member
+- [ ] e75c61662f Clear fHavePruned in BlockManager::Unload()
+- [ ] 3ef695b49e refactor: Convert warningcache to std::array
+- [ ] aea32e50f5 init: Reset mempool and chainman via reconstruction
+- [ ] 4f92c3bea2 style-only: Use for instead of when loading Chainstate
+- [ ] c14ba1c82f style-only: Use std::clamp for check_ratio, rename
+- [ ] 345f0e416d Clear {versionbits,warning}cache in ~Chainstatemanager
+- [ ] 2021d6ed97 validation: No mempool clearing in UnloadBlockIndex
+- [ ] dc57ee3106 validation: Prune UnloadBlockIndex and callees

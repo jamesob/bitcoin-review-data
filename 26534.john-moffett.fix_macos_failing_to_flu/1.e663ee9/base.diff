@@ -1,0 +1,22 @@
+[33mdiff --git a/src/util/system.cpp b/src/util/system.cpp[m
+[33mindex d7a0793ea8..33a5db957c 100644[m
+[33m--- a/src/util/system.cpp[m
+[33m+++ b/src/util/system.cpp[m
+[36m@@ -1186,8 +1186,15 @@[m [mbool FileCommit(FILE *file)[m
+     }[m
+ #elif defined(MAC_OSX) && defined(F_FULLFSYNC)[m
+     if (fcntl(fileno(file), F_FULLFSYNC, 0) == -1) { // Manpage says "value other than -1" is returned on success[m
+[31m-        LogPrintf("%s: fcntl F_FULLFSYNC failed: %d\n", __func__, errno);[m
+[31m-        return false;[m
+[32m+[m[32m        // Certain filesystems may not support F_FULLFSYNC and fail with various error codes.[m
+[32m+[m[32m        // In that case, use fsync as fallback. SQLite, LevelDB, and others take this approach.[m
+[32m+[m[32m        int fullfsync_errno = errno;[m
+[32m+[m[32m        if (fsync(fileno(file)) != 0 && errno != EINVAL) {[m
+[32m+[m[32m            int fsync_errno = errno;[m
+[32m+[m[32m            LogPrintf("%s: fcntl F_FULLFSYNC failed: %d\n", __func__, fullfsync_errno);[m
+[32m+[m[32m            LogPrintf("%s: fallback fsync failed: %d\n", __func__, fsync_errno);[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+     }[m
+ #elif HAVE_FDATASYNC[m
+     if (fdatasync(fileno(file)) != 0 && errno != EINVAL) { // Ignore EINVAL for filesystems that don't support sync[m

@@ -1,0 +1,5 @@
+ACK c7d20096b6808b11aadda7a652273298b3dd98a8 ([`jamesob/ackr/27011.2.sipa.add_simulation_based_cco`](https://github.com/jamesob/bitcoin/tree/ackr/27011.2.sipa.add_simulation_based_cco))
+
+Built and reviewed locally. Always happy to see more coins tests. 
+
+Just a few questions, but as-is this represents a mergeable improvement.

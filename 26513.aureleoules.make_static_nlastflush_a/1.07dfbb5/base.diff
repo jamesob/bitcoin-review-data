@@ -1,0 +1,72 @@
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex debdc2ae74..f4f05a48bd 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -2360,8 +2360,6 @@[m [mbool Chainstate::FlushStateToDisk([m
+ {[m
+     LOCK(cs_main);[m
+     assert(this->CanFlushToDisk());[m
+[31m-    static std::chrono::microseconds nLastWrite{0};[m
+[31m-    static std::chrono::microseconds nLastFlush{0};[m
+     std::set<int> setFilesToPrune;[m
+     bool full_flush_completed = false;[m
+ [m
+[36m@@ -2415,20 +2413,20 @@[m [mbool Chainstate::FlushStateToDisk([m
+         }[m
+         const auto nNow = GetTime<std::chrono::microseconds>();[m
+         // Avoid writing/flushing immediately after startup.[m
+[31m-        if (nLastWrite.count() == 0) {[m
+[31m-            nLastWrite = nNow;[m
+[32m+[m[32m        if (m_last_write.count() == 0) {[m
+[32m+[m[32m            m_last_write = nNow;[m
+         }[m
+[31m-        if (nLastFlush.count() == 0) {[m
+[31m-            nLastFlush = nNow;[m
+[32m+[m[32m        if (m_last_flush.count() == 0) {[m
+[32m+[m[32m            m_last_flush = nNow;[m
+         }[m
+         // The cache is large and we're within 10% and 10 MiB of the limit, but we have time now (not in the middle of a block processing).[m
+         bool fCacheLarge = mode == FlushStateMode::PERIODIC && cache_state >= CoinsCacheSizeState::LARGE;[m
+         // The cache is over the limit, we have to write now.[m
+         bool fCacheCritical = mode == FlushStateMode::IF_NEEDED && cache_state >= CoinsCacheSizeState::CRITICAL;[m
+         // It's been a while since we wrote the block index to disk. Do this frequently, so we don't need to redownload after a crash.[m
+[31m-        bool fPeriodicWrite = mode == FlushStateMode::PERIODIC && nNow > nLastWrite + DATABASE_WRITE_INTERVAL;[m
+[32m+[m[32m        bool fPeriodicWrite = mode == FlushStateMode::PERIODIC && nNow > m_last_write + DATABASE_WRITE_INTERVAL;[m
+         // It's been very long since we flushed the cache. Do this infrequently, to optimize cache usage.[m
+[31m-        bool fPeriodicFlush = mode == FlushStateMode::PERIODIC && nNow > nLastFlush + DATABASE_FLUSH_INTERVAL;[m
+[32m+[m[32m        bool fPeriodicFlush = mode == FlushStateMode::PERIODIC && nNow > m_last_flush + DATABASE_FLUSH_INTERVAL;[m
+         // Combine all conditions that result in a full cache flush.[m
+         fDoFullFlush = (mode == FlushStateMode::ALWAYS) || fCacheLarge || fCacheCritical || fPeriodicFlush || fFlushForPrune;[m
+         // Write blocks and block index to disk.[m
+[36m@@ -2458,7 +2456,7 @@[m [mbool Chainstate::FlushStateToDisk([m
+ [m
+                 UnlinkPrunedFiles(setFilesToPrune);[m
+             }[m
+[31m-            nLastWrite = nNow;[m
+[32m+[m[32m            m_last_write = nNow;[m
+         }[m
+         // Flush best chain related state. This can only be done if the blocks / block index write was also done.[m
+         if (fDoFullFlush && !CoinsTip().GetBestBlock().IsNull()) {[m
+[36m@@ -2476,7 +2474,7 @@[m [mbool Chainstate::FlushStateToDisk([m
+             // Flush the chainstate (which may refer to block index entries).[m
+             if (!CoinsTip().Flush())[m
+                 return AbortNode(state, "Failed to write to coin database");[m
+[31m-            nLastFlush = nNow;[m
+[32m+[m[32m            m_last_flush = nNow;[m
+             full_flush_completed = true;[m
+             TRACE5(utxocache, flush,[m
+                    (int64_t)(GetTimeMicros() - nNow.count()), // in microseconds (µs)[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex b8151dc1fc..ccc884cb7a 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -743,6 +743,9 @@[m [mprivate:[m
+     void UpdateTip(const CBlockIndex* pindexNew)[m
+         EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+ [m
+[32m+[m[32m    std::chrono::microseconds m_last_write{0};[m
+[32m+[m[32m    std::chrono::microseconds m_last_flush{0};[m
+[32m+[m
+     friend ChainstateManager;[m
+ };[m
+ [m

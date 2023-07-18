@@ -1,0 +1,8 @@
+reACK 8301c696d0a0be921ce01b6e9f74f7ff6e8c0f2f ([`jamesob/ackr/23280.6.dongcarl.init_coalesce_chainstate`](https://github.com/jamesob/bitcoin/tree/ackr/23280.6.dongcarl.init_coalesce_chainstate))
+
+Changes since my last ACK include
+- minor formatting changes for the `LoadChainstate` call
+- break if an error is encountered during `LoadChainstate` instead of proceeding to `VerifyLoadedChainstate` (and displaying the "Verifying blocks..." message)
+- don't prefix parameter names when returning from CalculateCacheSizes
+
+I'm still singing the same tune:  this is a big improvement to init, importantly because it can be reused in unittests.

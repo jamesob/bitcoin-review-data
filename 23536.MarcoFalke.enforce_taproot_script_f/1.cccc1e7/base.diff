@@ -1,0 +1,202 @@
+[33mdiff --git a/src/chainparams.cpp b/src/chainparams.cpp[m
+[33mindex 2e823c1211..c35d265f3c 100644[m
+[33m--- a/src/chainparams.cpp[m
+[33m+++ b/src/chainparams.cpp[m
+[36m@@ -9,6 +9,7 @@[m
+ #include <consensus/merkle.h>[m
+ #include <deploymentinfo.h>[m
+ #include <hash.h> // for signet block challenge hash[m
+[32m+[m[32m#include <script/interpreter.h>[m
+ #include <util/system.h>[m
+ [m
+ #include <assert.h>[m
+[36m@@ -65,7 +66,10 @@[m [mpublic:[m
+         consensus.signet_blocks = false;[m
+         consensus.signet_challenge.clear();[m
+         consensus.nSubsidyHalvingInterval = 210000;[m
+[31m-        consensus.BIP16Exception = uint256S("0x00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22");[m
+[32m+[m[32m        consensus.script_flag_exceptions.emplace( // BIP16 exception[m
+[32m+[m[32m            uint256S("0x00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22"), SCRIPT_VERIFY_NONE);[m
+[32m+[m[32m        consensus.script_flag_exceptions.emplace( // Taproot exception[m
+[32m+[m[32m            uint256S("0x0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad"), SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS);[m
+         consensus.BIP34Height = 227931;[m
+         consensus.BIP34Hash = uint256S("0x000000000000024b89b42a942fe0d9fea3bb44ab7bd1b19115dd6a759c0808b8");[m
+         consensus.BIP65Height = 388381; // 000000000000000004c2b624ed5d7756c508d90fd0da2c7c679febfa6c4735f0[m
+[36m@@ -184,7 +188,8 @@[m [mpublic:[m
+         consensus.signet_blocks = false;[m
+         consensus.signet_challenge.clear();[m
+         consensus.nSubsidyHalvingInterval = 210000;[m
+[31m-        consensus.BIP16Exception = uint256S("0x00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105");[m
+[32m+[m[32m        consensus.script_flag_exceptions.emplace( // BIP16 exception[m
+[32m+[m[32m            uint256S("0x00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105"), SCRIPT_VERIFY_NONE);[m
+         consensus.BIP34Height = 21111;[m
+         consensus.BIP34Hash = uint256S("0x0000000023b3a96d3484e5abb3755c413e7d41500f8e2a5c3f0dd01299cd8ef8");[m
+         consensus.BIP65Height = 581885; // 00000000007f6655f22f98e72ed80d8b06dc761d5da09df0fa1dc4be4f861eb6[m
+[36m@@ -323,7 +328,6 @@[m [mpublic:[m
+         consensus.signet_blocks = true;[m
+         consensus.signet_challenge.assign(bin.begin(), bin.end());[m
+         consensus.nSubsidyHalvingInterval = 210000;[m
+[31m-        consensus.BIP16Exception = uint256{};[m
+         consensus.BIP34Height = 1;[m
+         consensus.BIP34Hash = uint256{};[m
+         consensus.BIP65Height = 1;[m
+[36m@@ -391,7 +395,6 @@[m [mpublic:[m
+         consensus.signet_blocks = false;[m
+         consensus.signet_challenge.clear();[m
+         consensus.nSubsidyHalvingInterval = 150;[m
+[31m-        consensus.BIP16Exception = uint256();[m
+         consensus.BIP34Height = 1; // Always active unless overridden[m
+         consensus.BIP34Hash = uint256();[m
+         consensus.BIP65Height = 1;  // Always active unless overridden[m
+[33mdiff --git a/src/consensus/params.h b/src/consensus/params.h[m
+[33mindex 77bf7fd0d8..aca1995c36 100644[m
+[33m--- a/src/consensus/params.h[m
+[33m+++ b/src/consensus/params.h[m
+[36m@@ -7,7 +7,9 @@[m
+ #define BITCOIN_CONSENSUS_PARAMS_H[m
+ [m
+ #include <uint256.h>[m
+[32m+[m
+ #include <limits>[m
+[32m+[m[32m#include <map>[m
+ [m
+ namespace Consensus {[m
+ [m
+[36m@@ -70,8 +72,13 @@[m [mstruct BIP9Deployment {[m
+ struct Params {[m
+     uint256 hashGenesisBlock;[m
+     int nSubsidyHalvingInterval;[m
+[31m-    /* Block hash that is excepted from BIP16 enforcement */[m
+[31m-    uint256 BIP16Exception;[m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Hashes of blocks that[m
+[32m+[m[32m     * - are known to be consensus valid, and[m
+[32m+[m[32m     * - buried in the chain, and[m
+[32m+[m[32m     * - fail if the default script verify flags are applied.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    std::map<uint256, uint32_t> script_flag_exceptions;[m
+     /** Block height and hash at which BIP34 becomes active */[m
+     int BIP34Height;[m
+     uint256 BIP34Hash;[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex b0e6152b09..f465c96720 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -302,7 +302,7 @@[m [mbool CheckSequenceLocks(CBlockIndex* tip,[m
+ }[m
+ [m
+ // Returns the script flags which should be checked for a given block[m
+[31m-static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& chainparams);[m
+[32m+[m[32mstatic unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Consensus::Params& chainparams);[m
+ [m
+ static void LimitMempoolSize(CTxMemPool& pool, CCoinsViewCache& coins_cache, size_t limit, std::chrono::seconds age)[m
+     EXCLUSIVE_LOCKS_REQUIRED(pool.cs, ::cs_main)[m
+[36m@@ -939,7 +939,7 @@[m [mbool MemPoolAccept::ConsensusScriptChecks(const ATMPArgs& args, Workspace& ws)[m
+     // There is a similar check in CreateNewBlock() to prevent creating[m
+     // invalid blocks (using TestBlockValidity), however allowing such[m
+     // transactions into the mempool can be exploited as a DoS attack.[m
+[31m-    unsigned int currentBlockScriptVerifyFlags = GetBlockScriptFlags(m_active_chainstate.m_chain.Tip(), chainparams.GetConsensus());[m
+[32m+[m[32m    unsigned int currentBlockScriptVerifyFlags{GetBlockScriptFlags(*m_active_chainstate.m_chain.Tip(), chainparams.GetConsensus())};[m
+     if (!CheckInputsFromMempoolAndCache(tx, state, m_view, m_pool, currentBlockScriptVerifyFlags,[m
+                                         ws.m_precomputed_txdata, m_active_chainstate.CoinsTip())) {[m
+         LogPrintf("BUG! PLEASE REPORT THIS! CheckInputScripts failed against latest-block but not STANDARD flags %s, %s\n", hash.ToString(), state.ToString());[m
+[36m@@ -1579,45 +1579,39 @@[m [mpublic:[m
+ [m
+ static ThresholdConditionCache warningcache[VERSIONBITS_NUM_BITS] GUARDED_BY(cs_main);[m
+ [m
+[31m-static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& consensusparams)[m
+[32m+[m[32mstatic unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Consensus::Params& consensusparams)[m
+ {[m
+[31m-    unsigned int flags = SCRIPT_VERIFY_NONE;[m
+[31m-[m
+     // BIP16 didn't become active until Apr 1 2012 (on mainnet, and[m
+     // retroactively applied to testnet)[m
+     // However, only one historical block violated the P2SH rules (on both[m
+[31m-    // mainnet and testnet), so for simplicity, always leave P2SH[m
+[31m-    // on except for the one violating block.[m
+[31m-    if (consensusparams.BIP16Exception.IsNull() || // no bip16 exception on this chain[m
+[31m-        pindex->phashBlock == nullptr || // this is a new candidate block, eg from TestBlockValidity()[m
+[31m-        *pindex->phashBlock != consensusparams.BIP16Exception) // this block isn't the historical exception[m
+[31m-    {[m
+[31m-        // Enforce WITNESS rules whenever P2SH is in effect[m
+[31m-        flags |= SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;[m
+[32m+[m[32m    // mainnet and testnet).[m
+[32m+[m[32m    // Similarly, only one historical block violated the TAPROOT rules on[m
+[32m+[m[32m    // mainnet.[m
+[32m+[m[32m    // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two[m
+[32m+[m[32m    // violating blocks.[m
+[32m+[m[32m    uint32_t flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT};[m
+[32m+[m[32m    const auto it{consensusparams.script_flag_exceptions.find(*Assert(block_index.phashBlock))};[m
+[32m+[m[32m    if (it != consensusparams.script_flag_exceptions.end()) {[m
+[32m+[m[32m        flags = it->second;[m
+     }[m
+ [m
+     // Enforce the DERSIG (BIP66) rule[m
+[31m-    if (DeploymentActiveAt(*pindex, consensusparams, Consensus::DEPLOYMENT_DERSIG)) {[m
+[32m+[m[32m    if (DeploymentActiveAt(block_index, consensusparams, Consensus::DEPLOYMENT_DERSIG)) {[m
+         flags |= SCRIPT_VERIFY_DERSIG;[m
+     }[m
+ [m
+     // Enforce CHECKLOCKTIMEVERIFY (BIP65)[m
+[31m-    if (DeploymentActiveAt(*pindex, consensusparams, Consensus::DEPLOYMENT_CLTV)) {[m
+[32m+[m[32m    if (DeploymentActiveAt(block_index, consensusparams, Consensus::DEPLOYMENT_CLTV)) {[m
+         flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;[m
+     }[m
+ [m
+     // Enforce CHECKSEQUENCEVERIFY (BIP112)[m
+[31m-    if (DeploymentActiveAt(*pindex, consensusparams, Consensus::DEPLOYMENT_CSV)) {[m
+[32m+[m[32m    if (DeploymentActiveAt(block_index, consensusparams, Consensus::DEPLOYMENT_CSV)) {[m
+         flags |= SCRIPT_VERIFY_CHECKSEQUENCEVERIFY;[m
+     }[m
+ [m
+[31m-    // Enforce Taproot (BIP340-BIP342)[m
+[31m-    if (DeploymentActiveAt(*pindex, consensusparams, Consensus::DEPLOYMENT_TAPROOT)) {[m
+[31m-        flags |= SCRIPT_VERIFY_TAPROOT;[m
+[31m-    }[m
+[31m-[m
+     // Enforce BIP147 NULLDUMMY (activated simultaneously with segwit)[m
+[31m-    if (DeploymentActiveAt(*pindex, consensusparams, Consensus::DEPLOYMENT_SEGWIT)) {[m
+[32m+[m[32m    if (DeploymentActiveAt(block_index, consensusparams, Consensus::DEPLOYMENT_SEGWIT)) {[m
+         flags |= SCRIPT_VERIFY_NULLDUMMY;[m
+     }[m
+ [m
+[36m@@ -1625,7 +1619,6 @@[m [mstatic unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens[m
+ }[m
+ [m
+ [m
+[31m-[m
+ static int64_t nTimeCheck = 0;[m
+ static int64_t nTimeForks = 0;[m
+ static int64_t nTimeVerify = 0;[m
+[36m@@ -1811,7 +1804,7 @@[m [mbool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,[m
+     }[m
+ [m
+     // Get the script flags for this block[m
+[31m-    unsigned int flags = GetBlockScriptFlags(pindex, m_params.GetConsensus());[m
+[32m+[m[32m    unsigned int flags{GetBlockScriptFlags(*pindex, m_params.GetConsensus())};[m
+ [m
+     int64_t nTime2 = GetTimeMicros(); nTimeForks += nTime2 - nTime1;[m
+     LogPrint(BCLog::BENCH, "    - Fork checks: %.2fms [%.2fs (%.2fms/blk)]\n", MILLI * (nTime2 - nTime1), nTimeForks * MICRO, nTimeForks * MILLI / nBlocksTotal);[m
+[33mdiff --git a/test/functional/feature_taproot.py b/test/functional/feature_taproot.py[m
+[33mindex e9da6edaf6..1da48b77a6 100755[m
+[33m--- a/test/functional/feature_taproot.py[m
+[33m+++ b/test/functional/feature_taproot.py[m
+[36m@@ -1181,15 +1181,11 @@[m [mdef spenders_taproot_inactive():[m
+     ][m
+     tap = taproot_construct(pub, scripts)[m
+ [m
+[31m-    # Test that keypath spending is valid & non-standard, regardless of validity.[m
+[32m+[m[32m    # Test that valid spending is standard.[m
+     add_spender(spenders, "inactive/keypath_valid", key=sec, tap=tap, standard=Standard.V23)[m
+[31m-    add_spender(spenders, "inactive/keypath_invalidsig", key=sec, tap=tap, standard=False, sighash=bitflipper(default_sighash))[m
+[31m-    add_spender(spenders, "inactive/keypath_empty", key=sec, tap=tap, standard=False, witness=[])[m
+[31m-[m
+[31m-    # Same for scriptpath spending (and features like annex, leaf versions, or OP_SUCCESS don't change this)[m
+     add_spender(spenders, "inactive/scriptpath_valid", key=sec, tap=tap, leaf="pk", standard=Standard.V23, inputs=[getter("sign")])[m
+[31m-    add_spender(spenders, "inactive/scriptpath_invalidsig", key=sec, tap=tap, leaf="pk", standard=False, inputs=[getter("sign")], sighash=bitflipper(default_sighash))[m
+[31m-    add_spender(spenders, "inactive/scriptpath_invalidcb", key=sec, tap=tap, leaf="pk", standard=False, inputs=[getter("sign")], controlblock=bitflipper(default_controlblock))[m
+[32m+[m
+[32m+[m[32m    # Test that features like annex, leaf versions, or OP_SUCCESS are valid but non-standard[m
+     add_spender(spenders, "inactive/scriptpath_valid_unkleaf", key=sec, tap=tap, leaf="future_leaf", standard=False, inputs=[getter("sign")])[m
+     add_spender(spenders, "inactive/scriptpath_invalid_unkleaf", key=sec, tap=tap, leaf="future_leaf", standard=False, inputs=[getter("sign")], sighash=bitflipper(default_sighash))[m
+     add_spender(spenders, "inactive/scriptpath_valid_opsuccess", key=sec, tap=tap, leaf="op_success", standard=False, inputs=[getter("sign")])[m

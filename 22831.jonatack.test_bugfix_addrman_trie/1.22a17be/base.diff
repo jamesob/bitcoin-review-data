@@ -1,0 +1,57 @@
+[33mdiff --git a/test/functional/data/peers.dat b/test/functional/data/peers.dat[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..551d6cd0ac[m
+Binary files /dev/null and b/test/functional/data/peers.dat differ
+[33mdiff --git a/test/functional/feature_asmap.py b/test/functional/feature_asmap.py[m
+[33mindex 704dd6126b..538c8a11e5 100755[m
+[33m--- a/test/functional/feature_asmap.py[m
+[33m+++ b/test/functional/feature_asmap.py[m
+[36m@@ -13,6 +13,7 @@[m [mVerify node behaviour and debug log when launching bitcoind in these cases:[m
+ 3. `bitcoind -asmap=<relative path>`, using the unit test skeleton asmap[m
+ [m
+ 4. `bitcoind -asmap/-asmap=` with no file specified, using the default asmap[m
+[32m+[m[32m    combined with `-checkaddrman=1`[m
+ [m
+ 5. `bitcoind -asmap` with no file specified and a missing default asmap file[m
+ [m
+[36m@@ -38,6 +39,11 @@[m [mclass AsmapTest(BitcoinTestFramework):[m
+     def set_test_params(self):[m
+         self.num_nodes = 1[m
+ [m
+[32m+[m[32m    def set_peers_dat(self):[m
+[32m+[m[32m        """Copy a peers.dat containing tried table entries into the data directory."""[m
+[32m+[m[32m        peers_data = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/peers.dat')[m
+[32m+[m[32m        shutil.copyfile(peers_data, os.path.join(self.datadir, 'peers.dat'))[m
+[32m+[m
+     def test_without_asmap_arg(self):[m
+         self.log.info('Test bitcoind with no -asmap arg passed')[m
+         self.stop_node(0)[m
+[36m@@ -63,13 +69,16 @@[m [mclass AsmapTest(BitcoinTestFramework):[m
+             self.start_node(0, [f'-asmap={name}'])[m
+         os.remove(filename)[m
+ [m
+[31m-    def test_default_asmap(self):[m
+[32m+[m[32m    def test_default_asmap_with_addrman_checks(self):[m
+         shutil.copyfile(self.asmap_raw, self.default_asmap)[m
+         for arg in ['-asmap', '-asmap=']:[m
+[31m-            self.log.info(f'Test bitcoind {arg} (using default map file)')[m
+[32m+[m[32m            self.log.info(f'Test bitcoind {arg} (using default map file) with addrman checks')[m
+             self.stop_node(0)[m
+[32m+[m[32m            self.set_peers_dat()[m
+             with self.node.assert_debug_log(expected_messages(self.default_asmap)):[m
+[31m-                self.start_node(0, [arg])[m
+[32m+[m[32m                self.start_node(0, [arg, '-checkaddrman=1'])[m
+[32m+[m[32m                # RPC getnodeaddresses runs the addrman consistency checks.[m
+[32m+[m[32m                self.node.getnodeaddresses()[m
+         os.remove(self.default_asmap)[m
+ [m
+     def test_default_asmap_with_missing_file(self):[m
+[36m@@ -96,7 +105,7 @@[m [mclass AsmapTest(BitcoinTestFramework):[m
+         self.test_without_asmap_arg()[m
+         self.test_asmap_with_absolute_path()[m
+         self.test_asmap_with_relative_path()[m
+[31m-        self.test_default_asmap()[m
+[32m+[m[32m        self.test_default_asmap_with_addrman_checks()[m
+         self.test_default_asmap_with_missing_file()[m
+         self.test_empty_asmap()[m
+ [m

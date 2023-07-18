@@ -1,0 +1,1021 @@
+[33mdiff --git a/src/bench/rpc_blockchain.cpp b/src/bench/rpc_blockchain.cpp[m
+[33mindex 2143bcf950..e6fc8d21f4 100644[m
+[33m--- a/src/bench/rpc_blockchain.cpp[m
+[33m+++ b/src/bench/rpc_blockchain.cpp[m
+[36m@@ -40,7 +40,7 @@[m [mstatic void BlockToJsonVerbose(benchmark::Bench& bench)[m
+ {[m
+     TestBlockAndIndex data;[m
+     bench.run([&] {[m
+[31m-        auto univalue = blockToJSON(data.block, &data.blockindex, &data.blockindex, TxVerbosity::SHOW_DETAILS_AND_PREVOUT);[m
+[32m+[m[32m        auto univalue = blockToJSON(data.testing_setup->m_node.chainman->m_blockman, data.block, &data.blockindex, &data.blockindex, TxVerbosity::SHOW_DETAILS_AND_PREVOUT);[m
+         ankerl::nanobench::doNotOptimizeAway(univalue);[m
+     });[m
+ }[m
+[36m@@ -50,7 +50,7 @@[m [mBENCHMARK(BlockToJsonVerbose);[m
+ static void BlockToJsonVerboseWrite(benchmark::Bench& bench)[m
+ {[m
+     TestBlockAndIndex data;[m
+[31m-    auto univalue = blockToJSON(data.block, &data.blockindex, &data.blockindex, TxVerbosity::SHOW_DETAILS_AND_PREVOUT);[m
+[32m+[m[32m    auto univalue = blockToJSON(data.testing_setup->m_node.chainman->m_blockman, data.block, &data.blockindex, &data.blockindex, TxVerbosity::SHOW_DETAILS_AND_PREVOUT);[m
+     bench.run([&] {[m
+         auto str = univalue.write();[m
+         ankerl::nanobench::doNotOptimizeAway(str);[m
+[33mdiff --git a/src/index/coinstatsindex.cpp b/src/index/coinstatsindex.cpp[m
+[33mindex a1c8a5937c..293a55a106 100644[m
+[33m--- a/src/index/coinstatsindex.cpp[m
+[33m+++ b/src/index/coinstatsindex.cpp[m
+[36m@@ -278,7 +278,7 @@[m [mbool CoinStatsIndex::Rewind(const CBlockIndex* current_tip, const CBlockIndex* n[m
+ [m
+     {[m
+         LOCK(cs_main);[m
+[31m-        CBlockIndex* iter_tip{m_chainstate->m_blockman.LookupBlockIndex(current_tip->GetBlockHash())};[m
+[32m+[m[32m        const CBlockIndex* iter_tip{m_chainstate->m_blockman.LookupBlockIndex(current_tip->GetBlockHash())};[m
+         const auto& consensus_params{Params().GetConsensus()};[m
+ [m
+         do {[m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex bad402e56e..88a9672e2f 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -72,6 +72,7 @@[m
+ #include <validationinterface.h>[m
+ #include <walletinitinterface.h>[m
+ [m
+[32m+[m[32m#include <algorithm>[m
+ #include <condition_variable>[m
+ #include <cstdint>[m
+ #include <cstdio>[m
+[36m@@ -109,7 +110,6 @@[m [musing node::LoadChainstate;[m
+ using node::NodeContext;[m
+ using node::ThreadImport;[m
+ using node::VerifyLoadedChainstate;[m
+[31m-using node::fHavePruned;[m
+ using node::fPruneMode;[m
+ using node::fReindex;[m
+ using node::nPruneTarget;[m
+[36m@@ -1264,18 +1264,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+     // as they would never get updated.[m
+     if (!ignores_incoming_txs) node.fee_estimator = std::make_unique<CBlockPolicyEstimator>();[m
+ [m
+[31m-    assert(!node.mempool);[m
+[31m-    int check_ratio = std::min<int>(std::max<int>(args.GetIntArg("-checkmempool", chainparams.DefaultConsistencyChecks() ? 1 : 0), 0), 1000000);[m
+[31m-    node.mempool = std::make_unique<CTxMemPool>(node.fee_estimator.get(), check_ratio);[m
+[31m-[m
+[31m-    assert(!node.chainman);[m
+[31m-    node.chainman = std::make_unique<ChainstateManager>();[m
+[31m-    ChainstateManager& chainman = *node.chainman;[m
+[2m-[m
+[2m-    assert(!node.peerman);[m
+[2m-    node.peerman = PeerManager::make(chainparams, *node.connman, *node.addrman, node.banman.get(),[m
+[2m-                                     chainman, *node.mempool, ignores_incoming_txs);[m
+[2m-    RegisterValidationInterface(node.peerman.get());[m
+[32m+[m[32m    int mempool_check_ratio = std::clamp<int>(args.GetIntArg("-checkmempool", chainparams.DefaultConsistencyChecks() ? 1 : 0), 0, 1000000);[m
+ [m
+     // sanitize comments per BIP-0014, format user agent and check total size[m
+     std::vector<std::string> uacomments;[m
+[36m@@ -1404,8 +1393,15 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+     LogPrintf("* Using %.1f MiB for chain state database\n", cache_sizes.coins_db * (1.0 / 1024 / 1024));[m
+     LogPrintf("* Using %.1f MiB for in-memory UTXO set (plus up to %.1f MiB of unused mempool space)\n", cache_sizes.coins * (1.0 / 1024 / 1024), nMempoolSizeMax * (1.0 / 1024 / 1024));[m
+ [m
+[31m-    bool fLoaded = false;[m
+[31m-    while (!fLoaded && !ShutdownRequested()) {[m
+[32m+[m[32m    assert(!node.mempool);[m
+[32m+[m[32m    assert(!node.chainman);[m
+[32m+[m[32m    for (bool fLoaded = false; !fLoaded && !ShutdownRequested();) {[m
+[32m+[m[32m        node.mempool = std::make_unique<CTxMemPool>(node.fee_estimator.get(), mempool_check_ratio);[m
+[32m+[m[32m        CTxMemPool& mempool = *Assert(node.mempool);[m
+[32m+[m
+[32m+[m[32m        node.chainman = std::make_unique<ChainstateManager>();[m
+[32m+[m[32m        ChainstateManager& chainman = *Assert(node.chainman);[m
+[32m+[m
+         const bool fReset = fReindex;[m
+         bilingual_str strLoadError;[m
+ [m
+[36m@@ -1415,7 +1411,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+         try {[m
+             maybe_load_error = LoadChainstate(fReset,[m
+                                               chainman,[m
+[31m-                                              Assert(node.mempool.get()),[m
+[32m+[m[32m                                              &mempool,[m
+                                               fPruneMode,[m
+                                               chainparams.GetConsensus(),[m
+                                               fReindexChainState,[m
+[36m@@ -1473,7 +1469,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+             try {[m
+                 uiInterface.InitMessage(_("Verifying blocks…").translated);[m
+                 auto check_blocks = args.GetIntArg("-checkblocks", DEFAULT_CHECKBLOCKS);[m
+[31m-                if (fHavePruned && check_blocks > MIN_BLOCKS_TO_KEEP) {[m
+[32m+[m[32m                if (chainman.m_blockman.fHavePruned && check_blocks > MIN_BLOCKS_TO_KEEP) {[m
+                     LogPrintf("Prune: pruned datadir may not have more than %d blocks; only checking available blocks\n",[m
+                               MIN_BLOCKS_TO_KEEP);[m
+                 }[m
+[36m@@ -1536,6 +1532,13 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+         return false;[m
+     }[m
+ [m
+[32m+[m[32m    ChainstateManager& chainman = *Assert(node.chainman);[m
+[2m+[m
+[2m+[m[2m    assert(!node.peerman);[m
+[2m+[m[2m    node.peerman = PeerManager::make(chainparams, *node.connman, *node.addrman, node.banman.get(),[m
+[2m+[m[2m                                     chainman, *node.mempool, ignores_incoming_txs);[m
+[2m+[m[2m    RegisterValidationInterface(node.peerman.get());[m
+[32m+[m
+     // ********************************************************* Step 8: start indexers[m
+     if (args.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {[m
+         if (const auto error{CheckLegacyTxindex(*Assert(chainman.m_blockman.m_block_tree_db))}) {[m
+[36m@@ -1657,9 +1660,9 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+             tip_info->block_time = chainman.ActiveChain().Tip() ? chainman.ActiveChain().Tip()->GetBlockTime() : Params().GenesisBlock().GetBlockTime();[m
+             tip_info->verification_progress = GuessVerificationProgress(Params().TxData(), chainman.ActiveChain().Tip());[m
+         }[m
+[31m-        if (tip_info && ::pindexBestHeader) {[m
+[31m-            tip_info->header_height = ::pindexBestHeader->nHeight;[m
+[31m-            tip_info->header_time = ::pindexBestHeader->GetBlockTime();[m
+[32m+[m[32m        if (tip_info && chainman.m_blockman.pindexBestHeader) {[m
+[32m+[m[32m            tip_info->header_height = chainman.m_blockman.pindexBestHeader->nHeight;[m
+[32m+[m[32m            tip_info->header_time = chainman.m_blockman.pindexBestHeader->GetBlockTime();[m
+         }[m
+     }[m
+     LogPrintf("nBestHeight = %d\n", chain_active_height);[m
+[33mdiff --git a/src/net_processing.cpp b/src/net_processing.cpp[m
+[33mindex 59cd83e493..17a177cb21 100644[m
+[33m--- a/src/net_processing.cpp[m
+[33m+++ b/src/net_processing.cpp[m
+[36m@@ -1455,9 +1455,9 @@[m [mbool PeerManagerImpl::BlockRequestAllowed(const CBlockIndex* pindex)[m
+ {[m
+     AssertLockHeld(cs_main);[m
+     if (m_chainman.ActiveChain().Contains(pindex)) return true;[m
+[31m-    return pindex->IsValid(BLOCK_VALID_SCRIPTS) && (pindexBestHeader != nullptr) &&[m
+[31m-           (pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() < STALE_RELAY_AGE_LIMIT) &&[m
+[31m-           (GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, m_chainparams.GetConsensus()) < STALE_RELAY_AGE_LIMIT);[m
+[32m+[m[32m    return pindex->IsValid(BLOCK_VALID_SCRIPTS) && (m_chainman.m_blockman.pindexBestHeader != nullptr) &&[m
+[32m+[m[32m           (m_chainman.m_blockman.pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() < STALE_RELAY_AGE_LIMIT) &&[m
+[32m+[m[32m           (GetBlockProofEquivalentTime(*m_chainman.m_blockman.pindexBestHeader, *pindex, *m_chainman.m_blockman.pindexBestHeader, m_chainparams.GetConsensus()) < STALE_RELAY_AGE_LIMIT);[m
+ }[m
+ [m
+ std::optional<std::string> PeerManagerImpl::FetchBlock(NodeId peer_id, const CBlockIndex& block_index)[m
+[36m@@ -1854,7 +1854,7 @@[m [mvoid PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv&[m
+     const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());[m
+     // disconnect node in case we have reached the outbound limit for serving historical blocks[m
+     if (m_connman.OutboundTargetReached(true) &&[m
+[31m-        (((pindexBestHeader != nullptr) && (pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() > HISTORICAL_BLOCK_AGE)) || inv.IsMsgFilteredBlk()) &&[m
+[32m+[m[32m        (((m_chainman.m_blockman.pindexBestHeader != nullptr) && (m_chainman.m_blockman.pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() > HISTORICAL_BLOCK_AGE)) || inv.IsMsgFilteredBlk()) &&[m
+         !pfrom.HasPermission(NetPermissionFlags::Download) // nodes with the download permission may exceed target[m
+     ) {[m
+         LogPrint(BCLog::NET, "historical block serving limit reached, disconnect peer=%d\n", pfrom.GetId());[m
+[36m@@ -2131,11 +2131,11 @@[m [mvoid PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,[m
+         //   nUnconnectingHeaders gets reset back to 0.[m
+         if (!m_chainman.m_blockman.LookupBlockIndex(headers[0].hashPrevBlock) && nCount < MAX_BLOCKS_TO_ANNOUNCE) {[m
+             nodestate->nUnconnectingHeaders++;[m
+[31m-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(pindexBestHeader), uint256()));[m
+[32m+[m[32m            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(m_chainman.m_blockman.pindexBestHeader), uint256()));[m
+             LogPrint(BCLog::NET, "received header %s: missing prev block %s, sending getheaders (%d) to end (peer=%d, nUnconnectingHeaders=%d)\n",[m
+                     headers[0].GetHash().ToString(),[m
+                     headers[0].hashPrevBlock.ToString(),[m
+[31m-                    pindexBestHeader->nHeight,[m
+[32m+[m[32m                    m_chainman.m_blockman.pindexBestHeader->nHeight,[m
+                     pfrom.GetId(), nodestate->nUnconnectingHeaders);[m
+             // Set hashLastUnknownBlock for this peer, so that if we[m
+             // eventually get the headers - even from a different peer -[m
+[36m@@ -2193,7 +2193,7 @@[m [mvoid PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,[m
+ [m
+         if (nCount == MAX_HEADERS_RESULTS) {[m
+             // Headers message had its maximum size; the peer may have more headers.[m
+[31m-            // TODO: optimize: if pindexLast is an ancestor of m_chainman.ActiveChain().Tip or pindexBestHeader, continue[m
+[32m+[m[32m            // TODO: optimize: if pindexLast is an ancestor of m_chainman.ActiveChain().Tip or m_chainman.m_blockman.pindexBestHeader, continue[m
+             // from there instead.[m
+             LogPrint(BCLog::NET, "more getheaders (%d) to end to peer=%d (startheight:%d)\n",[m
+                                  pindexLast->nHeight, pfrom.GetId(), peer.m_starting_height);[m
+[36m@@ -3058,8 +3058,8 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+         }[m
+ [m
+         if (best_block != nullptr) {[m
+[31m-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(pindexBestHeader), *best_block));[m
+[31m-            LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, best_block->ToString(), pfrom.GetId());[m
+[32m+[m[32m            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(m_chainman.m_blockman.pindexBestHeader), *best_block));[m
+[32m+[m[32m            LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n", m_chainman.m_blockman.pindexBestHeader->nHeight, best_block->ToString(), pfrom.GetId());[m
+         }[m
+ [m
+         return;[m
+[36m@@ -3508,7 +3508,7 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+         if (!m_chainman.m_blockman.LookupBlockIndex(cmpctblock.header.hashPrevBlock)) {[m
+             // Doesn't connect (or is genesis), instead of DoSing in AcceptBlockHeader, request deeper headers[m
+             if (!m_chainman.ActiveChainstate().IsInitialBlockDownload())[m
+[31m-                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(pindexBestHeader), uint256()));[m
+[32m+[m[32m                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(m_chainman.m_blockman.pindexBestHeader), uint256()));[m
+             return;[m
+         }[m
+ [m
+[36m@@ -4620,28 +4620,28 @@[m [mbool PeerManagerImpl::SendMessages(CNode* pto)[m
+         CNodeState &state = *State(pto->GetId());[m
+ [m
+         // Start block sync[m
+[31m-        if (pindexBestHeader == nullptr)[m
+[31m-            pindexBestHeader = m_chainman.ActiveChain().Tip();[m
+[32m+[m[32m        if (m_chainman.m_blockman.pindexBestHeader == nullptr)[m
+[32m+[m[32m            m_chainman.m_blockman.pindexBestHeader = m_chainman.ActiveChain().Tip();[m
+         bool fFetch = state.fPreferredDownload || (nPreferredDownload == 0 && !pto->fClient && !pto->IsAddrFetchConn()); // Download if this is a nice peer, or we have no nice peers and this one might do.[m
+         if (!state.fSyncStarted && !pto->fClient && !fImporting && !fReindex) {[m
+             // Only actively request headers from a single peer, unless we're close to today.[m
+[31m-            if ((nSyncStarted == 0 && fFetch) || pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {[m
+[32m+[m[32m            if ((nSyncStarted == 0 && fFetch) || m_chainman.m_blockman.pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {[m
+                 state.fSyncStarted = true;[m
+                 state.m_headers_sync_timeout = current_time + HEADERS_DOWNLOAD_TIMEOUT_BASE +[m
+                     ([m
+                         // Convert HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER to microseconds before scaling[m
+                         // to maintain precision[m
+                         std::chrono::microseconds{HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER} *[m
+[31m-                        (GetAdjustedTime() - pindexBestHeader->GetBlockTime()) / consensusParams.nPowTargetSpacing[m
+[32m+[m[32m                        (GetAdjustedTime() - m_chainman.m_blockman.pindexBestHeader->GetBlockTime()) / consensusParams.nPowTargetSpacing[m
+                     );[m
+                 nSyncStarted++;[m
+[31m-                const CBlockIndex *pindexStart = pindexBestHeader;[m
+[32m+[m[32m                const CBlockIndex *pindexStart = m_chainman.m_blockman.pindexBestHeader;[m
+                 /* If possible, start at the block preceding the currently[m
+                    best known header.  This ensures that we always get a[m
+                    non-empty list of headers back as long as the peer[m
+                    is up-to-date.  With a non-empty response, we can initialise[m
+                    the peer's known best block.  This wouldn't be possible[m
+[31m-                   if we requested starting at pindexBestHeader and[m
+[32m+[m[32m                   if we requested starting at m_chainman.m_blockman.pindexBestHeader and[m
+                    got back an empty response.  */[m
+                 if (pindexStart->pprev)[m
+                     pindexStart = pindexStart->pprev;[m
+[36m@@ -4966,7 +4966,7 @@[m [mbool PeerManagerImpl::SendMessages(CNode* pto)[m
+         // Check for headers sync timeouts[m
+         if (state.fSyncStarted && state.m_headers_sync_timeout < std::chrono::microseconds::max()) {[m
+             // Detect whether this is a stalling initial-headers-sync peer[m
+[31m-            if (pindexBestHeader->GetBlockTime() <= GetAdjustedTime() - 24 * 60 * 60) {[m
+[32m+[m[32m            if (m_chainman.m_blockman.pindexBestHeader->GetBlockTime() <= GetAdjustedTime() - 24 * 60 * 60) {[m
+                 if (current_time > state.m_headers_sync_timeout && nSyncStarted == 1 && (nPreferredDownload - state.fPreferredDownload >= 1)) {[m
+                     // Disconnect a peer (without NetPermissionFlags::NoBan permission) if it is our only sync peer,[m
+                     // and we have others we could be using instead.[m
+[33mdiff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp[m
+[33mindex 7392830261..771a0d82a1 100644[m
+[33m--- a/src/node/blockstorage.cpp[m
+[33m+++ b/src/node/blockstorage.cpp[m
+[36m@@ -24,7 +24,6 @@[m
+ namespace node {[m
+ std::atomic_bool fImporting(false);[m
+ std::atomic_bool fReindex(false);[m
+[31m-bool fHavePruned = false;[m
+ bool fPruneMode = false;[m
+ uint64_t nPruneTarget = 0;[m
+ [m
+[36m@@ -203,8 +202,7 @@[m [mCBlockIndex* BlockManager::InsertBlockIndex(const uint256& hash)[m
+         return nullptr;[m
+     }[m
+ [m
+[31m-    // Return existing or create new[m
+[31m-    auto [mi, inserted] = m_block_index.try_emplace(hash);[m
+[32m+[m[32m    const auto [mi, inserted]{m_block_index.try_emplace(hash)};[m
+     CBlockIndex* pindex = &(*mi).second;[m
+     if (inserted) {[m
+         pindex->phashBlock = &((*mi).first);[m
+[36m@@ -224,8 +222,7 @@[m [mbool BlockManager::LoadBlockIndex([m
+     std::vector<std::pair<int, CBlockIndex*>> vSortedByHeight;[m
+     vSortedByHeight.reserve(m_block_index.size());[m
+     for (auto& [_, block_index] : m_block_index) {[m
+[31m-        CBlockIndex* pindex = &block_index;[m
+[31m-        vSortedByHeight.push_back(std::make_pair(pindex->nHeight, pindex));[m
+[32m+[m[32m        vSortedByHeight.push_back(std::make_pair(block_index.nHeight, &block_index));[m
+     }[m
+     sort(vSortedByHeight.begin(), vSortedByHeight.end());[m
+ [m
+[36m@@ -322,18 +319,6 @@[m [mbool BlockManager::LoadBlockIndex([m
+     return true;[m
+ }[m
+ [m
+[31m-void BlockManager::Unload()[m
+[31m-{[m
+[31m-    m_blocks_unlinked.clear();[m
+[31m-[m
+[31m-    m_block_index.clear();[m
+[31m-[m
+[31m-    m_blockfile_info.clear();[m
+[31m-    m_last_blockfile = 0;[m
+[31m-    m_dirty_blockindex.clear();[m
+[31m-    m_dirty_fileinfo.clear();[m
+[31m-}[m
+[31m-[m
+ bool BlockManager::WriteBlockIndexDB()[m
+ {[m
+     AssertLockHeld(::cs_main);[m
+[36m@@ -382,9 +367,8 @@[m [mbool BlockManager::LoadBlockIndexDB(ChainstateManager& chainman)[m
+     LogPrintf("Checking all blk files are present...\n");[m
+     std::set<int> setBlkDataFiles;[m
+     for (const auto& [_, block_index] : m_block_index) {[m
+[31m-        const CBlockIndex* pindex = &block_index;[m
+[31m-        if (pindex->nStatus & BLOCK_HAVE_DATA) {[m
+[31m-            setBlkDataFiles.insert(pindex->nFile);[m
+[32m+[m[32m        if (block_index.nStatus & BLOCK_HAVE_DATA) {[m
+[32m+[m[32m            setBlkDataFiles.insert(block_index.nFile);[m
+         }[m
+     }[m
+     for (std::set<int>::iterator it = setBlkDataFiles.begin(); it != setBlkDataFiles.end(); it++) {[m
+[36m@@ -408,13 +392,13 @@[m [mbool BlockManager::LoadBlockIndexDB(ChainstateManager& chainman)[m
+     return true;[m
+ }[m
+ [m
+[31m-CBlockIndex* BlockManager::GetLastCheckpoint(const CCheckpointData& data)[m
+[32m+[m[32mconst CBlockIndex* BlockManager::GetLastCheckpoint(const CCheckpointData& data)[m
+ {[m
+     const MapCheckpoints& checkpoints = data.mapCheckpoints;[m
+ [m
+     for (const MapCheckpoints::value_type& i : reverse_iterate(checkpoints)) {[m
+         const uint256& hash = i.second;[m
+[31m-        CBlockIndex* pindex = LookupBlockIndex(hash);[m
+[32m+[m[32m        const CBlockIndex* pindex = LookupBlockIndex(hash);[m
+         if (pindex) {[m
+             return pindex;[m
+         }[m
+[36m@@ -422,7 +406,7 @@[m [mCBlockIndex* BlockManager::GetLastCheckpoint(const CCheckpointData& data)[m
+     return nullptr;[m
+ }[m
+ [m
+[31m-bool IsBlockPruned(const CBlockIndex* pblockindex)[m
+[32m+[m[32mbool BlockManager::IsBlockPruned(const CBlockIndex* pblockindex)[m
+ {[m
+     AssertLockHeld(::cs_main);[m
+     return (fHavePruned && !(pblockindex->nStatus & BLOCK_HAVE_DATA) && pblockindex->nTx > 0);[m
+[33mdiff --git a/src/node/blockstorage.h b/src/node/blockstorage.h[m
+[33mindex 12224f7a5d..0ee46edf5f 100644[m
+[33m--- a/src/node/blockstorage.h[m
+[33m+++ b/src/node/blockstorage.h[m
+[36m@@ -45,8 +45,6 @@[m [mstatic const unsigned int MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB[m
+ extern std::atomic_bool fImporting;[m
+ extern std::atomic_bool fReindex;[m
+ /** Pruning-related variables and constants */[m
+[31m-/** True if any block files have ever been pruned. */[m
+[31m-extern bool fHavePruned;[m
+ /** True if we're running in -prune mode. */[m
+ extern bool fPruneMode;[m
+ /** Number of MiB of block files that we're trying to stay below. */[m
+[36m@@ -138,9 +136,6 @@[m [mpublic:[m
+         const Consensus::Params& consensus_params,[m
+         ChainstateManager& chainman) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[31m-    /** Clear all data members. */[m
+[31m-    void Unload() EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[31m-[m
+     CBlockIndex* AddToBlockIndex(const CBlockHeader& block) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+     /** Create a new block index entry for a given block hash */[m
+     CBlockIndex* InsertBlockIndex(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[36m@@ -163,16 +158,18 @@[m [mpublic:[m
+     uint64_t CalculateCurrentUsage();[m
+ [m
+     //! Returns last CBlockIndex* that is a checkpoint[m
+[31m-    CBlockIndex* GetLastCheckpoint(const CCheckpointData& data) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[32m+[m[32m    const CBlockIndex* GetLastCheckpoint(const CCheckpointData& data) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[31m-    ~BlockManager()[m
+[31m-    {[m
+[31m-        Unload();[m
+[31m-    }[m
+[31m-};[m
+[32m+[m[32m    /** Best header we've seen so far (used for getheaders queries' starting points). */[m
+[32m+[m[32m    CBlockIndex* pindexBestHeader = nullptr;[m
+[32m+[m
+[32m+[m[32m    /** True if any block files have ever been pruned. */[m
+[32m+[m[32m    bool fHavePruned = false;[m
+ [m
+[31m-//! Check whether the block associated with this index entry is pruned or not.[m
+[31m-bool IsBlockPruned(const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+[32m+[m[32m    //! Check whether the block associated with this index entry is pruned or not.[m
+[32m+[m[32m    bool IsBlockPruned(const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+[32m+[m
+[32m+[m[32m};[m
+ [m
+ void CleanupBlockRevFiles();[m
+ [m
+[33mdiff --git a/src/node/chainstate.cpp b/src/node/chainstate.cpp[m
+[33mindex d03b9dcac6..71b606e610 100644[m
+[33m--- a/src/node/chainstate.cpp[m
+[33m+++ b/src/node/chainstate.cpp[m
+[36m@@ -28,11 +28,8 @@[m [mstd::optional<ChainstateLoadingError> LoadChainstate(bool fReset,[m
+     };[m
+ [m
+     LOCK(cs_main);[m
+[2m-    chainman.InitializeChainstate(mempool);[m
+[31m-    chainman.m_total_coinstip_cache = nCoinCacheUsage;[m
+[31m-    chainman.m_total_coinsdb_cache = nCoinDBCache;[m
+ [m
+[31m-    UnloadBlockIndex(mempool, chainman);[m
+[2m+[m[2m    chainman.InitializeChainstate(mempool);[m
+ [m
+     auto& pblocktree{chainman.m_blockman.m_block_tree_db};[m
+     // new CBlockTreeDB tries to delete the existing file, which[m
+[36m@@ -65,7 +62,7 @@[m [mstd::optional<ChainstateLoadingError> LoadChainstate(bool fReset,[m
+ [m
+     // Check for changed -prune state.  What we are concerned about is a user who has pruned blocks[m
+     // in the past, but is now trying to run unpruned.[m
+[31m-    if (fHavePruned && !fPruneMode) {[m
+[32m+[m[32m    if (chainman.m_blockman.fHavePruned && !fPruneMode) {[m
+         return ChainstateLoadingError::ERROR_PRUNED_NEEDS_REINDEX;[m
+     }[m
+ [m
+[33mdiff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp[m
+[33mindex cb063ae9f8..9a54333c2c 100644[m
+[33m--- a/src/node/interfaces.cpp[m
+[33m+++ b/src/node/interfaces.cpp[m
+[36m@@ -212,9 +212,10 @@[m [mpublic:[m
+     bool getHeaderTip(int& height, int64_t& block_time) override[m
+     {[m
+         LOCK(::cs_main);[m
+[31m-        if (::pindexBestHeader) {[m
+[31m-            height = ::pindexBestHeader->nHeight;[m
+[31m-            block_time = ::pindexBestHeader->GetBlockTime();[m
+[32m+[m[32m        auto best_header = chainman().m_blockman.pindexBestHeader;[m
+[32m+[m[32m        if (best_header) {[m
+[32m+[m[32m            height = best_header->nHeight;[m
+[32m+[m[32m            block_time = best_header->GetBlockTime();[m
+             return true;[m
+         }[m
+         return false;[m
+[36m@@ -490,7 +491,7 @@[m [mpublic:[m
+     {[m
+         LOCK(cs_main);[m
+         const CChainState& active = Assert(m_node.chainman)->ActiveChainstate();[m
+[31m-        if (CBlockIndex* fork = active.FindForkInGlobalIndex(locator)) {[m
+[32m+[m[32m        if (const CBlockIndex* fork = active.FindForkInGlobalIndex(locator)) {[m
+             return fork->nHeight;[m
+         }[m
+         return std::nullopt;[m
+[36m@@ -557,7 +558,7 @@[m [mpublic:[m
+         // used to limit the range, and passing min_height that's too low or[m
+         // max_height that's too high will not crash or change the result.[m
+         LOCK(::cs_main);[m
+[31m-        if (CBlockIndex* block = chainman().m_blockman.LookupBlockIndex(block_hash)) {[m
+[32m+[m[32m        if (const CBlockIndex* block = chainman().m_blockman.LookupBlockIndex(block_hash)) {[m
+             if (max_height && block->nHeight >= *max_height) block = block->GetAncestor(*max_height);[m
+             for (; block->nStatus & BLOCK_HAVE_DATA; block = block->pprev) {[m
+                 // Check pprev to not segfault if min_height is too low[m
+[36m@@ -644,7 +645,7 @@[m [mpublic:[m
+     bool havePruned() override[m
+     {[m
+         LOCK(cs_main);[m
+[31m-        return node::fHavePruned;[m
+[32m+[m[32m        return m_node.chainman->m_blockman.fHavePruned;[m
+     }[m
+     bool isReadyToBroadcast() override { return !node::fImporting && !node::fReindex && !isInitialBlockDownload(); }[m
+     bool isInitialBlockDownload() override {[m
+[33mdiff --git a/src/node/miner.cpp b/src/node/miner.cpp[m
+[33mindex 7fe10ecabc..fbfa88c170 100644[m
+[33m--- a/src/node/miner.cpp[m
+[33m+++ b/src/node/miner.cpp[m
+[36m@@ -50,7 +50,7 @@[m [mvoid RegenerateCommitments(CBlock& block, ChainstateManager& chainman)[m
+     tx.vout.erase(tx.vout.begin() + GetWitnessCommitmentIndex(block));[m
+     block.vtx.at(0) = MakeTransactionRef(tx);[m
+ [m
+[31m-    CBlockIndex* prev_block = WITH_LOCK(::cs_main, return chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock));[m
+[32m+[m[32m    const CBlockIndex* prev_block = WITH_LOCK(::cs_main, return chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock));[m
+     GenerateCoinbaseCommitment(block, prev_block, Params().GetConsensus());[m
+ [m
+     block.hashMerkleRoot = BlockMerkleRoot(block);[m
+[33mdiff --git a/src/rest.cpp b/src/rest.cpp[m
+[33mindex 063872b47a..0dc77fcf8e 100644[m
+[33m--- a/src/rest.cpp[m
+[33m+++ b/src/rest.cpp[m
+[36m@@ -33,7 +33,6 @@[m
+ #include <univalue.h>[m
+ [m
+ using node::GetTransaction;[m
+[31m-using node::IsBlockPruned;[m
+ using node::NodeContext;[m
+ using node::ReadBlockFromDisk;[m
+ [m
+[36m@@ -283,12 +282,12 @@[m [mstatic bool rest_block(const std::any& context,[m
+         return RESTERR(req, HTTP_BAD_REQUEST, "Invalid hash: " + hashStr);[m
+ [m
+     CBlock block;[m
+[31m-    CBlockIndex* pblockindex = nullptr;[m
+[31m-    CBlockIndex* tip = nullptr;[m
+[32m+[m[32m    const CBlockIndex* pblockindex = nullptr;[m
+[32m+[m[32m    const CBlockIndex* tip = nullptr;[m
+[32m+[m[32m    ChainstateManager* maybe_chainman = GetChainman(context, req);[m
+[32m+[m[32m    if (!maybe_chainman) return false;[m
+[32m+[m[32m    ChainstateManager& chainman = *maybe_chainman;[m
+     {[m
+[31m-        ChainstateManager* maybe_chainman = GetChainman(context, req);[m
+[31m-        if (!maybe_chainman) return false;[m
+[31m-        ChainstateManager& chainman = *maybe_chainman;[m
+         LOCK(cs_main);[m
+         tip = chainman.ActiveChain().Tip();[m
+         pblockindex = chainman.m_blockman.LookupBlockIndex(hash);[m
+[36m@@ -296,7 +295,7 @@[m [mstatic bool rest_block(const std::any& context,[m
+             return RESTERR(req, HTTP_NOT_FOUND, hashStr + " not found");[m
+         }[m
+ [m
+[31m-        if (IsBlockPruned(pblockindex))[m
+[32m+[m[32m        if (chainman.m_blockman.IsBlockPruned(pblockindex))[m
+             return RESTERR(req, HTTP_NOT_FOUND, hashStr + " not available (pruned data)");[m
+ [m
+         if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))[m
+[36m@@ -323,7 +322,7 @@[m [mstatic bool rest_block(const std::any& context,[m
+     }[m
+ [m
+     case RetFormat::JSON: {[m
+[31m-        UniValue objBlock = blockToJSON(block, tip, pblockindex, tx_verbosity);[m
+[32m+[m[32m        UniValue objBlock = blockToJSON(chainman.m_blockman, block, tip, pblockindex, tx_verbosity);[m
+         std::string strJSON = objBlock.write() + "\n";[m
+         req->WriteHeader("Content-Type", "application/json");[m
+         req->WriteReply(HTTP_OK, strJSON);[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex 86dfbbae35..2b7c5bf550 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -60,7 +60,6 @@[m [musing node::BlockManager;[m
+ using node::CCoinsStats;[m
+ using node::CoinStatsHashType;[m
+ using node::GetUTXOStats;[m
+[31m-using node::IsBlockPruned;[m
+ using node::NodeContext;[m
+ using node::ReadBlockFromDisk;[m
+ using node::SnapshotMetadata;[m
+[36m@@ -110,7 +109,8 @@[m [mstatic int ComputeNextBlockAndDepth(const CBlockIndex* tip, const CBlockIndex* b[m
+     return blockindex == tip ? 1 : -1;[m
+ }[m
+ [m
+[31m-CBlockIndex* ParseHashOrHeight(const UniValue& param, ChainstateManager& chainman) {[m
+[32m+[m[32mstatic const CBlockIndex* ParseHashOrHeight(const UniValue& param, ChainstateManager& chainman)[m
+[32m+[m[32m{[m
+     LOCK(::cs_main);[m
+     CChain& active_chain = chainman.ActiveChain();[m
+ [m
+[36m@@ -127,7 +127,7 @@[m [mCBlockIndex* ParseHashOrHeight(const UniValue& param, ChainstateManager& chainma[m
+         return active_chain[height];[m
+     } else {[m
+         const uint256 hash{ParseHashV(param, "hash_or_height")};[m
+[31m-        CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(hash);[m
+[32m+[m[32m        const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(hash);[m
+ [m
+         if (!pindex) {[m
+             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");[m
+[36m@@ -166,7 +166,7 @@[m [mUniValue blockheaderToJSON(const CBlockIndex* tip, const CBlockIndex* blockindex[m
+     return result;[m
+ }[m
+ [m
+[31m-UniValue blockToJSON(const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, TxVerbosity verbosity)[m
+[32m+[m[32mUniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, TxVerbosity verbosity)[m
+ {[m
+     UniValue result = blockheaderToJSON(tip, blockindex);[m
+ [m
+[36m@@ -185,7 +185,7 @@[m [mUniValue blockToJSON(const CBlock& block, const CBlockIndex* tip, const CBlockIn[m
+         case TxVerbosity::SHOW_DETAILS:[m
+         case TxVerbosity::SHOW_DETAILS_AND_PREVOUT:[m
+             CBlockUndo blockUndo;[m
+[31m-            const bool have_undo{WITH_LOCK(::cs_main, return !IsBlockPruned(blockindex) && UndoReadFromDisk(blockUndo, blockindex))};[m
+[32m+[m[32m            const bool have_undo{WITH_LOCK(::cs_main, return !blockman.IsBlockPruned(blockindex)) && UndoReadFromDisk(blockUndo, blockindex)};[m
+ [m
+             for (size_t i = 0; i < block.vtx.size(); ++i) {[m
+                 const CTransactionRef& tx = block.vtx.at(i);[m
+[36m@@ -854,7 +854,7 @@[m [mstatic RPCHelpMan getblockhash()[m
+     if (nHeight < 0 || nHeight > active_chain.Height())[m
+         throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");[m
+ [m
+[31m-    CBlockIndex* pblockindex = active_chain[nHeight];[m
+[32m+[m[32m    const CBlockIndex* pblockindex = active_chain[nHeight];[m
+     return pblockindex->GetBlockHash().GetHex();[m
+ },[m
+     };[m
+[36m@@ -930,11 +930,11 @@[m [mstatic RPCHelpMan getblockheader()[m
+     };[m
+ }[m
+ [m
+[31m-static CBlock GetBlockChecked(const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)[m
+[32m+[m[32mstatic CBlock GetBlockChecked(BlockManager& blockman, const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)[m
+ {[m
+     AssertLockHeld(::cs_main);[m
+     CBlock block;[m
+[31m-    if (IsBlockPruned(pblockindex)) {[m
+[32m+[m[32m    if (blockman.IsBlockPruned(pblockindex)) {[m
+         throw JSONRPCError(RPC_MISC_ERROR, "Block not available (pruned data)");[m
+     }[m
+ [m
+[36m@@ -948,11 +948,11 @@[m [mstatic CBlock GetBlockChecked(const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_RE[m
+     return block;[m
+ }[m
+ [m
+[31m-static CBlockUndo GetUndoChecked(const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+[32m+[m[32mstatic CBlockUndo GetUndoChecked(BlockManager& blockman, const CBlockIndex* pblockindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+ {[m
+     AssertLockHeld(::cs_main);[m
+     CBlockUndo blockUndo;[m
+[31m-    if (IsBlockPruned(pblockindex)) {[m
+[32m+[m[32m    if (blockman.IsBlockPruned(pblockindex)) {[m
+         throw JSONRPCError(RPC_MISC_ERROR, "Undo data not available (pruned data)");[m
+     }[m
+ [m
+[36m@@ -1066,8 +1066,8 @@[m [mstatic RPCHelpMan getblock()[m
+     CBlock block;[m
+     const CBlockIndex* pblockindex;[m
+     const CBlockIndex* tip;[m
+[32m+[m[32m    ChainstateManager& chainman = EnsureAnyChainman(request.context);[m
+     {[m
+[31m-        ChainstateManager& chainman = EnsureAnyChainman(request.context);[m
+         LOCK(cs_main);[m
+         pblockindex = chainman.m_blockman.LookupBlockIndex(hash);[m
+         tip = chainman.ActiveChain().Tip();[m
+[36m@@ -1076,7 +1076,7 @@[m [mstatic RPCHelpMan getblock()[m
+             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");[m
+         }[m
+ [m
+[31m-        block = GetBlockChecked(pblockindex);[m
+[32m+[m[32m        block = GetBlockChecked(chainman.m_blockman, pblockindex);[m
+     }[m
+ [m
+     if (verbosity <= 0)[m
+[36m@@ -1096,7 +1096,7 @@[m [mstatic RPCHelpMan getblock()[m
+         tx_verbosity = TxVerbosity::SHOW_DETAILS_AND_PREVOUT;[m
+     }[m
+ [m
+[31m-    return blockToJSON(block, tip, pblockindex, tx_verbosity);[m
+[32m+[m[32m    return blockToJSON(chainman.m_blockman, block, tip, pblockindex, tx_verbosity);[m
+ },[m
+     };[m
+ }[m
+[36m@@ -1132,7 +1132,7 @@[m [mstatic RPCHelpMan pruneblockchain()[m
+     // too low to be a block time (corresponds to timestamp from Sep 2001).[m
+     if (heightParam > 1000000000) {[m
+         // Add a 2 hour buffer to include blocks which might have had old timestamps[m
+[31m-        CBlockIndex* pindex = active_chain.FindEarliestAtLeast(heightParam - TIMESTAMP_WINDOW, 0);[m
+[32m+[m[32m        const CBlockIndex* pindex = active_chain.FindEarliestAtLeast(heightParam - TIMESTAMP_WINDOW, 0);[m
+         if (!pindex) {[m
+             throw JSONRPCError(RPC_INVALID_PARAMETER, "Could not find block with at least the specified timestamp.");[m
+         }[m
+[36m@@ -1226,7 +1226,7 @@[m [mstatic RPCHelpMan gettxoutsetinfo()[m
+ {[m
+     UniValue ret(UniValue::VOBJ);[m
+ [m
+[31m-    CBlockIndex* pindex{nullptr};[m
+[32m+[m[32m    const CBlockIndex* pindex{nullptr};[m
+     const CoinStatsHashType hash_type{request.params[0].isNull() ? CoinStatsHashType::HASH_SERIALIZED : ParseHashType(request.params[0].get_str())};[m
+     CCoinsStats stats{hash_type};[m
+     stats.index_requested = request.params[2].isNull() || request.params[2].get_bool();[m
+[36m@@ -1572,7 +1572,7 @@[m [mRPCHelpMan getblockchaininfo()[m
+     UniValue obj(UniValue::VOBJ);[m
+     obj.pushKV("chain",                 Params().NetworkIDString());[m
+     obj.pushKV("blocks",                height);[m
+[31m-    obj.pushKV("headers",               pindexBestHeader ? pindexBestHeader->nHeight : -1);[m
+[32m+[m[32m    obj.pushKV("headers",               chainman.m_blockman.pindexBestHeader ? chainman.m_blockman.pindexBestHeader->nHeight : -1);[m
+     obj.pushKV("bestblockhash",         tip->GetBlockHash().GetHex());[m
+     obj.pushKV("difficulty",            (double)GetDifficulty(tip));[m
+     obj.pushKV("time",                  (int64_t)tip->nTime);[m
+[36m@@ -2177,7 +2177,7 @@[m [mstatic RPCHelpMan getblockstats()[m
+ {[m
+     ChainstateManager& chainman = EnsureAnyChainman(request.context);[m
+     LOCK(cs_main);[m
+[31m-    CBlockIndex* pindex{ParseHashOrHeight(request.params[0], chainman)};[m
+[32m+[m[32m    const CBlockIndex* pindex{ParseHashOrHeight(request.params[0], chainman)};[m
+     CHECK_NONFATAL(pindex != nullptr);[m
+ [m
+     std::set<std::string> stats;[m
+[36m@@ -2189,8 +2189,8 @@[m [mstatic RPCHelpMan getblockstats()[m
+         }[m
+     }[m
+ [m
+[31m-    const CBlock block = GetBlockChecked(pindex);[m
+[31m-    const CBlockUndo blockUndo = GetUndoChecked(pindex);[m
+[32m+[m[32m    const CBlock block = GetBlockChecked(chainman.m_blockman, pindex);[m
+[32m+[m[32m    const CBlockUndo blockUndo = GetUndoChecked(chainman.m_blockman, pindex);[m
+ [m
+     const bool do_all = stats.size() == 0; // Calculate everything if nothing selected (default)[m
+     const bool do_mediantxsize = do_all || stats.count("mediantxsize") != 0;[m
+[36m@@ -2572,7 +2572,7 @@[m [mstatic RPCHelpMan scantxoutset()[m
+         g_should_abort_scan = false;[m
+         int64_t count = 0;[m
+         std::unique_ptr<CCoinsViewCursor> pcursor;[m
+[31m-        CBlockIndex* tip;[m
+[32m+[m[32m        const CBlockIndex* tip;[m
+         NodeContext& node = EnsureAnyNodeContext(request.context);[m
+         {[m
+             ChainstateManager& chainman = EnsureChainman(node);[m
+[36m@@ -2760,7 +2760,7 @@[m [mUniValue CreateUTXOSnapshot([m
+ {[m
+     std::unique_ptr<CCoinsViewCursor> pcursor;[m
+     CCoinsStats stats{CoinStatsHashType::HASH_SERIALIZED};[m
+[31m-    CBlockIndex* tip;[m
+[32m+[m[32m    const CBlockIndex* tip;[m
+ [m
+     {[m
+         // We need to lock cs_main to ensure that the coinsdb isn't written to[m
+[33mdiff --git a/src/rpc/blockchain.h b/src/rpc/blockchain.h[m
+[33mindex 1f51d7c1ad..da46b3b67c 100644[m
+[33m--- a/src/rpc/blockchain.h[m
+[33m+++ b/src/rpc/blockchain.h[m
+[36m@@ -10,6 +10,7 @@[m
+ #include <fs.h>[m
+ #include <streams.h>[m
+ #include <sync.h>[m
+[32m+[m[32m#include <validation.h>[m
+ [m
+ #include <any>[m
+ #include <stdint.h>[m
+[36m@@ -40,7 +41,7 @@[m [mdouble GetDifficulty(const CBlockIndex* blockindex);[m
+ void RPCNotifyBlockChange(const CBlockIndex*);[m
+ [m
+ /** Block description to JSON */[m
+[31m-UniValue blockToJSON(const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, TxVerbosity verbosity) LOCKS_EXCLUDED(cs_main);[m
+[32m+[m[32mUniValue blockToJSON(node::BlockManager& blockman, const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, TxVerbosity verbosity) LOCKS_EXCLUDED(cs_main);[m
+ [m
+ /** Mempool information to JSON */[m
+ UniValue MempoolInfoToJSON(const CTxMemPool& pool);[m
+[33mdiff --git a/src/rpc/rawtransaction.cpp b/src/rpc/rawtransaction.cpp[m
+[33mindex 6272a7c8cf..1ef531b293 100644[m
+[33m--- a/src/rpc/rawtransaction.cpp[m
+[33m+++ b/src/rpc/rawtransaction.cpp[m
+[36m@@ -67,7 +67,7 @@[m [mstatic void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue&[m
+         LOCK(cs_main);[m
+ [m
+         entry.pushKV("blockhash", hashBlock.GetHex());[m
+[31m-        CBlockIndex* pindex = active_chainstate.m_blockman.LookupBlockIndex(hashBlock);[m
+[32m+[m[32m        const CBlockIndex* pindex = active_chainstate.m_blockman.LookupBlockIndex(hashBlock);[m
+         if (pindex) {[m
+             if (active_chainstate.m_chain.Contains(pindex)) {[m
+                 entry.pushKV("confirmations", 1 + active_chainstate.m_chain.Height() - pindex->nHeight);[m
+[36m@@ -207,7 +207,7 @@[m [mstatic RPCHelpMan getrawtransaction()[m
+ [m
+     bool in_active_chain = true;[m
+     uint256 hash = ParseHashV(request.params[0], "parameter 1");[m
+[31m-    CBlockIndex* blockindex = nullptr;[m
+[32m+[m[32m    const CBlockIndex* blockindex = nullptr;[m
+ [m
+     if (hash == Params().GenesisBlock().hashMerkleRoot) {[m
+         // Special exception for the genesis block coinbase transaction[m
+[36m@@ -302,7 +302,7 @@[m [mstatic RPCHelpMan gettxoutproof()[m
+         }[m
+     }[m
+ [m
+[31m-    CBlockIndex* pblockindex = nullptr;[m
+[32m+[m[32m    const CBlockIndex* pblockindex = nullptr;[m
+     uint256 hashBlock;[m
+     ChainstateManager& chainman = EnsureAnyChainman(request.context);[m
+     if (!request.params[1].isNull()) {[m
+[33mdiff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp[m
+[33mindex 211153f06c..24f63d51c4 100644[m
+[33m--- a/src/test/util/setup_common.cpp[m
+[33m+++ b/src/test/util/setup_common.cpp[m
+[36m@@ -180,7 +180,6 @@[m [mChainTestingSetup::~ChainTestingSetup()[m
+     m_node.banman.reset();[m
+     m_node.addrman.reset();[m
+     m_node.args = nullptr;[m
+[31m-    WITH_LOCK(::cs_main, UnloadBlockIndex(m_node.mempool.get(), *m_node.chainman));[m
+     m_node.mempool.reset();[m
+     m_node.scheduler.reset();[m
+     m_node.chainman.reset();[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex d80e2576d2..6e6b14de02 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -75,7 +75,6 @@[m [musing node::SnapshotMetadata;[m
+ using node::UNDOFILE_CHUNK_SIZE;[m
+ using node::UndoReadFromDisk;[m
+ using node::UnlinkPrunedFiles;[m
+[31m-using node::fHavePruned;[m
+ using node::fImporting;[m
+ using node::fPruneMode;[m
+ using node::fReindex;[m
+[36m@@ -137,7 +136,6 @@[m [mbool CBlockIndexWorkComparator::operator()(const CBlockIndex *pa, const CBlockIn[m
+  */[m
+ RecursiveMutex cs_main;[m
+ [m
+[31m-CBlockIndex *pindexBestHeader = nullptr;[m
+ Mutex g_best_block_mutex;[m
+ std::condition_variable g_best_block_cv;[m
+ uint256 g_best_block;[m
+[36m@@ -152,14 +150,14 @@[m [marith_uint256 nMinimumChainWork;[m
+ [m
+ CFeeRate minRelayTxFee = CFeeRate(DEFAULT_MIN_RELAY_TX_FEE);[m
+ [m
+[31m-CBlockIndex* CChainState::FindForkInGlobalIndex(const CBlockLocator& locator) const[m
+[32m+[m[32mconst CBlockIndex* CChainState::FindForkInGlobalIndex(const CBlockLocator& locator) const[m
+ {[m
+     AssertLockHeld(cs_main);[m
+ [m
+     // Find the latest block common to locator and chain - we expect that[m
+     // locator.vHave is sorted descending by height.[m
+     for (const uint256& hash : locator.vHave) {[m
+[31m-        CBlockIndex* pindex{m_blockman.LookupBlockIndex(hash)};[m
+[32m+[m[32m        const CBlockIndex* pindex{m_blockman.LookupBlockIndex(hash)};[m
+         if (pindex) {[m
+             if (m_chain.Contains(pindex)) {[m
+                 return pindex;[m
+[36m@@ -308,7 +306,7 @@[m [mstatic bool IsCurrentForFeeEstimation(CChainState& active_chainstate) EXCLUSIVE_[m
+         return false;[m
+     if (active_chainstate.m_chain.Tip()->GetBlockTime() < count_seconds(GetTime<std::chrono::seconds>() - MAX_FEE_ESTIMATION_TIP_AGE))[m
+         return false;[m
+[31m-    if (active_chainstate.m_chain.Height() < pindexBestHeader->nHeight - 1)[m
+[32m+[m[32m    if (active_chainstate.m_chain.Height() < active_chainstate.m_chainman.m_blockman.pindexBestHeader->nHeight - 1)[m
+         return false;[m
+     return true;[m
+ }[m
+[36m@@ -1546,8 +1544,8 @@[m [mvoid CChainState::InvalidChainFound(CBlockIndex* pindexNew)[m
+     if (!m_chainman.m_best_invalid || pindexNew->nChainWork > m_chainman.m_best_invalid->nChainWork) {[m
+         m_chainman.m_best_invalid = pindexNew;[m
+     }[m
+[31m-    if (pindexBestHeader != nullptr && pindexBestHeader->GetAncestor(pindexNew->nHeight) == pindexNew) {[m
+[31m-        pindexBestHeader = m_chain.Tip();[m
+[32m+[m[32m    if (m_chainman.m_blockman.pindexBestHeader != nullptr && m_chainman.m_blockman.pindexBestHeader->GetAncestor(pindexNew->nHeight) == pindexNew) {[m
+[32m+[m[32m        m_chainman.m_blockman.pindexBestHeader = m_chain.Tip();[m
+     }[m
+ [m
+     LogPrintf("%s: invalid block=%s  height=%d  log2_work=%f  date=%s\n", __func__,[m
+[36m@@ -1861,7 +1859,7 @@[m [mpublic:[m
+     }[m
+ };[m
+ [m
+[31m-static ThresholdConditionCache warningcache[VERSIONBITS_NUM_BITS] GUARDED_BY(cs_main);[m
+[32m+[m[32mstatic std::array<ThresholdConditionCache, VERSIONBITS_NUM_BITS> warningcache GUARDED_BY(cs_main);[m
+ [m
+ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& consensusparams)[m
+ {[m
+[36m@@ -1979,8 +1977,8 @@[m [mbool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,[m
+         BlockMap::const_iterator  it = m_blockman.m_block_index.find(hashAssumeValid);[m
+         if (it != m_blockman.m_block_index.end()) {[m
+             if (it->second.GetAncestor(pindex->nHeight) == pindex &&[m
+[31m-                pindexBestHeader->GetAncestor(pindex->nHeight) == pindex &&[m
+[31m-                pindexBestHeader->nChainWork >= nMinimumChainWork) {[m
+[32m+[m[32m                m_chainman.m_blockman.pindexBestHeader->GetAncestor(pindex->nHeight) == pindex &&[m
+[32m+[m[32m                m_chainman.m_blockman.pindexBestHeader->nChainWork >= nMinimumChainWork) {[m
+                 // This block is a member of the assumed verified chain and an ancestor of the best header.[m
+                 // Script verification is skipped when connecting blocks under the[m
+                 // assumevalid block. Assuming the assumevalid block is valid this[m
+[36m@@ -1995,7 +1993,7 @@[m [mbool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,[m
+                 //  artificially set the default assumed verified block further back.[m
+                 // The test against nMinimumChainWork prevents the skipping when denied access to any chain at[m
+                 //  least as good as the expected chain.[m
+[31m-                fScriptChecks = (GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, m_params.GetConsensus()) <= 60 * 60 * 24 * 7 * 2);[m
+[32m+[m[32m                fScriptChecks = (GetBlockProofEquivalentTime(*m_chainman.m_blockman.pindexBestHeader, *pindex, *m_chainman.m_blockman.pindexBestHeader, m_params.GetConsensus()) <= 60 * 60 * 24 * 7 * 2);[m
+             }[m
+         }[m
+     }[m
+[36m@@ -2305,9 +2303,9 @@[m [mbool CChainState::FlushStateToDisk([m
+             }[m
+             if (!setFilesToPrune.empty()) {[m
+                 fFlushForPrune = true;[m
+[31m-                if (!fHavePruned) {[m
+[32m+[m[32m                if (!m_blockman.fHavePruned) {[m
+                     m_blockman.m_block_tree_db->WriteFlag("prunedblockfiles", true);[m
+[31m-                    fHavePruned = true;[m
+[32m+[m[32m                    m_blockman.fHavePruned = true;[m
+                 }[m
+             }[m
+         }[m
+[36m@@ -2481,7 +2479,7 @@[m [mvoid CChainState::UpdateTip(const CBlockIndex* pindexNew)[m
+         const CBlockIndex* pindex = pindexNew;[m
+         for (int bit = 0; bit < VERSIONBITS_NUM_BITS; bit++) {[m
+             WarningBitsConditionChecker checker(bit);[m
+[31m-            ThresholdState state = checker.GetStateFor(pindex, m_params.GetConsensus(), warningcache[bit]);[m
+[32m+[m[32m            ThresholdState state = checker.GetStateFor(pindex, m_params.GetConsensus(), warningcache.at(bit));[m
+             if (state == ThresholdState::ACTIVE || state == ThresholdState::LOCKED_IN) {[m
+                 const bilingual_str warning = strprintf(_("Unknown new rules activated (versionbit %i)"), bit);[m
+                 if (state == ThresholdState::ACTIVE) {[m
+[36m@@ -2850,7 +2848,7 @@[m [mstatic bool NotifyHeaderTip(CChainState& chainstate) LOCKS_EXCLUDED(cs_main) {[m
+     CBlockIndex* pindexHeader = nullptr;[m
+     {[m
+         LOCK(cs_main);[m
+[31m-        pindexHeader = pindexBestHeader;[m
+[32m+[m[32m        pindexHeader = chainstate.m_chainman.m_blockman.pindexBestHeader;[m
+ [m
+         if (pindexHeader != pindexHeaderOld) {[m
+             fNotify = true;[m
+[36m@@ -3373,7 +3371,7 @@[m [mstatic bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio[m
+         // Don't accept any forks from the main chain prior to last checkpoint.[m
+         // GetLastCheckpoint finds the last checkpoint in MapCheckpoints that's in our[m
+         // BlockIndex().[m
+[31m-        CBlockIndex* pcheckpoint = blockman.GetLastCheckpoint(params.Checkpoints());[m
+[32m+[m[32m        const CBlockIndex* pcheckpoint = blockman.GetLastCheckpoint(params.Checkpoints());[m
+         if (pcheckpoint && nHeight < pcheckpoint->nHeight) {[m
+             LogPrintf("ERROR: %s: forked chain older than last checkpoint (height %d)\n", __func__, nHeight);[m
+             return state.Invalid(BlockValidationResult::BLOCK_CHECKPOINT, "bad-fork-prior-to-checkpoint");[m
+[36m@@ -4061,22 +4059,6 @@[m [mvoid CChainState::UnloadBlockIndex()[m
+     setBlockIndexCandidates.clear();[m
+ }[m
+ [m
+[31m-// May NOT be used after any connections are up as much[m
+[31m-// of the peer-processing logic assumes a consistent[m
+[31m-// block index state[m
+[31m-void UnloadBlockIndex(CTxMemPool* mempool, ChainstateManager& chainman)[m
+[31m-{[m
+[31m-    AssertLockHeld(::cs_main);[m
+[31m-    chainman.Unload();[m
+[31m-    pindexBestHeader = nullptr;[m
+[31m-    if (mempool) mempool->clear();[m
+[2m-    g_versionbitscache.Clear();[m
+[31m-    for (int b = 0; b < VERSIONBITS_NUM_BITS; b++) {[m
+[31m-        warningcache[b].clear();[m
+[31m-    }[m
+[31m-    fHavePruned = false;[m
+[31m-}[m
+[31m-[m
+ bool ChainstateManager::LoadBlockIndex()[m
+ {[m
+     AssertLockHeld(cs_main);[m
+[36m@@ -4186,7 +4168,7 @@[m [mvoid CChainState::LoadExternalBlockFile(FILE* fileIn, FlatFilePos* dbp)[m
+                     }[m
+ [m
+                     // process in case the block isn't known yet[m
+[31m-                    CBlockIndex* pindex = m_blockman.LookupBlockIndex(hash);[m
+[32m+[m[32m                    const CBlockIndex* pindex = m_blockman.LookupBlockIndex(hash);[m
+                     if (!pindex || (pindex->nStatus & BLOCK_HAVE_DATA) == 0) {[m
+                       BlockValidationState state;[m
+                       if (AcceptBlock(pblock, state, nullptr, true, dbp, nullptr)) {[m
+[36m@@ -4328,7 +4310,7 @@[m [mvoid CChainState::CheckBlockIndex()[m
+         // HAVE_DATA is only equivalent to nTx > 0 (or VALID_TRANSACTIONS) if no pruning has occurred.[m
+         // Unless these indexes are assumed valid and pending block download on a[m
+         // background chainstate.[m
+[31m-        if (!fHavePruned && !pindex->IsAssumedValid()) {[m
+[32m+[m[32m        if (!m_blockman.fHavePruned && !pindex->IsAssumedValid()) {[m
+             // If we've never pruned, then HAVE_DATA should be equivalent to nTx > 0[m
+             assert(!(pindex->nStatus & BLOCK_HAVE_DATA) == (pindex->nTx == 0));[m
+             assert(pindexFirstMissing == pindexFirstNeverProcessed);[m
+[36m@@ -4402,7 +4384,7 @@[m [mvoid CChainState::CheckBlockIndex()[m
+         if (pindexFirstMissing == nullptr) assert(!foundInUnlinked); // We aren't missing data for any parent -- cannot be in m_blocks_unlinked.[m
+         if (pindex->pprev && (pindex->nStatus & BLOCK_HAVE_DATA) && pindexFirstNeverProcessed == nullptr && pindexFirstMissing != nullptr) {[m
+             // We HAVE_DATA for this block, have received data for all parents at some point, but we're currently missing data for some parent.[m
+[31m-            assert(fHavePruned); // We must have pruned.[m
+[32m+[m[32m            assert(m_blockman.fHavePruned); // We must have pruned.[m
+             // This block may have entered m_blocks_unlinked if:[m
+             //  - it has a descendant that at some point had more work than the[m
+             //    tip, and[m
+[36m@@ -5039,19 +5021,6 @@[m [mbool ChainstateManager::IsSnapshotActive() const[m
+     return m_snapshot_chainstate && m_active_chainstate == m_snapshot_chainstate.get();[m
+ }[m
+ [m
+[31m-void ChainstateManager::Unload()[m
+[31m-{[m
+[31m-    AssertLockHeld(::cs_main);[m
+[31m-    for (CChainState* chainstate : this->GetAll()) {[m
+[31m-        chainstate->m_chain.SetTip(nullptr);[m
+[31m-        chainstate->UnloadBlockIndex();[m
+[31m-    }[m
+[31m-[m
+[31m-    m_failed_blocks.clear();[m
+[31m-    m_blockman.Unload();[m
+[31m-    m_best_invalid = nullptr;[m
+[31m-}[m
+[31m-[m
+ void ChainstateManager::MaybeRebalanceCaches()[m
+ {[m
+     AssertLockHeld(::cs_main);[m
+[36m@@ -5082,3 +5051,14 @@[m [mvoid ChainstateManager::MaybeRebalanceCaches()[m
+         }[m
+     }[m
+ }[m
+[32m+[m
+[32m+[m[32mChainstateManager::~ChainstateManager() {[m
+[32m+[m[32m    LOCK(::cs_main);[m
+[32m+[m
+[32m+[m[32m    // TODO: The version bits cache and warning cache should probably become[m
+[32m+[m[32m    // non-globals[m
+[2m+[m[2m    g_versionbitscache.Clear();[m
+[32m+[m[32m    for (auto& i : warningcache) {[m
+[32m+[m[32m        i.clear();[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex cc2247239f..f96cb7341d 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -131,14 +131,9 @@[m [mextern uint256 hashAssumeValid;[m
+ /** Minimum work we will assume exists on some valid chain. */[m
+ extern arith_uint256 nMinimumChainWork;[m
+ [m
+[31m-/** Best header we've seen so far (used for getheaders queries' starting points). */[m
+[31m-extern CBlockIndex *pindexBestHeader;[m
+[31m-[m
+ /** Documentation for argument 'checklevel'. */[m
+ extern const std::vector<std::string> CHECKLEVEL_DOC;[m
+ [m
+[31m-/** Unload database information */[m
+[31m-void UnloadBlockIndex(CTxMemPool* mempool, ChainstateManager& chainman) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+ /** Run instances of script checking worker threads */[m
+ void StartScriptCheckWorkerThreads(int threads_num);[m
+ /** Stop all of the script checking worker threads */[m
+[36m@@ -693,7 +688,7 @@[m [mpublic:[m
+     bool IsInitialBlockDownload() const;[m
+ [m
+     /** Find the last common block of this chain and a locator. */[m
+[31m-    CBlockIndex* FindForkInGlobalIndex(const CBlockLocator& locator) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[32m+[m[32m    const CBlockIndex* FindForkInGlobalIndex(const CBlockLocator& locator) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+     /**[m
+      * Make various assertions about the state of the block index.[m
+[36m@@ -988,17 +983,11 @@[m [mpublic:[m
+     //! Load the block tree and coins database from disk, initializing state if we're running with -reindex[m
+     bool LoadBlockIndex() EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[31m-    //! Unload block index and chain data before shutdown.[m
+[31m-    void Unload() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+[31m-[m
+     //! Check to see if caches are out of balance and if so, call[m
+     //! ResizeCoinsCaches() as needed.[m
+     void MaybeRebalanceCaches() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+ [m
+[31m-    ~ChainstateManager() {[m
+[31m-        LOCK(::cs_main);[m
+[31m-        UnloadBlockIndex(/*mempool=*/nullptr, *this);[m
+[31m-    }[m
+[32m+[m[32m    ~ChainstateManager();[m
+ };[m
+ [m
+ using FopenFn = std::function<FILE*(const fs::path&, const char*)>;[m

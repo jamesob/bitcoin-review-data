@@ -1,0 +1,11 @@
+ACK e663ee9b448c2aad7449666b07d7fb87ea492d31 ([`jamesob/ackr/26534.1.john-moffett.fix_macos_failing_to_flu`](https://github.com/jamesob/bitcoin/tree/ackr/26534.1.john-moffett.fix_macos_failing_to_flu))
+
+Thanks for the great PR and welcome to the project! 
+
+The patch is compact and well-described. Conceptually it's pretty simple: in a
+nutshell this just calls `fsync()` should we fail the more specific `fcntl()`
+call. There is good precedent for this approach; bitcoin [already relies on this
+strategy](https://github.com/jamesob/bitcoin/blob/e663ee9b448c2aad7449666b07d7fb87ea492d31/src/leveldb/util/env_posix.cc#L381-L394)
+in our vendored leveldb code.
+
+I've built and reveiewed the change locally.

@@ -1,0 +1,404 @@
+[33mdiff --git a/build_msvc/bitcoin-qt/bitcoin-qt.vcxproj b/build_msvc/bitcoin-qt/bitcoin-qt.vcxproj[m
+[33mindex a697c1dfb6..724dae1969 100644[m
+[33m--- a/build_msvc/bitcoin-qt/bitcoin-qt.vcxproj[m
+[33m+++ b/build_msvc/bitcoin-qt/bitcoin-qt.vcxproj[m
+[36m@@ -9,6 +9,7 @@[m
+   </PropertyGroup>[m
+   <ItemGroup>[m
+     <ClCompile Include="..\..\src\qt\main.cpp" />[m
+[32m+[m[32m    <ClCompile Include="..\..\src\init\bitcoind.cpp" />[m
+     <ResourceCompile Include="..\..\src\qt\res\bitcoin-qt-res.rc" />[m
+   </ItemGroup>[m
+   <ItemGroup>[m
+[33mdiff --git a/build_msvc/test_bitcoin-qt/test_bitcoin-qt.vcxproj b/build_msvc/test_bitcoin-qt/test_bitcoin-qt.vcxproj[m
+[33mindex 1d2c86b7ac..08b12bdd85 100644[m
+[33m--- a/build_msvc/test_bitcoin-qt/test_bitcoin-qt.vcxproj[m
+[33m+++ b/build_msvc/test_bitcoin-qt/test_bitcoin-qt.vcxproj[m
+[36m@@ -8,6 +8,7 @@[m
+     <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>[m
+   </PropertyGroup>[m
+   <ItemGroup>[m
+[32m+[m[32m    <ClCompile Include="..\..\src\init\bitcoind.cpp" />[m
+     <ClCompile Include="..\..\src\test\util\setup_common.cpp" />[m
+     <ClCompile Include="..\..\src\qt\test\addressbooktests.cpp" />[m
+     <ClCompile Include="..\..\src\qt\test\apptests.cpp" />[m
+[33mdiff --git a/src/Makefile.qt.include b/src/Makefile.qt.include[m
+[33mindex 6f450bbc74..f4b0b3adbe 100644[m
+[33m--- a/src/Makefile.qt.include[m
+[33m+++ b/src/Makefile.qt.include[m
+[36m@@ -338,14 +338,14 @@[m [mbitcoin_qt_libtoolflags = $(AM_LIBTOOLFLAGS) --tag CXX[m
+ [m
+ qt_bitcoin_qt_CPPFLAGS = $(bitcoin_qt_cppflags)[m
+ qt_bitcoin_qt_CXXFLAGS = $(bitcoin_qt_cxxflags)[m
+[31m-qt_bitcoin_qt_SOURCES = $(bitcoin_qt_sources)[m
+[32m+[m[32mqt_bitcoin_qt_SOURCES = $(bitcoin_qt_sources) init/bitcoind.cpp[m
+ qt_bitcoin_qt_LDADD = $(bitcoin_qt_ldadd)[m
+ qt_bitcoin_qt_LDFLAGS = $(bitcoin_qt_ldflags)[m
+ qt_bitcoin_qt_LIBTOOLFLAGS = $(bitcoin_qt_libtoolflags)[m
+ [m
+ bitcoin_gui_CPPFLAGS = $(bitcoin_qt_cppflags)[m
+ bitcoin_gui_CXXFLAGS = $(bitcoin_qt_cxxflags)[m
+[31m-bitcoin_gui_SOURCES = $(bitcoin_qt_sources)[m
+[32m+[m[32mbitcoin_gui_SOURCES = $(bitcoin_qt_sources) init/bitcoind.cpp[m
+ bitcoin_gui_LDADD = $(bitcoin_qt_ldadd)[m
+ bitcoin_gui_LDFLAGS = $(bitcoin_qt_ldflags)[m
+ bitcoin_gui_LIBTOOLFLAGS = $(bitcoin_qt_libtoolflags)[m
+[33mdiff --git a/src/Makefile.qttest.include b/src/Makefile.qttest.include[m
+[33mindex 91a5e9fd9b..8a5521eeb5 100644[m
+[33m--- a/src/Makefile.qttest.include[m
+[33m+++ b/src/Makefile.qttest.include[m
+[36m@@ -28,6 +28,7 @@[m [mqt_test_test_bitcoin_qt_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BITCOIN_[m
+   $(QT_INCLUDES) $(QT_TEST_INCLUDES)[m
+ [m
+ qt_test_test_bitcoin_qt_SOURCES = \[m
+[32m+[m[32m  init/bitcoind.cpp \[m
+   qt/test/apptests.cpp \[m
+   qt/test/rpcnestedtests.cpp \[m
+   qt/test/test_main.cpp \[m
+[33mdiff --git a/src/dummywallet.cpp b/src/dummywallet.cpp[m
+[33mindex 95886d3138..ebbcaf68e0 100644[m
+[33m--- a/src/dummywallet.cpp[m
+[33m+++ b/src/dummywallet.cpp[m
+[36m@@ -5,12 +5,14 @@[m
+ #include <util/system.h>[m
+ #include <walletinitinterface.h>[m
+ [m
+[32m+[m[32mclass ArgsManager;[m
+ class CWallet;[m
+ [m
+ namespace interfaces {[m
+ class Chain;[m
+ class Handler;[m
+ class Wallet;[m
+[32m+[m[32mclass WalletClient;[m
+ }[m
+ [m
+ class DummyWalletInit : public WalletInitInterface {[m
+[36m@@ -63,4 +65,9 @@[m [mstd::unique_ptr<Wallet> MakeWallet(const std::shared_ptr<CWallet>& wallet)[m
+     throw std::logic_error("Wallet function called in non-wallet build.");[m
+ }[m
+ [m
+[32m+[m[32mstd::unique_ptr<WalletClient> MakeWalletClient(Chain& chain, ArgsManager& args)[m
+[32m+[m[32m{[m
+[32m+[m[32m    throw std::logic_error("Wallet function called in non-wallet build.");[m
+[32m+[m[32m}[m
+[32m+[m
+ } // namespace interfaces[m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex 9154fc0a6f..e90d5ee916 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -26,6 +26,7 @@[m
+ #include <index/txindex.h>[m
+ #include <init/common.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+ #include <interfaces/node.h>[m
+ #include <mapport.h>[m
+ #include <miner.h>[m
+[36m@@ -1056,7 +1057,7 @@[m [mbool AppInitLockDataDirectory()[m
+ [m
+ bool AppInitInterfaces(NodeContext& node)[m
+ {[m
+[31m-    node.chain = interfaces::MakeChain(node);[m
+[32m+[m[32m    node.chain = node.init->makeChain();[m
+     // Create client interfaces for wallets that are supposed to be loaded[m
+     // according to -wallet and -disablewallet options. This only constructs[m
+     // the interfaces, it doesn't load wallet data. Wallets actually get loaded[m
+[33mdiff --git a/src/init/bitcoin-node.cpp b/src/init/bitcoin-node.cpp[m
+[33mindex 6b6157c139..fa56153745 100644[m
+[33m--- a/src/init/bitcoin-node.cpp[m
+[33m+++ b/src/init/bitcoin-node.cpp[m
+[36m@@ -2,9 +2,12 @@[m
+ // Distributed under the MIT software license, see the accompanying[m
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+ [m
+[32m+[m[32m#include <interfaces/chain.h>[m
+ #include <interfaces/echo.h>[m
+ #include <interfaces/init.h>[m
+ #include <interfaces/ipc.h>[m
+[32m+[m[32m#include <interfaces/node.h>[m
+[32m+[m[32m#include <interfaces/wallet.h>[m
+ #include <node/context.h>[m
+ #include <util/system.h>[m
+ [m
+[36m@@ -24,6 +27,12 @@[m [mpublic:[m
+         m_node.args = &gArgs;[m
+         m_node.init = this;[m
+     }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Node> makeNode() override { return interfaces::MakeNode(m_node); }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Chain> makeChain() override { return interfaces::MakeChain(m_node); }[m
+[32m+[m[32m    std::unique_ptr<interfaces::WalletClient> makeWalletClient(interfaces::Chain& chain) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return MakeWalletClient(chain, *Assert(m_node.args));[m
+[32m+[m[32m    }[m
+     std::unique_ptr<interfaces::Echo> makeEcho() override { return interfaces::MakeEcho(); }[m
+     interfaces::Ipc* ipc() override { return m_ipc.get(); }[m
+     NodeContext& m_node;[m
+[33mdiff --git a/src/init/bitcoind.cpp b/src/init/bitcoind.cpp[m
+[33mindex 1d4504c24f..9c8d5bd9bb 100644[m
+[33m--- a/src/init/bitcoind.cpp[m
+[33m+++ b/src/init/bitcoind.cpp[m
+[36m@@ -2,7 +2,11 @@[m
+ // Distributed under the MIT software license, see the accompanying[m
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+ [m
+[32m+[m[32m#include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/echo.h>[m
+ #include <interfaces/init.h>[m
+[32m+[m[32m#include <interfaces/node.h>[m
+[32m+[m[32m#include <interfaces/wallet.h>[m
+ #include <node/context.h>[m
+ #include <util/system.h>[m
+ [m
+[36m@@ -18,6 +22,13 @@[m [mpublic:[m
+         m_node.args = &gArgs;[m
+         m_node.init = this;[m
+     }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Node> makeNode() override { return interfaces::MakeNode(m_node); }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Chain> makeChain() override { return interfaces::MakeChain(m_node); }[m
+[32m+[m[32m    std::unique_ptr<interfaces::WalletClient> makeWalletClient(interfaces::Chain& chain) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return MakeWalletClient(chain, *Assert(m_node.args));[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::unique_ptr<interfaces::Echo> makeEcho() override { return interfaces::MakeEcho(); }[m
+     NodeContext& m_node;[m
+ };[m
+ } // namespace[m
+[33mdiff --git a/src/interfaces/node.h b/src/interfaces/node.h[m
+[33mindex 77129423db..770b1b8753 100644[m
+[33m--- a/src/interfaces/node.h[m
+[33m+++ b/src/interfaces/node.h[m
+[36m@@ -230,7 +230,7 @@[m [mpublic:[m
+ };[m
+ [m
+ //! Return implementation of Node interface.[m
+[31m-std::unique_ptr<Node> MakeNode(NodeContext* context = nullptr);[m
+[32m+[m[32mstd::unique_ptr<Node> MakeNode(NodeContext& context);[m
+ [m
+ //! Block tip (could be a header or not, depends on the subscribed signal).[m
+ struct BlockTip {[m
+[33mdiff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp[m
+[33mindex 183b5a5d91..1f6f502473 100644[m
+[33m--- a/src/node/interfaces.cpp[m
+[33m+++ b/src/node/interfaces.cpp[m
+[36m@@ -72,7 +72,7 @@[m [mclass NodeImpl : public Node[m
+ private:[m
+     ChainstateManager& chainman() { return *Assert(m_context->chainman); }[m
+ public:[m
+[31m-    explicit NodeImpl(NodeContext* context) { setContext(context); }[m
+[32m+[m[32m    explicit NodeImpl(NodeContext& context) { setContext(&context); }[m
+     void initLogging() override { InitLogging(*Assert(m_context->args)); }[m
+     void initParameterInteraction() override { InitParameterInteraction(*Assert(m_context->args)); }[m
+     bilingual_str getWarnings() override { return GetWarnings(true); }[m
+[36m@@ -701,6 +701,6 @@[m [mpublic:[m
+ } // namespace node[m
+ [m
+ namespace interfaces {[m
+[31m-std::unique_ptr<Node> MakeNode(NodeContext* context) { return std::make_unique<node::NodeImpl>(context); }[m
+[32m+[m[32mstd::unique_ptr<Node> MakeNode(NodeContext& context) { return std::make_unique<node::NodeImpl>(context); }[m
+ std::unique_ptr<Chain> MakeChain(NodeContext& context) { return std::make_unique<node::ChainImpl>(context); }[m
+ } // namespace interfaces[m
+[33mdiff --git a/src/qt/bitcoin.cpp b/src/qt/bitcoin.cpp[m
+[33mindex f6ea147ddb..d4895ea6ff 100644[m
+[33m--- a/src/qt/bitcoin.cpp[m
+[33m+++ b/src/qt/bitcoin.cpp[m
+[36m@@ -11,6 +11,7 @@[m
+ #include <chainparams.h>[m
+ #include <init.h>[m
+ #include <interfaces/handler.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+ #include <interfaces/node.h>[m
+ #include <node/context.h>[m
+ #include <node/ui_interface.h>[m
+[36m@@ -275,10 +276,10 @@[m [mvoid BitcoinApplication::createSplashScreen(const NetworkStyle *networkStyle)[m
+     connect(this, &BitcoinApplication::requestedShutdown, m_splash, &QWidget::close);[m
+ }[m
+ [m
+[31m-void BitcoinApplication::setNode(interfaces::Node& node)[m
+[32m+[m[32mvoid BitcoinApplication::createNode(interfaces::Init& init)[m
+ {[m
+     assert(!m_node);[m
+[31m-    m_node = &node;[m
+[32m+[m[32m    m_node = init.makeNode();[m
+     if (optionsModel) optionsModel->setNode(*m_node);[m
+     if (m_splash) m_splash->setNode(*m_node);[m
+ }[m
+[36m@@ -460,11 +461,13 @@[m [mint GuiMain(int argc, char* argv[])[m
+     util::WinCmdLineArgs winArgs;[m
+     std::tie(argc, argv) = winArgs.get();[m
+ #endif[m
+[2m-    SetupEnvironment();[m
+[2m-    util::ThreadSetInternalName("main");[m
+ [m
+     NodeContext node_context;[m
+[31m-    std::unique_ptr<interfaces::Node> node = interfaces::MakeNode(&node_context);[m
+[32m+[m[32m    int unused_exit_status;[m
+[32m+[m[32m    std::unique_ptr<interfaces::Init> init = interfaces::MakeNodeInit(node_context, argc, argv, unused_exit_status);[m
+[32m+[m
+[2m+[m[2m    SetupEnvironment();[m
+[2m+[m[2m    util::ThreadSetInternalName("main");[m
+ [m
+     // Subscribe to global signals from core[m
+     boost::signals2::scoped_connection handler_message_box = ::uiInterface.ThreadSafeMessageBox_connect(noui_ThreadSafeMessageBox);[m
+[36m@@ -492,7 +495,6 @@[m [mint GuiMain(int argc, char* argv[])[m
+ [m
+     /// 2. Parse command-line options. We do this after qt in order to show an error if there are problems parsing these[m
+     // Command-line options take precedence:[m
+[31m-    node_context.args = &gArgs;[m
+     SetupServerArgs(gArgs);[m
+     SetupUIArgs(gArgs);[m
+     std::string error;[m
+[36m@@ -623,7 +625,7 @@[m [mint GuiMain(int argc, char* argv[])[m
+     if (gArgs.GetBoolArg("-splash", DEFAULT_SPLASHSCREEN) && !gArgs.GetBoolArg("-min", false))[m
+         app.createSplashScreen(networkStyle.data());[m
+ [m
+[31m-    app.setNode(*node);[m
+[32m+[m[32m    app.createNode(*init);[m
+ [m
+     int rv = EXIT_SUCCESS;[m
+     try[m
+[33mdiff --git a/src/qt/bitcoin.h b/src/qt/bitcoin.h[m
+[33mindex ed2f26b7f3..602b76052c 100644[m
+[33m--- a/src/qt/bitcoin.h[m
+[33m+++ b/src/qt/bitcoin.h[m
+[36m@@ -27,6 +27,9 @@[m [mclass PlatformStyle;[m
+ class SplashScreen;[m
+ class WalletController;[m
+ class WalletModel;[m
+[32m+[m[32mnamespace interfaces {[m
+[32m+[m[32mclass Init;[m
+[32m+[m[32m} // namespace interfaces[m
+ [m
+ [m
+ /** Main Bitcoin application object */[m
+[36m@@ -51,6 +54,8 @@[m [mpublic:[m
+     void createWindow(const NetworkStyle *networkStyle);[m
+     /// Create splash screen[m
+     void createSplashScreen(const NetworkStyle *networkStyle);[m
+[32m+[m[32m    /// Create or spawn node[m
+[32m+[m[32m    void createNode(interfaces::Init& init);[m
+     /// Basic initialization, before starting initialization/shutdown thread. Return true on success.[m
+     bool baseInitialize();[m
+ [m
+[36m@@ -69,7 +74,6 @@[m [mpublic:[m
+     void setupPlatformStyle();[m
+ [m
+     interfaces::Node& node() const { assert(m_node); return *m_node; }[m
+[31m-    void setNode(interfaces::Node& node);[m
+ [m
+ public Q_SLOTS:[m
+     void initializeResult(bool success, interfaces::BlockAndHeaderTipInfo tip_info);[m
+[36m@@ -103,7 +107,7 @@[m [mprivate:[m
+     const PlatformStyle *platformStyle;[m
+     std::unique_ptr<QWidget> shutdownWindow;[m
+     SplashScreen* m_splash = nullptr;[m
+[31m-    interfaces::Node* m_node = nullptr;[m
+[32m+[m[32m    std::unique_ptr<interfaces::Node> m_node;[m
+ [m
+     void startThread();[m
+ };[m
+[33mdiff --git a/src/qt/test/test_main.cpp b/src/qt/test/test_main.cpp[m
+[33mindex 7d66f67f8a..884ed25637 100644[m
+[33m--- a/src/qt/test/test_main.cpp[m
+[33m+++ b/src/qt/test/test_main.cpp[m
+[36m@@ -6,6 +6,7 @@[m
+ #include <config/bitcoin-config.h>[m
+ #endif[m
+ [m
+[32m+[m[32m#include <interfaces/init.h>[m
+ #include <interfaces/node.h>[m
+ #include <qt/bitcoin.h>[m
+ #include <qt/initexecutor.h>[m
+[36m@@ -53,7 +54,8 @@[m [mint main(int argc, char* argv[])[m
+     }[m
+ [m
+     NodeContext node_context;[m
+[31m-    std::unique_ptr<interfaces::Node> node = interfaces::MakeNode(&node_context);[m
+[32m+[m[32m    int unused_exit_status;[m
+[32m+[m[32m    std::unique_ptr<interfaces::Init> init = interfaces::MakeNodeInit(node_context, argc, argv, unused_exit_status);[m
+     gArgs.ForceSetArg("-listen", "0");[m
+     gArgs.ForceSetArg("-listenonion", "0");[m
+     gArgs.ForceSetArg("-discover", "0");[m
+[36m@@ -76,10 +78,9 @@[m [mint main(int argc, char* argv[])[m
+     // Don't remove this, it's needed to access[m
+     // QApplication:: and QCoreApplication:: in the tests[m
+     BitcoinApplication app;[m
+[31m-    app.setNode(*node);[m
+     app.setApplicationName("Bitcoin-Qt-test");[m
+[32m+[m[32m    app.createNode(*init);[m
+ [m
+[31m-    app.node().context()->args = &gArgs;     // Make gArgs available in the NodeContext[m
+     AppTests app_tests(app);[m
+     if (QTest::qExec(&app_tests) != 0) {[m
+         fInvalid = true;[m
+[33mdiff --git a/src/qt/test/wallettests.cpp b/src/qt/test/wallettests.cpp[m
+[33mindex e883337fb5..1b80193d4f 100644[m
+[33m--- a/src/qt/test/wallettests.cpp[m
+[33m+++ b/src/qt/test/wallettests.cpp[m
+[36m@@ -138,6 +138,8 @@[m [mvoid TestGUI(interfaces::Node& node)[m
+     for (int i = 0; i < 5; ++i) {[m
+         test.CreateAndProcessBlock({}, GetScriptForRawPubKey(test.coinbaseKey.GetPubKey()));[m
+     }[m
+[32m+[m[32m    auto wallet_client = interfaces::MakeWalletClient(*test.m_node.chain, *Assert(test.m_node.args));[m
+[32m+[m[32m    test.m_node.wallet_client = wallet_client.get();[m
+     node.setContext(&test.m_node);[m
+     std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(node.context()->chain.get(), "", CreateMockWalletDatabase());[m
+     wallet->LoadWallet();[m
+[33mdiff --git a/src/rpc/misc.cpp b/src/rpc/misc.cpp[m
+[33mindex 1a94abf6d3..f62a65ab5d 100644[m
+[33m--- a/src/rpc/misc.cpp[m
+[33m+++ b/src/rpc/misc.cpp[m
+[36m@@ -664,8 +664,9 @@[m [mstatic RPCHelpMan echoipc()[m
+         RPCExamples{HelpExampleCli("echo", "\"Hello world\"") +[m
+                     HelpExampleRpc("echo", "\"Hello world\"")},[m
+         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {[m
+[32m+[m[32m            interfaces::Init& local_init = *EnsureAnyNodeContext(request.context).init;[m
+             std::unique_ptr<interfaces::Echo> echo;[m
+[31m-            if (interfaces::Ipc* ipc = Assert(EnsureAnyNodeContext(request.context).init)->ipc()) {[m
+[32m+[m[32m            if (interfaces::Ipc* ipc = local_init.ipc()) {[m
+                 // Spawn a new bitcoin-node process and call makeEcho to get a[m
+                 // client pointer to a interfaces::Echo instance running in[m
+                 // that process. This is just for testing. A slightly more[m
+[36m@@ -683,7 +684,7 @@[m [mstatic RPCHelpMan echoipc()[m
+                 // interfaces::Echo object and return it so the `echoipc` RPC[m
+                 // method will work, and the python test calling `echoipc`[m
+                 // can expect the same result.[m
+[31m-                echo = interfaces::MakeEcho();[m
+[32m+[m[32m                echo = local_init.makeEcho();[m
+             }[m
+             return echo->echo(request.params[0].get_str());[m
+         },[m
+[33mdiff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp[m
+[33mindex c9bb863a7b..6b23bde0fb 100644[m
+[33m--- a/src/test/util/setup_common.cpp[m
+[33m+++ b/src/test/util/setup_common.cpp[m
+[36m@@ -114,7 +114,6 @@[m [mBasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve[m
+     InitSignatureCache();[m
+     InitScriptExecutionCache();[m
+     m_node.chain = interfaces::MakeChain(m_node);[m
+[31m-    g_wallet_init_interface.Construct(m_node);[m
+     fCheckBlockIndex = true;[m
+     static bool noui_connected = false;[m
+     if (!noui_connected) {[m
+[33mdiff --git a/src/wallet/init.cpp b/src/wallet/init.cpp[m
+[33mindex eb0d6316c0..1d444e5399 100644[m
+[33m--- a/src/wallet/init.cpp[m
+[33m+++ b/src/wallet/init.cpp[m
+[36m@@ -5,6 +5,7 @@[m
+ [m
+ #include <init.h>[m
+ #include <interfaces/chain.h>[m
+[32m+[m[32m#include <interfaces/init.h>[m
+ #include <interfaces/wallet.h>[m
+ #include <net.h>[m
+ #include <node/context.h>[m
+[36m@@ -129,7 +130,7 @@[m [mvoid WalletInit::Construct(NodeContext& node) const[m
+         LogPrintf("Wallet disabled!\n");[m
+         return;[m
+     }[m
+[31m-    auto wallet_client = interfaces::MakeWalletClient(*node.chain, args);[m
+[32m+[m[32m    auto wallet_client = node.init->makeWalletClient(*node.chain);[m
+     node.wallet_client = wallet_client.get();[m
+     node.chain_clients.emplace_back(std::move(wallet_client));[m
+ }[m

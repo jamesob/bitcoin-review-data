@@ -1,0 +1,1611 @@
+[33mdiff --git a/src/addrdb.cpp b/src/addrdb.cpp[m
+[33mindex 1e73750ce..e1a0c73a3 100644[m
+[33m--- a/src/addrdb.cpp[m
+[33m+++ b/src/addrdb.cpp[m
+[36m@@ -10,6 +10,7 @@[m
+ #include <clientversion.h>[m
+ #include <cstdint>[m
+ #include <hash.h>[m
+[32m+[m[32m#include <iomanip>[m
+ #include <logging/timer.h>[m
+ #include <netbase.h>[m
+ #include <random.h>[m
+[36m@@ -58,7 +59,7 @@[m [mbool SerializeFileDB(const std::string& prefix, const fs::path& path, const Data[m
+     if (fileout.IsNull()) {[m
+         fileout.fclose();[m
+         remove(pathTmp);[m
+[31m-        return error("%s: Failed to open file %s", __func__, pathTmp.string());[m
+[32m+[m[32m        return error("%s: Failed to open file %s", __func__, fs::PathToString(pathTmp));[m
+     }[m
+ [m
+     // Serialize[m
+[36m@@ -70,7 +71,7 @@[m [mbool SerializeFileDB(const std::string& prefix, const fs::path& path, const Data[m
+     if (!FileCommit(fileout.Get())) {[m
+         fileout.fclose();[m
+         remove(pathTmp);[m
+[31m-        return error("%s: Failed to flush file %s", __func__, pathTmp.string());[m
+[32m+[m[32m        return error("%s: Failed to flush file %s", __func__, fs::PathToString(pathTmp));[m
+     }[m
+     fileout.fclose();[m
+ [m
+[36m@@ -122,8 +123,8 @@[m [mvoid DeserializeFileDB(const fs::path& path, Data& data, int version)[m
+ } // namespace[m
+ [m
+ CBanDB::CBanDB(fs::path ban_list_path)[m
+[31m-    : m_banlist_dat(ban_list_path.string() + ".dat"),[m
+[31m-      m_banlist_json(ban_list_path.string() + ".json")[m
+[32m+[m[32m    : m_banlist_dat(ban_list_path + ".dat"),[m
+[32m+[m[32m      m_banlist_json(ban_list_path + ".json")[m
+ {[m
+ }[m
+ [m
+[36m@@ -143,7 +144,7 @@[m [mbool CBanDB::Write(const banmap_t& banSet)[m
+ bool CBanDB::Read(banmap_t& banSet)[m
+ {[m
+     if (fs::exists(m_banlist_dat)) {[m
+[31m-        LogPrintf("banlist.dat ignored because it can only be read by " PACKAGE_NAME " version 22.x. Remove %s to silence this warning.\n", m_banlist_dat);[m
+[32m+[m[32m        LogPrintf("banlist.dat ignored because it can only be read by " PACKAGE_NAME " version 22.x. Remove %s to silence this warning.\n", std::quoted(fs::PathToString(m_banlist_dat)));[m
+     }[m
+     // If the JSON banlist does not exist, then recreate it[m
+     if (!fs::exists(m_banlist_json)) {[m
+[36m@@ -155,7 +156,7 @@[m [mbool CBanDB::Read(banmap_t& banSet)[m
+ [m
+     if (!util::ReadSettings(m_banlist_json, settings, errors)) {[m
+         for (const auto& err : errors) {[m
+[31m-            LogPrintf("Cannot load banlist %s: %s\n", m_banlist_json.string(), err);[m
+[32m+[m[32m            LogPrintf("Cannot load banlist %s: %s\n", fs::PathToString(m_banlist_json), err);[m
+         }[m
+         return false;[m
+     }[m
+[36m@@ -163,7 +164,7 @@[m [mbool CBanDB::Read(banmap_t& banSet)[m
+     try {[m
+         BanMapFromJson(settings[JSON_KEY], banSet);[m
+     } catch (const std::runtime_error& e) {[m
+[31m-        LogPrintf("Cannot parse banlist %s: %s\n", m_banlist_json.string(), e.what());[m
+[32m+[m[32m        LogPrintf("Cannot parse banlist %s: %s\n", fs::PathToString(m_banlist_json), e.what());[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -194,12 +195,12 @@[m [mstd::optional<bilingual_str> LoadAddrman(const std::vector<bool>& asmap, const A[m
+     } catch (const DbNotFoundError&) {[m
+         // Addrman can be in an inconsistent state after failure, reset it[m
+         addrman = std::make_unique<CAddrMan>(asmap, /* deterministic */ false, /* consistency_check_ratio */ check_addrman);[m
+[31m-        LogPrintf("Creating peers.dat because the file was not found (%s)\n", path_addr);[m
+[32m+[m[32m        LogPrintf("Creating peers.dat because the file was not found (%s)\n", std::quoted(fs::PathToString(path_addr)));[m
+         DumpPeerAddresses(args, *addrman);[m
+     } catch (const std::exception& e) {[m
+         addrman = nullptr;[m
+         return strprintf(_("Invalid or corrupt peers.dat (%s). If you believe this is a bug, please report it to %s. As a workaround, you can move the file (%s) out of the way (rename, move, or delete) to have a new one created on the next start."),[m
+[31m-                         e.what(), PACKAGE_BUGREPORT, path_addr);[m
+[32m+[m[32m                         e.what(), PACKAGE_BUGREPORT, std::quoted(fs::PathToString(path_addr)));[m
+     }[m
+     return std::nullopt;[m
+ }[m
+[36m@@ -215,7 +216,7 @@[m [mstd::vector<CAddress> ReadAnchors(const fs::path& anchors_db_path)[m
+     std::vector<CAddress> anchors;[m
+     try {[m
+         DeserializeFileDB(anchors_db_path, anchors, CLIENT_VERSION | ADDRV2_FORMAT);[m
+[31m-        LogPrintf("Loaded %i addresses from %s\n", anchors.size(), anchors_db_path.filename());[m
+[32m+[m[32m        LogPrintf("Loaded %i addresses from %s\n", anchors.size(), std::quoted(fs::PathToString(anchors_db_path.filename())));[m
+     } catch (const std::exception&) {[m
+         anchors.clear();[m
+     }[m
+[33mdiff --git a/src/bitcoin-cli.cpp b/src/bitcoin-cli.cpp[m
+[33mindex e75ba81b5..7fc17792c 100644[m
+[33m--- a/src/bitcoin-cli.cpp[m
+[33m+++ b/src/bitcoin-cli.cpp[m
+[36m@@ -789,7 +789,7 @@[m [mstatic UniValue CallRPC(BaseRequestHandler* rh, const std::string& strMethod, co[m
+         if (failedToGetAuthCookie) {[m
+             throw std::runtime_error(strprintf([m
+                 "Could not locate RPC credentials. No authentication cookie could be found, and RPC password is not set.  See -rpcpassword and -stdinrpcpass.  Configuration file: (%s)",[m
+[31m-                GetConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME)).string()));[m
+[32m+[m[32m                fs::PathToString(GetConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME)))));[m
+         } else {[m
+             throw std::runtime_error("Authorization failed: Incorrect rpcuser or rpcpassword");[m
+         }[m
+[33mdiff --git a/src/dbwrapper.cpp b/src/dbwrapper.cpp[m
+[33mindex 3a1086bf4..35c6f5496 100644[m
+[33m--- a/src/dbwrapper.cpp[m
+[33m+++ b/src/dbwrapper.cpp[m
+[36m@@ -129,21 +129,21 @@[m [mCDBWrapper::CDBWrapper(const fs::path& path, size_t nCacheSize, bool fMemory, bo[m
+         options.env = penv;[m
+     } else {[m
+         if (fWipe) {[m
+[31m-            LogPrintf("Wiping LevelDB in %s\n", path.string());[m
+[31m-            leveldb::Status result = leveldb::DestroyDB(path.string(), options);[m
+[32m+[m[32m            LogPrintf("Wiping LevelDB in %s\n", fs::PathToString(path));[m
+[32m+[m[32m            leveldb::Status result = leveldb::DestroyDB(fs::PathToString(path), options);[m
+             dbwrapper_private::HandleError(result);[m
+         }[m
+         TryCreateDirectories(path);[m
+[31m-        LogPrintf("Opening LevelDB in %s\n", path.string());[m
+[32m+[m[32m        LogPrintf("Opening LevelDB in %s\n", fs::PathToString(path));[m
+     }[m
+[31m-    leveldb::Status status = leveldb::DB::Open(options, path.string(), &pdb);[m
+[32m+[m[32m    leveldb::Status status = leveldb::DB::Open(options, fs::PathToString(path), &pdb);[m
+     dbwrapper_private::HandleError(status);[m
+     LogPrintf("Opened LevelDB successfully\n");[m
+ [m
+     if (gArgs.GetBoolArg("-forcecompactdb", false)) {[m
+[31m-        LogPrintf("Starting database compaction of %s\n", path.string());[m
+[32m+[m[32m        LogPrintf("Starting database compaction of %s\n", fs::PathToString(path));[m
+         pdb->CompactRange(nullptr, nullptr);[m
+[31m-        LogPrintf("Finished database compaction of %s\n", path.string());[m
+[32m+[m[32m        LogPrintf("Finished database compaction of %s\n", fs::PathToString(path));[m
+     }[m
+ [m
+     // The base-case obfuscation key, which is a noop.[m
+[36m@@ -160,10 +160,10 @@[m [mCDBWrapper::CDBWrapper(const fs::path& path, size_t nCacheSize, bool fMemory, bo[m
+         Write(OBFUSCATE_KEY_KEY, new_key);[m
+         obfuscate_key = new_key;[m
+ [m
+[31m-        LogPrintf("Wrote new obfuscate key for %s: %s\n", path.string(), HexStr(obfuscate_key));[m
+[32m+[m[32m        LogPrintf("Wrote new obfuscate key for %s: %s\n", fs::PathToString(path), HexStr(obfuscate_key));[m
+     }[m
+ [m
+[31m-    LogPrintf("Using obfuscation key for %s: %s\n", path.string(), HexStr(obfuscate_key));[m
+[32m+[m[32m    LogPrintf("Using obfuscation key for %s: %s\n", fs::PathToString(path), HexStr(obfuscate_key));[m
+ }[m
+ [m
+ CDBWrapper::~CDBWrapper()[m
+[33mdiff --git a/src/flatfile.cpp b/src/flatfile.cpp[m
+[33mindex 151f1a38f..929808c7f 100644[m
+[33m--- a/src/flatfile.cpp[m
+[33m+++ b/src/flatfile.cpp[m
+[36m@@ -41,11 +41,11 @@[m [mFILE* FlatFileSeq::Open(const FlatFilePos& pos, bool read_only)[m
+     if (!file && !read_only)[m
+         file = fsbridge::fopen(path, "wb+");[m
+     if (!file) {[m
+[31m-        LogPrintf("Unable to open file %s\n", path.string());[m
+[32m+[m[32m        LogPrintf("Unable to open file %s\n", fs::PathToString(path));[m
+         return nullptr;[m
+     }[m
+     if (pos.nPos && fseek(file, pos.nPos, SEEK_SET)) {[m
+[31m-        LogPrintf("Unable to seek to position %u of %s\n", pos.nPos, path.string());[m
+[32m+[m[32m        LogPrintf("Unable to seek to position %u of %s\n", pos.nPos, fs::PathToString(path));[m
+         fclose(file);[m
+         return nullptr;[m
+     }[m
+[33mdiff --git a/src/fs.cpp b/src/fs.cpp[m
+[33mindex b9b3c46d8..8cae7f32c 100644[m
+[33m--- a/src/fs.cpp[m
+[33m+++ b/src/fs.cpp[m
+[36m@@ -24,7 +24,7 @@[m [mnamespace fsbridge {[m
+ FILE *fopen(const fs::path& p, const char *mode)[m
+ {[m
+ #ifndef WIN32[m
+[31m-    return ::fopen(p.string().c_str(), mode);[m
+[32m+[m[32m    return ::fopen(p.c_str(), mode);[m
+ #else[m
+     std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>,wchar_t> utf8_cvt;[m
+     return ::_wfopen(p.wstring().c_str(), utf8_cvt.from_bytes(mode).c_str());[m
+[36m@@ -46,7 +46,7 @@[m [mstatic std::string GetErrorReason()[m
+ [m
+ FileLock::FileLock(const fs::path& file)[m
+ {[m
+[31m-    fd = open(file.string().c_str(), O_RDWR);[m
+[32m+[m[32m    fd = open(file.c_str(), O_RDWR);[m
+     if (fd == -1) {[m
+         reason = GetErrorReason();[m
+     }[m
+[36m@@ -249,9 +249,9 @@[m [mvoid ofstream::close()[m
+ #else // __GLIBCXX__[m
+ [m
+ #if BOOST_VERSION >= 107700[m
+[31m-static_assert(sizeof(*BOOST_FILESYSTEM_C_STR(fs::path())) == sizeof(wchar_t),[m
+[32m+[m[32mstatic_assert(sizeof(*BOOST_FILESYSTEM_C_STR(boost::filesystem::path())) == sizeof(wchar_t),[m
+ #else[m
+[31m-static_assert(sizeof(*fs::path().BOOST_FILESYSTEM_C_STR) == sizeof(wchar_t),[m
+[32m+[m[32mstatic_assert(sizeof(*boost::filesystem::path().BOOST_FILESYSTEM_C_STR) == sizeof(wchar_t),[m
+ #endif // BOOST_VERSION >= 107700[m
+     "Warning: This build is using boost::filesystem ofstream and ifstream "[m
+     "implementations which will fail to open paths containing multibyte "[m
+[33mdiff --git a/src/fs.h b/src/fs.h[m
+[33mindex d77b90be6..937e9994b 100644[m
+[33m--- a/src/fs.h[m
+[33m+++ b/src/fs.h[m
+[36m@@ -15,7 +15,116 @@[m
+ #include <boost/filesystem/fstream.hpp>[m
+ [m
+ /** Filesystem operations and types */[m
+[31m-namespace fs = boost::filesystem;[m
+[32m+[m[32mnamespace fs {[m
+[32m+[m
+[32m+[m[32musing namespace boost::filesystem;[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * Path class wrapper to prepare application code for transition from[m
+[32m+[m[32m * boost::filesystem library to std::filesystem implementation. The main[m
+[32m+[m[32m * purpose of the class is to define fs::path::u8string() and fs::u8path()[m
+[32m+[m[32m * functions not present in boost. It also blocks calls to the[m
+[32m+[m[32m * fs::path(std::string) implicit constructor and the fs::path::string()[m
+[32m+[m[32m * method, which worked well in the boost::filesystem implementation, but have[m
+[32m+[m[32m * unsafe and unpredictable behavior on Windows in the std::filesystem[m
+[32m+[m[32m * implementation (see implementation note in \ref PathToString for details).[m
+[32m+[m[32m */[m
+[32m+[m[32mclass path : public boost::filesystem::path[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    using boost::filesystem::path::path;[m
+[32m+[m
+[32m+[m[32m    // Allow path objects arguments for compatibility.[m
+[32m+[m[32m    path(boost::filesystem::path path) : boost::filesystem::path::path(std::move(path)) {}[m
+[32m+[m[32m    path& operator=(boost::filesystem::path path) { boost::filesystem::path::operator=(std::move(path)); return *this; }[m
+[32m+[m[32m    path& operator/=(boost::filesystem::path path) { boost::filesystem::path::operator/=(std::move(path)); return *this; }[m
+[32m+[m
+[32m+[m[32m    // Allow literal string arguments, which are safe as long as the literals are ASCII.[m
+[32m+[m[32m    path(const char* c) : boost::filesystem::path(c) {}[m
+[32m+[m[32m    path& operator=(const char* c) { boost::filesystem::path::operator=(c); return *this; }[m
+[32m+[m[32m    path& operator/=(const char* c) { boost::filesystem::path::operator/=(c); return *this; }[m
+[32m+[m[32m    path& append(const char* c) { boost::filesystem::path::append(c); return *this; }[m
+[32m+[m
+[32m+[m[32m    // Disallow std::string arguments to avoid locale-dependent decoding on windows.[m
+[32m+[m[32m    path(std::string) = delete;[m
+[32m+[m[32m    path& operator=(std::string) = delete;[m
+[32m+[m[32m    path& operator/=(std::string) = delete;[m
+[32m+[m[32m    path& append(std::string) = delete;[m
+[32m+[m
+[32m+[m[32m    // Disallow std::string conversion method to avoid locale-dependent encoding on windows.[m
+[32m+[m[32m    std::string string() const = delete;[m
+[32m+[m
+[32m+[m[32m    // Define UTF-8 string conversion method not present in boost::filesystem but present in std::filesystem.[m
+[32m+[m[32m    std::string u8string() const { return boost::filesystem::path::string(); }[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m// Define UTF-8 string conversion function not present in boost::filesystem but present in std::filesystem.[m
+[32m+[m[32mstatic inline path u8path(const std::string& string)[m
+[32m+[m[32m{[m
+[32m+[m[32m    return boost::filesystem::path(string);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m// Disallow implicit std::string conversion for system_complete to avoid[m
+[32m+[m[32m// locale-dependent encoding on windows.[m
+[32m+[m[32mstatic inline path system_complete(const path& p)[m
+[32m+[m[32m{[m
+[32m+[m[32m    return boost::filesystem::system_complete(p);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m// Allow safe path append operations.[m
+[32m+[m[32mstatic inline path operator+(path p1, path p2)[m
+[32m+[m[32m{[m
+[32m+[m[32m    p1 += std::move(p2);[m
+[32m+[m[32m    return p1;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * Convert path object to byte string. On POSIX, paths natively are byte[m
+[32m+[m[32m * strings so this is trivial. On Windows, paths natively are Unicode, so an[m
+[32m+[m[32m * encoding step is necessary.[m
+[32m+[m[32m *[m
+[32m+[m[32m * The inverse of \ref PathToString is \ref PathFromString. The strings[m
+[32m+[m[32m * returned and parsed by these functions can be used to call POSIX APIs, and[m
+[32m+[m[32m * for roundtrip conversion, logging, and debugging. But they are not[m
+[32m+[m[32m * guaranteed to be valid UTF-8, and are generally meant to be used internally,[m
+[32m+[m[32m * not externally. When communicating with external programs and libraries that[m
+[32m+[m[32m * require UTF-8, fs::path::u8string() and fs::u8path() methods can be used.[m
+[32m+[m[32m * For other applications, if support for non UTF-8 paths is required, or if[m
+[32m+[m[32m * higher-level JSON or XML or URI or C-style escapes are preferred, it may be[m
+[32m+[m[32m * also be appropriate to use different path encoding functions.[m
+[32m+[m[32m *[m
+[32m+[m[32m * Implementation note: On Windows, the std::filesystem::path(string)[m
+[32m+[m[32m * constructor and std::filesystem::path::string() method are not safe to use[m
+[32m+[m[32m * here, because these methods encode the path using C++'s narrow multibyte[m
+[32m+[m[32m * encoding, which on Windows corresponds to the current "code page", which is[m
+[32m+[m[32m * unpredictable and typically not able to represent all valid paths. So[m
+[32m+[m[32m * std::filesystem::path::u8string() and std::filesystem::u8path() functions[m
+[32m+[m[32m * are used instead on Windows. On POSIX, u8string/u8path functions are not[m
+[32m+[m[32m * safe to use because paths are not always valid UTF-8, so plain string[m
+[32m+[m[32m * methods which do not transform the path there are used.[m
+[32m+[m[32m */[m
+[32m+[m[32mstatic inline std::string PathToString(const path& path)[m
+[32m+[m[32m{[m
+[32m+[m[32m#ifdef WIN32[m
+[32m+[m[32m    return path.u8string();[m
+[32m+[m[32m#else[m
+[32m+[m[32m    static_assert(std::is_same<path::string_type, std::string>::value, "PathToString not implemented on this platform");[m
+[32m+[m[32m    return path.boost::filesystem::path::string();[m
+[32m+[m[32m#endif[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * Convert byte string to path object. Inverse of \ref PathToString.[m
+[32m+[m[32m */[m
+[32m+[m[32mstatic inline path PathFromString(const std::string& string)[m
+[32m+[m[32m{[m
+[32m+[m[32m#ifdef WIN32[m
+[32m+[m[32m    return u8path(string);[m
+[32m+[m[32m#else[m
+[32m+[m[32m    return boost::filesystem::path(string);[m
+[32m+[m[32m#endif[m
+[32m+[m[32m}[m
+[32m+[m[32m} // namespace fs[m
+ [m
+ /** Bridge operations to C stdio */[m
+ namespace fsbridge {[m
+[36m@@ -103,4 +212,10 @@[m [mnamespace fsbridge {[m
+ #endif // WIN32 && __GLIBCXX__[m
+ };[m
+ [m
+[32m+[m[32m// Disallow implicit std::string conversion for tinyformat to avoid[m
+[32m+[m[32m// locale-dependent encoding on windows.[m
+[32m+[m[32mnamespace tinyformat {[m
+[32m+[m[32minline void formatValue(std::ostream&, const char*, const char*, int, const boost::filesystem::path&);[m
+[32m+[m[32m} // namespace tinyformat[m
+[32m+[m
+ #endif // BITCOIN_FS_H[m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex d4ba441b0..28dc50492 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -27,6 +27,7 @@[m
+ #include <init/common.h>[m
+ #include <interfaces/chain.h>[m
+ #include <interfaces/node.h>[m
+[32m+[m[32m#include <iomanip>[m
+ #include <mapport.h>[m
+ #include <miner.h>[m
+ #include <net.h>[m
+[36m@@ -111,7 +112,7 @@[m [mstatic const char* BITCOIN_PID_FILENAME = "bitcoind.pid";[m
+ [m
+ static fs::path GetPidFile(const ArgsManager& args)[m
+ {[m
+[31m-    return AbsPathForConfigVal(fs::path(args.GetArg("-pid", BITCOIN_PID_FILENAME)));[m
+[32m+[m[32m    return AbsPathForConfigVal(fs::PathFromString(args.GetArg("-pid", BITCOIN_PID_FILENAME)));[m
+ }[m
+ [m
+ [[nodiscard]] static bool CreatePidFile(const ArgsManager& args)[m
+[36m@@ -125,7 +126,7 @@[m [mstatic fs::path GetPidFile(const ArgsManager& args)[m
+ #endif[m
+         return true;[m
+     } else {[m
+[31m-        return InitError(strprintf(_("Unable to create the PID file '%s': %s"), GetPidFile(args).string(), std::strerror(errno)));[m
+[32m+[m[32m        return InitError(strprintf(_("Unable to create the PID file '%s': %s"), fs::PathToString(GetPidFile(args)), std::strerror(errno)));[m
+     }[m
+ }[m
+ [m
+[36m@@ -1025,10 +1026,10 @@[m [mstatic bool LockDataDirectory(bool probeOnly)[m
+     // Make sure only a single Bitcoin process is using the data directory.[m
+     fs::path datadir = gArgs.GetDataDirNet();[m
+     if (!DirIsWritable(datadir)) {[m
+[31m-        return InitError(strprintf(_("Cannot write to data directory '%s'; check permissions."), datadir.string()));[m
+[32m+[m[32m        return InitError(strprintf(_("Cannot write to data directory '%s'; check permissions."), fs::PathToString(datadir)));[m
+     }[m
+     if (!LockDirectory(datadir, ".lock", probeOnly)) {[m
+[31m-        return InitError(strprintf(_("Cannot obtain a lock on data directory %s. %s is probably already running."), datadir.string(), PACKAGE_NAME));[m
+[32m+[m[32m        return InitError(strprintf(_("Cannot obtain a lock on data directory %s. %s is probably already running."), fs::PathToString(datadir), PACKAGE_NAME));[m
+     }[m
+     return true;[m
+ }[m
+[36m@@ -1089,7 +1090,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+     LogPrintf("Using at most %i automatic connections (%i file descriptors available)\n", nMaxConnections, nFD);[m
+ [m
+     // Warn about relative -datadir path.[m
+[31m-    if (args.IsArgSet("-datadir") && !fs::path(args.GetArg("-datadir", "")).is_absolute()) {[m
+[32m+[m[32m    if (args.IsArgSet("-datadir") && !fs::PathFromString(args.GetArg("-datadir", "")).is_absolute()) {[m
+         LogPrintf("Warning: relative datadir option '%s' specified, which will be interpreted relative to the " /* Continued */[m
+                   "current working directory '%s'. This is fragile, because if bitcoin is started in the future "[m
+                   "from a different location, it will be unable to locate the current data files. There could "[m
+[36m@@ -1178,20 +1179,20 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+         // Read asmap file if configured[m
+         std::vector<bool> asmap;[m
+         if (args.IsArgSet("-asmap")) {[m
+[31m-            fs::path asmap_path = fs::path(args.GetArg("-asmap", ""));[m
+[32m+[m[32m            fs::path asmap_path = fs::PathFromString(args.GetArg("-asmap", ""));[m
+             if (asmap_path.empty()) {[m
+[31m-                asmap_path = DEFAULT_ASMAP_FILENAME;[m
+[32m+[m[32m                asmap_path = fs::PathFromString(DEFAULT_ASMAP_FILENAME);[m
+             }[m
+             if (!asmap_path.is_absolute()) {[m
+                 asmap_path = gArgs.GetDataDirNet() / asmap_path;[m
+             }[m
+             if (!fs::exists(asmap_path)) {[m
+[31m-                InitError(strprintf(_("Could not find asmap file %s"), asmap_path));[m
+[32m+[m[32m                InitError(strprintf(_("Could not find asmap file %s"), std::quoted(fs::PathToString(asmap_path))));[m
+                 return false;[m
+             }[m
+             asmap = DecodeAsmap(asmap_path);[m
+             if (asmap.size() == 0) {[m
+[31m-                InitError(strprintf(_("Could not parse asmap file %s"), asmap_path));[m
+[32m+[m[32m                InitError(strprintf(_("Could not parse asmap file %s"), std::quoted(fs::PathToString(asmap_path))));[m
+                 return false;[m
+             }[m
+             const uint256 asmap_version = SerializeHash(asmap);[m
+[36m@@ -1612,11 +1613,11 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+     // ********************************************************* Step 11: import blocks[m
+ [m
+     if (!CheckDiskSpace(gArgs.GetDataDirNet())) {[m
+[31m-        InitError(strprintf(_("Error: Disk space is low for %s"), gArgs.GetDataDirNet()));[m
+[32m+[m[32m        InitError(strprintf(_("Error: Disk space is low for %s"), std::quoted(fs::PathToString(gArgs.GetDataDirNet()))));[m
+         return false;[m
+     }[m
+     if (!CheckDiskSpace(gArgs.GetBlocksDirPath())) {[m
+[31m-        InitError(strprintf(_("Error: Disk space is low for %s"), gArgs.GetBlocksDirPath()));[m
+[32m+[m[32m        InitError(strprintf(_("Error: Disk space is low for %s"), std::quoted(fs::PathToString(gArgs.GetBlocksDirPath()))));[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -1644,7 +1645,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+ [m
+     std::vector<fs::path> vImportFiles;[m
+     for (const std::string& strFile : args.GetArgs("-loadblock")) {[m
+[31m-        vImportFiles.push_back(strFile);[m
+[32m+[m[32m        vImportFiles.push_back(fs::PathFromString(strFile));[m
+     }[m
+ [m
+     chainman.m_load_block = std::thread(&util::TraceThread, "loadblk", [=, &chainman, &args] {[m
+[33mdiff --git a/src/init/common.cpp b/src/init/common.cpp[m
+[33mindex 5c1f46908..8f9e0ebc8 100644[m
+[33m--- a/src/init/common.cpp[m
+[33m+++ b/src/init/common.cpp[m
+[36m@@ -81,7 +81,7 @@[m [mvoid AddLoggingArgs(ArgsManager& argsman)[m
+ void SetLoggingOptions(const ArgsManager& args)[m
+ {[m
+     LogInstance().m_print_to_file = !args.IsArgNegated("-debuglogfile");[m
+[31m-    LogInstance().m_file_path = AbsPathForConfigVal(args.GetArg("-debuglogfile", DEFAULT_DEBUGLOGFILE));[m
+[32m+[m[32m    LogInstance().m_file_path = AbsPathForConfigVal(fs::PathFromString(args.GetArg("-debuglogfile", DEFAULT_DEBUGLOGFILE)));[m
+     LogInstance().m_print_to_console = args.GetBoolArg("-printtoconsole", !args.GetBoolArg("-daemon", false));[m
+     LogInstance().m_log_timestamps = args.GetBoolArg("-logtimestamps", DEFAULT_LOGTIMESTAMPS);[m
+     LogInstance().m_log_time_micros = args.GetBoolArg("-logtimemicros", DEFAULT_LOGTIMEMICROS);[m
+[36m@@ -128,24 +128,24 @@[m [mbool StartLogging(const ArgsManager& args)[m
+     }[m
+     if (!LogInstance().StartLogging()) {[m
+             return InitError(strprintf(Untranslated("Could not open debug log file %s"),[m
+[31m-                LogInstance().m_file_path.string()));[m
+[32m+[m[32m                fs::PathToString(LogInstance().m_file_path)));[m
+     }[m
+ [m
+     if (!LogInstance().m_log_timestamps)[m
+         LogPrintf("Startup time: %s\n", FormatISO8601DateTime(GetTime()));[m
+[31m-    LogPrintf("Default data directory %s\n", GetDefaultDataDir().string());[m
+[31m-    LogPrintf("Using data directory %s\n", gArgs.GetDataDirNet().string());[m
+[32m+[m[32m    LogPrintf("Default data directory %s\n", fs::PathToString(GetDefaultDataDir()));[m
+[32m+[m[32m    LogPrintf("Using data directory %s\n", fs::PathToString(gArgs.GetDataDirNet()));[m
+ [m
+     // Only log conf file usage message if conf file actually exists.[m
+     fs::path config_file_path = GetConfigFile(args.GetArg("-conf", BITCOIN_CONF_FILENAME));[m
+     if (fs::exists(config_file_path)) {[m
+[31m-        LogPrintf("Config file: %s\n", config_file_path.string());[m
+[32m+[m[32m        LogPrintf("Config file: %s\n", fs::PathToString(config_file_path));[m
+     } else if (args.IsArgSet("-conf")) {[m
+         // Warn if no conf file exists at path provided by user[m
+[31m-        InitWarning(strprintf(_("The specified config file %s does not exist"), config_file_path.string()));[m
+[32m+[m[32m        InitWarning(strprintf(_("The specified config file %s does not exist"), fs::PathToString(config_file_path)));[m
+     } else {[m
+         // Not categorizing as "Warning" because it's the default behavior[m
+[31m-        LogPrintf("Config file: %s (not found, skipping)\n", config_file_path.string());[m
+[32m+[m[32m        LogPrintf("Config file: %s (not found, skipping)\n", fs::PathToString(config_file_path));[m
+     }[m
+ [m
+     // Log the config arguments to debug.log[m
+[33mdiff --git a/src/ipc/process.cpp b/src/ipc/process.cpp[m
+[33mindex 43ed1f1ba..9036b80c4 100644[m
+[33m--- a/src/ipc/process.cpp[m
+[33m+++ b/src/ipc/process.cpp[m
+[36m@@ -30,8 +30,8 @@[m [mpublic:[m
+         return mp::SpawnProcess(pid, [&](int fd) {[m
+             fs::path path = argv0_path;[m
+             path.remove_filename();[m
+[31m-            path.append(new_exe_name);[m
+[31m-            return std::vector<std::string>{path.string(), "-ipcfd", strprintf("%i", fd)};[m
+[32m+[m[32m            path /= fs::PathFromString(new_exe_name);[m
+[32m+[m[32m            return std::vector<std::string>{fs::PathToString(path), "-ipcfd", strprintf("%i", fd)};[m
+         });[m
+     }[m
+     int waitSpawned(int pid) override { return mp::WaitProcess(pid); }[m
+[33mdiff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp[m
+[33mindex 90f7ba191..dfbe681a5 100644[m
+[33m--- a/src/node/blockstorage.cpp[m
+[33m+++ b/src/node/blockstorage.cpp[m
+[36m@@ -529,14 +529,14 @@[m [mvoid ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFile[m
+         for (const fs::path& path : vImportFiles) {[m
+             FILE* file = fsbridge::fopen(path, "rb");[m
+             if (file) {[m
+[31m-                LogPrintf("Importing blocks file %s...\n", path.string());[m
+[32m+[m[32m                LogPrintf("Importing blocks file %s...\n", fs::PathToString(path));[m
+                 chainman.ActiveChainstate().LoadExternalBlockFile(file);[m
+                 if (ShutdownRequested()) {[m
+                     LogPrintf("Shutdown requested. Exit %s\n", __func__);[m
+                     return;[m
+                 }[m
+             } else {[m
+[31m-                LogPrintf("Warning: Could not open blocks file %s\n", path.string());[m
+[32m+[m[32m                LogPrintf("Warning: Could not open blocks file %s\n", fs::PathToString(path));[m
+             }[m
+         }[m
+ [m
+[33mdiff --git a/src/policy/fees.cpp b/src/policy/fees.cpp[m
+[33mindex 2ae5798eb..850b4f043 100644[m
+[33m--- a/src/policy/fees.cpp[m
+[33m+++ b/src/policy/fees.cpp[m
+[36m@@ -527,7 +527,7 @@[m [mCBlockPolicyEstimator::CBlockPolicyEstimator()[m
+     fs::path est_filepath = gArgs.GetDataDirNet() / FEE_ESTIMATES_FILENAME;[m
+     CAutoFile est_file(fsbridge::fopen(est_filepath, "rb"), SER_DISK, CLIENT_VERSION);[m
+     if (est_file.IsNull() || !Read(est_file)) {[m
+[31m-        LogPrintf("Failed to read fee estimates from %s. Continue anyway.\n", est_filepath.string());[m
+[32m+[m[32m        LogPrintf("Failed to read fee estimates from %s. Continue anyway.\n", fs::PathToString(est_filepath));[m
+     }[m
+ }[m
+ [m
+[36m@@ -887,7 +887,7 @@[m [mvoid CBlockPolicyEstimator::Flush() {[m
+     fs::path est_filepath = gArgs.GetDataDirNet() / FEE_ESTIMATES_FILENAME;[m
+     CAutoFile est_file(fsbridge::fopen(est_filepath, "wb"), SER_DISK, CLIENT_VERSION);[m
+     if (est_file.IsNull() || !Write(est_file)) {[m
+[31m-        LogPrintf("Failed to write fee estimates to %s. Continue anyway.\n", est_filepath.string());[m
+[32m+[m[32m        LogPrintf("Failed to write fee estimates to %s. Continue anyway.\n", fs::PathToString(est_filepath));[m
+     }[m
+ }[m
+ [m
+[33mdiff --git a/src/qt/guiutil.cpp b/src/qt/guiutil.cpp[m
+[33mindex e98e50ba1..10c210eef 100644[m
+[33m--- a/src/qt/guiutil.cpp[m
+[33m+++ b/src/qt/guiutil.cpp[m
+[36m@@ -646,12 +646,12 @@[m [mvoid setClipboard(const QString& str)[m
+ [m
+ fs::path qstringToBoostPath(const QString &path)[m
+ {[m
+[31m-    return fs::path(path.toStdString());[m
+[32m+[m[32m    return fs::u8path(path.toStdString());[m
+ }[m
+ [m
+ QString boostPathToQString(const fs::path &path)[m
+ {[m
+[31m-    return QString::fromStdString(path.string());[m
+[32m+[m[32m    return QString::fromStdString(path.u8string());[m
+ }[m
+ [m
+ QString NetworkToQString(Network net)[m
+[33mdiff --git a/src/qt/intro.cpp b/src/qt/intro.cpp[m
+[33mindex a698a9685..7fe12d52c 100644[m
+[33m--- a/src/qt/intro.cpp[m
+[33m+++ b/src/qt/intro.cpp[m
+[36m@@ -263,7 +263,7 @@[m [mbool Intro::showIfNeeded(bool& did_show_intro, int64_t& prune_MiB)[m
+      * (to be consistent with bitcoind behavior)[m
+      */[m
+     if(dataDir != GUIUtil::getDefaultDataDirectory()) {[m
+[31m-        gArgs.SoftSetArg("-datadir", GUIUtil::qstringToBoostPath(dataDir).string()); // use OS locale for path setting[m
+[32m+[m[32m        gArgs.SoftSetArg("-datadir", fs::PathToString(GUIUtil::qstringToBoostPath(dataDir))); // use OS locale for path setting[m
+     }[m
+     return true;[m
+ }[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex 909019d79..f5c53105c 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -2550,15 +2550,15 @@[m [mstatic RPCHelpMan dumptxoutset()[m
+         },[m
+         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue[m
+ {[m
+[31m-    const fs::path path = fsbridge::AbsPathJoin(gArgs.GetDataDirNet(), request.params[0].get_str());[m
+[32m+[m[32m    const fs::path path = fsbridge::AbsPathJoin(gArgs.GetDataDirNet(), fs::u8path(request.params[0].get_str()));[m
+     // Write to a temporary path and then move into `path` on completion[m
+     // to avoid confusion due to an interruption.[m
+[31m-    const fs::path temppath = fsbridge::AbsPathJoin(gArgs.GetDataDirNet(), request.params[0].get_str() + ".incomplete");[m
+[32m+[m[32m    const fs::path temppath = fsbridge::AbsPathJoin(gArgs.GetDataDirNet(), fs::u8path(request.params[0].get_str() + ".incomplete"));[m
+ [m
+     if (fs::exists(path)) {[m
+         throw JSONRPCError([m
+             RPC_INVALID_PARAMETER,[m
+[31m-            path.string() + " already exists. If you are sure this is what you want, "[m
+[32m+[m[32m            path.u8string() + " already exists. If you are sure this is what you want, "[m
+             "move it out of the way first");[m
+     }[m
+ [m
+[36m@@ -2568,7 +2568,7 @@[m [mstatic RPCHelpMan dumptxoutset()[m
+     UniValue result = CreateUTXOSnapshot(node, node.chainman->ActiveChainstate(), afile);[m
+     fs::rename(temppath, path);[m
+ [m
+[31m-    result.pushKV("path", path.string());[m
+[32m+[m[32m    result.pushKV("path", path.u8string());[m
+     return result;[m
+ },[m
+     };[m
+[33mdiff --git a/src/rpc/request.cpp b/src/rpc/request.cpp[m
+[33mindex a7866474e..3245e04cd 100644[m
+[33m--- a/src/rpc/request.cpp[m
+[33m+++ b/src/rpc/request.cpp[m
+[36m@@ -70,7 +70,7 @@[m [mstatic fs::path GetAuthCookieFile(bool temp=false)[m
+     if (temp) {[m
+         arg += ".tmp";[m
+     }[m
+[31m-    return AbsPathForConfigVal(fs::path(arg));[m
+[32m+[m[32m    return AbsPathForConfigVal(fs::PathFromString(arg));[m
+ }[m
+ [m
+ bool GenerateAuthCookie(std::string *cookie_out)[m
+[36m@@ -87,7 +87,7 @@[m [mbool GenerateAuthCookie(std::string *cookie_out)[m
+     fs::path filepath_tmp = GetAuthCookieFile(true);[m
+     file.open(filepath_tmp);[m
+     if (!file.is_open()) {[m
+[31m-        LogPrintf("Unable to open cookie authentication file %s for writing\n", filepath_tmp.string());[m
+[32m+[m[32m        LogPrintf("Unable to open cookie authentication file %s for writing\n", fs::PathToString(filepath_tmp));[m
+         return false;[m
+     }[m
+     file << cookie;[m
+[36m@@ -95,10 +95,10 @@[m [mbool GenerateAuthCookie(std::string *cookie_out)[m
+ [m
+     fs::path filepath = GetAuthCookieFile(false);[m
+     if (!RenameOver(filepath_tmp, filepath)) {[m
+[31m-        LogPrintf("Unable to rename cookie authentication file %s to %s\n", filepath_tmp.string(), filepath.string());[m
+[32m+[m[32m        LogPrintf("Unable to rename cookie authentication file %s to %s\n", fs::PathToString(filepath_tmp), fs::PathToString(filepath));[m
+         return false;[m
+     }[m
+[31m-    LogPrintf("Generated RPC authentication cookie %s\n", filepath.string());[m
+[32m+[m[32m    LogPrintf("Generated RPC authentication cookie %s\n", fs::PathToString(filepath));[m
+ [m
+     if (cookie_out)[m
+         *cookie_out = cookie;[m
+[33mdiff --git a/src/rpc/server.cpp b/src/rpc/server.cpp[m
+[33mindex cf80b08b9..35e42ae53 100644[m
+[33m--- a/src/rpc/server.cpp[m
+[33m+++ b/src/rpc/server.cpp[m
+[36m@@ -239,7 +239,7 @@[m [mstatic RPCHelpMan getrpcinfo()[m
+     UniValue result(UniValue::VOBJ);[m
+     result.pushKV("active_commands", active_commands);[m
+ [m
+[31m-    const std::string path = LogInstance().m_file_path.string();[m
+[32m+[m[32m    const std::string path = LogInstance().m_file_path.u8string();[m
+     UniValue log_path(UniValue::VSTR, path);[m
+     result.pushKV("logpath", log_path);[m
+ [m
+[33mdiff --git a/src/test/fs_tests.cpp b/src/test/fs_tests.cpp[m
+[33mindex 526a3c27b..f3347f8cf 100644[m
+[33m--- a/src/test/fs_tests.cpp[m
+[33m+++ b/src/test/fs_tests.cpp[m
+[36m@@ -11,6 +11,26 @@[m
+ [m
+ BOOST_FIXTURE_TEST_SUITE(fs_tests, BasicTestingSetup)[m
+ [m
+[32m+[m[32mBOOST_AUTO_TEST_CASE(fsbridge_pathtostring)[m
+[32m+[m[32m{[m
+[32m+[m[32m    std::string u8_str = "fs_tests_₿_🏃";[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(fs::PathToString(fs::PathFromString(u8_str)), u8_str);[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(fs::u8path(u8_str).u8string(), u8_str);[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(fs::PathFromString(u8_str).u8string(), u8_str);[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(fs::PathToString(fs::u8path(u8_str)), u8_str);[m
+[32m+[m[32m#ifndef WIN32[m
+[32m+[m[32m    // On non-windows systems, verify that non-UTF8 strings can be round[m
+[32m+[m[32m    // tripped successfully. On windows, file paths are natively represented as[m
+[32m+[m[32m    // unicode strings, so an invalid UTF-8 sequence that does not map to any[m
+[32m+[m[32m    // unicode string won't work correctly with path conversion methods. On[m
+[32m+[m[32m    // POSIX, file paths natively are 8-bit strings and character coding is not[m
+[32m+[m[32m    // relevant when converting between strings and paths.[m
+[32m+[m[32m    std::string invalid_u8_str = "\xf0";[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(invalid_u8_str.size(), 1);[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(fs::PathToString(fs::PathFromString(invalid_u8_str)), invalid_u8_str);[m
+[32m+[m[32m#endif[m
+[32m+[m[32m}[m
+[32m+[m
+ BOOST_AUTO_TEST_CASE(fsbridge_fstream)[m
+ {[m
+     fs::path tmpfolder = m_args.GetDataDirBase();[m
+[33mdiff --git a/src/test/fuzz/banman.cpp b/src/test/fuzz/banman.cpp[m
+[33mindex 561cc83c7..fbba25c40 100644[m
+[33m--- a/src/test/fuzz/banman.cpp[m
+[33m+++ b/src/test/fuzz/banman.cpp[m
+[36m@@ -48,7 +48,7 @@[m [mFUZZ_TARGET_INIT(banman, initialize_banman)[m
+     const bool start_with_corrupted_banlist{fuzzed_data_provider.ConsumeBool()};[m
+     bool force_read_and_write_to_err{false};[m
+     if (start_with_corrupted_banlist) {[m
+[31m-        assert(WriteBinaryFile(banlist_file.string() + ".json",[m
+[32m+[m[32m        assert(WriteBinaryFile(banlist_file + ".json",[m
+                                fuzzed_data_provider.ConsumeRandomLengthString()));[m
+     } else {[m
+         force_read_and_write_to_err = fuzzed_data_provider.ConsumeBool();[m
+[36m@@ -111,5 +111,5 @@[m [mFUZZ_TARGET_INIT(banman, initialize_banman)[m
+             assert(banmap == banmap_read);[m
+         }[m
+     }[m
+[31m-    fs::remove(banlist_file.string() + ".json");[m
+[32m+[m[32m    fs::remove(fs::PathToString(banlist_file + ".json"));[m
+ }[m
+[33mdiff --git a/src/test/settings_tests.cpp b/src/test/settings_tests.cpp[m
+[33mindex 340ce33d9..15cba9e3e 100644[m
+[33m--- a/src/test/settings_tests.cpp[m
+[33m+++ b/src/test/settings_tests.cpp[m
+[36m@@ -80,19 +80,19 @@[m [mBOOST_AUTO_TEST_CASE(ReadWrite)[m
+         "dupe": "dupe"[m
+     })");[m
+     BOOST_CHECK(!util::ReadSettings(path, values, errors));[m
+[31m-    std::vector<std::string> dup_keys = {strprintf("Found duplicate key dupe in settings file %s", path.string())};[m
+[32m+[m[32m    std::vector<std::string> dup_keys = {strprintf("Found duplicate key dupe in settings file %s", fs::PathToString(path))};[m
+     BOOST_CHECK_EQUAL_COLLECTIONS(errors.begin(), errors.end(), dup_keys.begin(), dup_keys.end());[m
+ [m
+     // Check non-kv json files not allowed[m
+     WriteText(path, R"("non-kv")");[m
+     BOOST_CHECK(!util::ReadSettings(path, values, errors));[m
+[31m-    std::vector<std::string> non_kv = {strprintf("Found non-object value \"non-kv\" in settings file %s", path.string())};[m
+[32m+[m[32m    std::vector<std::string> non_kv = {strprintf("Found non-object value \"non-kv\" in settings file %s", fs::PathToString(path))};[m
+     BOOST_CHECK_EQUAL_COLLECTIONS(errors.begin(), errors.end(), non_kv.begin(), non_kv.end());[m
+ [m
+     // Check invalid json not allowed[m
+     WriteText(path, R"(invalid json)");[m
+     BOOST_CHECK(!util::ReadSettings(path, values, errors));[m
+[31m-    std::vector<std::string> fail_parse = {strprintf("Unable to parse settings file %s", path.string())};[m
+[32m+[m[32m    std::vector<std::string> fail_parse = {strprintf("Unable to parse settings file %s", fs::PathToString(path))};[m
+     BOOST_CHECK_EQUAL_COLLECTIONS(errors.begin(), errors.end(), fail_parse.begin(), fail_parse.end());[m
+ }[m
+ [m
+[33mdiff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp[m
+[33mindex ba6b3e32e..cad634832 100644[m
+[33m--- a/src/test/util/setup_common.cpp[m
+[33m+++ b/src/test/util/setup_common.cpp[m
+[36m@@ -91,8 +91,8 @@[m [mBasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve[m
+         extra_args);[m
+     util::ThreadRename("test");[m
+     fs::create_directories(m_path_root);[m
+[31m-    m_args.ForceSetArg("-datadir", m_path_root.string());[m
+[31m-    gArgs.ForceSetArg("-datadir", m_path_root.string());[m
+[32m+[m[32m    m_args.ForceSetArg("-datadir", fs::PathToString(m_path_root));[m
+[32m+[m[32m    gArgs.ForceSetArg("-datadir", fs::PathToString(m_path_root));[m
+     gArgs.ClearPathCache();[m
+     {[m
+         SetupServerArgs(*m_node.args);[m
+[33mdiff --git a/src/test/util_tests.cpp b/src/test/util_tests.cpp[m
+[33mindex a62abf9b9..3610bdc6b 100644[m
+[33m--- a/src/test/util_tests.cpp[m
+[33m+++ b/src/test/util_tests.cpp[m
+[36m@@ -51,23 +51,23 @@[m [mBOOST_AUTO_TEST_CASE(util_datadir)[m
+ {[m
+     // Use local args variable instead of m_args to avoid making assumptions about test setup[m
+     ArgsManager args;[m
+[31m-    args.ForceSetArg("-datadir", m_path_root.string());[m
+[32m+[m[32m    args.ForceSetArg("-datadir", fs::PathToString(m_path_root));[m
+ [m
+     const fs::path dd_norm = args.GetDataDirBase();[m
+ [m
+[31m-    args.ForceSetArg("-datadir", dd_norm.string() + "/");[m
+[32m+[m[32m    args.ForceSetArg("-datadir", fs::PathToString(dd_norm) + "/");[m
+     args.ClearPathCache();[m
+     BOOST_CHECK_EQUAL(dd_norm, args.GetDataDirBase());[m
+ [m
+[31m-    args.ForceSetArg("-datadir", dd_norm.string() + "/.");[m
+[32m+[m[32m    args.ForceSetArg("-datadir", fs::PathToString(dd_norm) + "/.");[m
+     args.ClearPathCache();[m
+     BOOST_CHECK_EQUAL(dd_norm, args.GetDataDirBase());[m
+ [m
+[31m-    args.ForceSetArg("-datadir", dd_norm.string() + "/./");[m
+[32m+[m[32m    args.ForceSetArg("-datadir", fs::PathToString(dd_norm) + "/./");[m
+     args.ClearPathCache();[m
+     BOOST_CHECK_EQUAL(dd_norm, args.GetDataDirBase());[m
+ [m
+[31m-    args.ForceSetArg("-datadir", dd_norm.string() + "/.//");[m
+[32m+[m[32m    args.ForceSetArg("-datadir", fs::PathToString(dd_norm) + "/.//");[m
+     args.ClearPathCache();[m
+     BOOST_CHECK_EQUAL(dd_norm, args.GetDataDirBase());[m
+ }[m
+[36m@@ -1181,13 +1181,13 @@[m [mBOOST_AUTO_TEST_CASE(util_ReadWriteSettings)[m
+ {[m
+     // Test writing setting.[m
+     TestArgsManager args1;[m
+[31m-    args1.ForceSetArg("-datadir", m_path_root.string());[m
+[32m+[m[32m    args1.ForceSetArg("-datadir", fs::PathToString(m_path_root));[m
+     args1.LockSettings([&](util::Settings& settings) { settings.rw_settings["name"] = "value"; });[m
+     args1.WriteSettingsFile();[m
+ [m
+     // Test reading setting.[m
+     TestArgsManager args2;[m
+[31m-    args2.ForceSetArg("-datadir", m_path_root.string());[m
+[32m+[m[32m    args2.ForceSetArg("-datadir", fs::PathToString(m_path_root));[m
+     args2.ReadSettingsFile();[m
+     args2.LockSettings([&](util::Settings& settings) { BOOST_CHECK_EQUAL(settings.rw_settings["name"].get_str(), "value"); });[m
+ [m
+[33mdiff --git a/src/torcontrol.cpp b/src/torcontrol.cpp[m
+[33mindex bb296456b..489aecea4 100644[m
+[33m--- a/src/torcontrol.cpp[m
+[33m+++ b/src/torcontrol.cpp[m
+[36m@@ -317,7 +317,7 @@[m [mTorController::TorController(struct event_base* _base, const std::string& tor_co[m
+     // Read service private key if cached[m
+     std::pair<bool,std::string> pkf = ReadBinaryFile(GetPrivateKeyFile());[m
+     if (pkf.first) {[m
+[31m-        LogPrint(BCLog::TOR, "tor: Reading cached private key from %s\n", GetPrivateKeyFile().string());[m
+[32m+[m[32m        LogPrint(BCLog::TOR, "tor: Reading cached private key from %s\n", fs::PathToString(GetPrivateKeyFile()));[m
+         private_key = pkf.second;[m
+     }[m
+ }[m
+[36m@@ -355,9 +355,9 @@[m [mvoid TorController::add_onion_cb(TorControlConnection& _conn, const TorControlRe[m
+         service = LookupNumeric(std::string(service_id+".onion"), Params().GetDefaultPort());[m
+         LogPrintf("tor: Got service ID %s, advertising service %s\n", service_id, service.ToString());[m
+         if (WriteBinaryFile(GetPrivateKeyFile(), private_key)) {[m
+[31m-            LogPrint(BCLog::TOR, "tor: Cached service private key to %s\n", GetPrivateKeyFile().string());[m
+[32m+[m[32m            LogPrint(BCLog::TOR, "tor: Cached service private key to %s\n", fs::PathToString(GetPrivateKeyFile()));[m
+         } else {[m
+[31m-            LogPrintf("tor: Error writing service private key to %s\n", GetPrivateKeyFile().string());[m
+[32m+[m[32m            LogPrintf("tor: Error writing service private key to %s\n", fs::PathToString(GetPrivateKeyFile()));[m
+         }[m
+         AddLocal(service, LOCAL_MANUAL);[m
+         // ... onion requested - keep connection open[m
+[36m@@ -507,7 +507,7 @@[m [mvoid TorController::protocolinfo_cb(TorControlConnection& _conn, const TorContro[m
+         } else if (methods.count("SAFECOOKIE")) {[m
+             // Cookie: hexdump -e '32/1 "%02x""\n"'  ~/.tor/control_auth_cookie[m
+             LogPrint(BCLog::TOR, "tor: Using SAFECOOKIE authentication, reading cookie authentication from %s\n", cookiefile);[m
+[31m-            std::pair<bool,std::string> status_cookie = ReadBinaryFile(cookiefile, TOR_COOKIE_SIZE);[m
+[32m+[m[32m            std::pair<bool,std::string> status_cookie = ReadBinaryFile(fs::PathFromString(cookiefile), TOR_COOKIE_SIZE);[m
+             if (status_cookie.first && status_cookie.second.size() == TOR_COOKIE_SIZE) {[m
+                 // _conn.Command("AUTHENTICATE " + HexStr(status_cookie.second), std::bind(&TorController::auth_cb, this, std::placeholders::_1, std::placeholders::_2));[m
+                 cookie = std::vector<uint8_t>(status_cookie.second.begin(), status_cookie.second.end());[m
+[33mdiff --git a/src/util/asmap.cpp b/src/util/asmap.cpp[m
+[33mindex 5695c6201..b0806dba5 100644[m
+[33m--- a/src/util/asmap.cpp[m
+[33m+++ b/src/util/asmap.cpp[m
+[36m@@ -10,6 +10,7 @@[m
+ #include <streams.h>[m
+ [m
+ #include <cassert>[m
+[32m+[m[32m#include <iomanip>[m
+ #include <map>[m
+ #include <vector>[m
+ [m
+[36m@@ -201,7 +202,7 @@[m [mstd::vector<bool> DecodeAsmap(fs::path path)[m
+     }[m
+     fseek(filestr, 0, SEEK_END);[m
+     int length = ftell(filestr);[m
+[31m-    LogPrintf("Opened asmap file %s (%d bytes) from disk\n", path, length);[m
+[32m+[m[32m    LogPrintf("Opened asmap file %s (%d bytes) from disk\n", std::quoted(fs::PathToString(path)), length);[m
+     fseek(filestr, 0, SEEK_SET);[m
+     uint8_t cur_byte;[m
+     for (int i = 0; i < length; ++i) {[m
+[36m@@ -211,7 +212,7 @@[m [mstd::vector<bool> DecodeAsmap(fs::path path)[m
+         }[m
+     }[m
+     if (!SanityCheckASMap(bits, 128)) {[m
+[31m-        LogPrintf("Sanity check of asmap file %s failed\n", path);[m
+[32m+[m[32m        LogPrintf("Sanity check of asmap file %s failed\n", std::quoted(fs::PathToString(path)));[m
+         return {};[m
+     }[m
+     return bits;[m
+[33mdiff --git a/src/util/settings.cpp b/src/util/settings.cpp[m
+[33mindex 846b34089..7fb35c073 100644[m
+[33m--- a/src/util/settings.cpp[m
+[33m+++ b/src/util/settings.cpp[m
+[36m@@ -66,24 +66,24 @@[m [mbool ReadSettings(const fs::path& path, std::map<std::string, SettingsValue>& va[m
+     fsbridge::ifstream file;[m
+     file.open(path);[m
+     if (!file.is_open()) {[m
+[31m-      errors.emplace_back(strprintf("%s. Please check permissions.", path.string()));[m
+[32m+[m[32m      errors.emplace_back(strprintf("%s. Please check permissions.", fs::PathToString(path)));[m
+       return false;[m
+     }[m
+ [m
+     SettingsValue in;[m
+     if (!in.read(std::string{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()})) {[m
+[31m-        errors.emplace_back(strprintf("Unable to parse settings file %s", path.string()));[m
+[32m+[m[32m        errors.emplace_back(strprintf("Unable to parse settings file %s", fs::PathToString(path)));[m
+         return false;[m
+     }[m
+ [m
+     if (file.fail()) {[m
+[31m-        errors.emplace_back(strprintf("Failed reading settings file %s", path.string()));[m
+[32m+[m[32m        errors.emplace_back(strprintf("Failed reading settings file %s", fs::PathToString(path)));[m
+         return false;[m
+     }[m
+     file.close(); // Done with file descriptor. Release while copying data.[m
+ [m
+     if (!in.isObject()) {[m
+[31m-        errors.emplace_back(strprintf("Found non-object value %s in settings file %s", in.write(), path.string()));[m
+[32m+[m[32m        errors.emplace_back(strprintf("Found non-object value %s in settings file %s", in.write(), fs::PathToString(path)));[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -92,7 +92,7 @@[m [mbool ReadSettings(const fs::path& path, std::map<std::string, SettingsValue>& va[m
+     for (size_t i = 0; i < in_keys.size(); ++i) {[m
+         auto inserted = values.emplace(in_keys[i], in_values[i]);[m
+         if (!inserted.second) {[m
+[31m-            errors.emplace_back(strprintf("Found duplicate key %s in settings file %s", in_keys[i], path.string()));[m
+[32m+[m[32m            errors.emplace_back(strprintf("Found duplicate key %s in settings file %s", in_keys[i], fs::PathToString(path)));[m
+         }[m
+     }[m
+     return errors.empty();[m
+[36m@@ -109,7 +109,7 @@[m [mbool WriteSettings(const fs::path& path,[m
+     fsbridge::ofstream file;[m
+     file.open(path);[m
+     if (file.fail()) {[m
+[31m-        errors.emplace_back(strprintf("Error: Unable to open settings file %s for writing", path.string()));[m
+[32m+[m[32m        errors.emplace_back(strprintf("Error: Unable to open settings file %s for writing", fs::PathToString(path)));[m
+         return false;[m
+     }[m
+     file << out.write(/* prettyIndent= */ 1, /* indentLevel= */ 4) << std::endl;[m
+[33mdiff --git a/src/util/system.cpp b/src/util/system.cpp[m
+[33mindex 08f62f1da..a6b2553d8 100644[m
+[33m--- a/src/util/system.cpp[m
+[33m+++ b/src/util/system.cpp[m
+[36m@@ -98,7 +98,7 @@[m [mbool LockDirectory(const fs::path& directory, const std::string lockfile_name, b[m
+     fs::path pathLockFile = directory / lockfile_name;[m
+ [m
+     // If a lock for this directory already exists in the map, don't try to re-lock it[m
+[31m-    if (dir_locks.count(pathLockFile.string())) {[m
+[32m+[m[32m    if (dir_locks.count(fs::PathToString(pathLockFile))) {[m
+         return true;[m
+     }[m
+ [m
+[36m@@ -107,11 +107,11 @@[m [mbool LockDirectory(const fs::path& directory, const std::string lockfile_name, b[m
+     if (file) fclose(file);[m
+     auto lock = std::make_unique<fsbridge::FileLock>(pathLockFile);[m
+     if (!lock->TryLock()) {[m
+[31m-        return error("Error while attempting to lock directory %s: %s", directory.string(), lock->GetReason());[m
+[32m+[m[32m        return error("Error while attempting to lock directory %s: %s", fs::PathToString(directory), lock->GetReason());[m
+     }[m
+     if (!probe_only) {[m
+         // Lock successful and we're not just probing, put it into the map[m
+[31m-        dir_locks.emplace(pathLockFile.string(), std::move(lock));[m
+[32m+[m[32m        dir_locks.emplace(fs::PathToString(pathLockFile), std::move(lock));[m
+     }[m
+     return true;[m
+ }[m
+[36m@@ -404,7 +404,7 @@[m [mconst fs::path& ArgsManager::GetBlocksDirPath() const[m
+     if (!path.empty()) return path;[m
+ [m
+     if (IsArgSet("-blocksdir")) {[m
+[31m-        path = fs::system_complete(GetArg("-blocksdir", ""));[m
+[32m+[m[32m        path = fs::system_complete(fs::PathFromString(GetArg("-blocksdir", "")));[m
+         if (!fs::is_directory(path)) {[m
+             path = "";[m
+             return path;[m
+[36m@@ -413,7 +413,7 @@[m [mconst fs::path& ArgsManager::GetBlocksDirPath() const[m
+         path = GetDataDirBase();[m
+     }[m
+ [m
+[31m-    path /= BaseParams().DataDir();[m
+[32m+[m[32m    path /= fs::PathFromString(BaseParams().DataDir());[m
+     path /= "blocks";[m
+     fs::create_directories(path);[m
+     path = StripRedundantLastElementsOfPath(path);[m
+[36m@@ -431,7 +431,7 @@[m [mconst fs::path& ArgsManager::GetDataDir(bool net_specific) const[m
+ [m
+     std::string datadir = GetArg("-datadir", "");[m
+     if (!datadir.empty()) {[m
+[31m-        path = fs::system_complete(datadir);[m
+[32m+[m[32m        path = fs::system_complete(fs::PathFromString(datadir));[m
+         if (!fs::is_directory(path)) {[m
+             path = "";[m
+             return path;[m
+[36m@@ -440,7 +440,7 @@[m [mconst fs::path& ArgsManager::GetDataDir(bool net_specific) const[m
+         path = GetDefaultDataDir();[m
+     }[m
+     if (net_specific)[m
+[31m-        path /= BaseParams().DataDir();[m
+[32m+[m[32m        path /= fs::PathFromString(BaseParams().DataDir());[m
+ [m
+     if (fs::create_directories(path)) {[m
+         // This is the first run, create wallets subdirectory too[m
+[36m@@ -519,7 +519,7 @@[m [mbool ArgsManager::GetSettingsPath(fs::path* filepath, bool temp) const[m
+     }[m
+     if (filepath) {[m
+         std::string settings = GetArg("-settings", BITCOIN_SETTINGS_FILENAME);[m
+[31m-        *filepath = fsbridge::AbsPathJoin(GetDataDirNet(), temp ? settings + ".tmp" : settings);[m
+[32m+[m[32m        *filepath = fsbridge::AbsPathJoin(GetDataDirNet(), fs::PathFromString(temp ? settings + ".tmp" : settings));[m
+     }[m
+     return true;[m
+ }[m
+[36m@@ -574,7 +574,7 @@[m [mbool ArgsManager::WriteSettingsFile(std::vector<std::string>* errors) const[m
+         return false;[m
+     }[m
+     if (!RenameOver(path_tmp, path)) {[m
+[31m-        SaveErrors({strprintf("Failed renaming settings file %s to %s\n", path_tmp.string(), path.string())}, errors);[m
+[32m+[m[32m        SaveErrors({strprintf("Failed renaming settings file %s to %s\n", fs::PathToString(path_tmp), fs::PathToString(path))}, errors);[m
+         return false;[m
+     }[m
+     return true;[m
+[36m@@ -811,12 +811,12 @@[m [mfs::path GetDefaultDataDir()[m
+ bool CheckDataDirOption()[m
+ {[m
+     std::string datadir = gArgs.GetArg("-datadir", "");[m
+[31m-    return datadir.empty() || fs::is_directory(fs::system_complete(datadir));[m
+[32m+[m[32m    return datadir.empty() || fs::is_directory(fs::system_complete(fs::PathFromString(datadir)));[m
+ }[m
+ [m
+ fs::path GetConfigFile(const std::string& confPath)[m
+ {[m
+[31m-    return AbsPathForConfigVal(fs::path(confPath), false);[m
+[32m+[m[32m    return AbsPathForConfigVal(fs::PathFromString(confPath), false);[m
+ }[m
+ [m
+ static bool GetConfigOptions(std::istream& stream, const std::string& filepath, std::string& error, std::vector<std::pair<std::string, std::string>>& options, std::list<SectionInfo>& sections)[m
+[36m@@ -1067,7 +1067,7 @@[m [mbool RenameOver(fs::path src, fs::path dest)[m
+     return MoveFileExW(src.wstring().c_str(), dest.wstring().c_str(),[m
+                        MOVEFILE_REPLACE_EXISTING) != 0;[m
+ #else[m
+[31m-    int rc = std::rename(src.string().c_str(), dest.string().c_str());[m
+[32m+[m[32m    int rc = std::rename(src.c_str(), dest.c_str());[m
+     return (rc == 0);[m
+ #endif /* WIN32 */[m
+ }[m
+[33mdiff --git a/src/wallet/bdb.cpp b/src/wallet/bdb.cpp[m
+[33mindex 1dc23374e..ec435b515 100644[m
+[33m--- a/src/wallet/bdb.cpp[m
+[33m+++ b/src/wallet/bdb.cpp[m
+[36m@@ -9,6 +9,7 @@[m
+ #include <util/strencodings.h>[m
+ #include <util/translation.h>[m
+ [m
+[32m+[m[32m#include <iomanip>[m
+ #include <stdint.h>[m
+ [m
+ #ifndef WIN32[m
+[36m@@ -61,9 +62,9 @@[m [mbool WalletDatabaseFileId::operator==(const WalletDatabaseFileId& rhs) const[m
+ std::shared_ptr<BerkeleyEnvironment> GetBerkeleyEnv(const fs::path& env_directory)[m
+ {[m
+     LOCK(cs_db);[m
+[31m-    auto inserted = g_dbenvs.emplace(env_directory.string(), std::weak_ptr<BerkeleyEnvironment>());[m
+[32m+[m[32m    auto inserted = g_dbenvs.emplace(fs::PathToString(env_directory), std::weak_ptr<BerkeleyEnvironment>());[m
+     if (inserted.second) {[m
+[31m-        auto env = std::make_shared<BerkeleyEnvironment>(env_directory.string());[m
+[32m+[m[32m        auto env = std::make_shared<BerkeleyEnvironment>(env_directory);[m
+         inserted.first->second = env;[m
+         return env;[m
+     }[m
+[36m@@ -101,7 +102,7 @@[m [mvoid BerkeleyEnvironment::Close()[m
+ [m
+     if (error_file) fclose(error_file);[m
+ [m
+[31m-    UnlockDirectory(strPath, ".walletlock");[m
+[32m+[m[32m    UnlockDirectory(fs::PathFromString(strPath), ".walletlock");[m
+ }[m
+ [m
+ void BerkeleyEnvironment::Reset()[m
+[36m@@ -111,7 +112,7 @@[m [mvoid BerkeleyEnvironment::Reset()[m
+     fMockDb = false;[m
+ }[m
+ [m
+[31m-BerkeleyEnvironment::BerkeleyEnvironment(const fs::path& dir_path) : strPath(dir_path.string())[m
+[32m+[m[32mBerkeleyEnvironment::BerkeleyEnvironment(const fs::path& dir_path) : strPath(fs::PathToString(dir_path))[m
+ {[m
+     Reset();[m
+ }[m
+[36m@@ -129,24 +130,24 @@[m [mbool BerkeleyEnvironment::Open(bilingual_str& err)[m
+         return true;[m
+     }[m
+ [m
+[31m-    fs::path pathIn = strPath;[m
+[32m+[m[32m    fs::path pathIn = fs::PathFromString(strPath);[m
+     TryCreateDirectories(pathIn);[m
+     if (!LockDirectory(pathIn, ".walletlock")) {[m
+         LogPrintf("Cannot obtain a lock on wallet directory %s. Another instance of bitcoin may be using it.\n", strPath);[m
+[31m-        err = strprintf(_("Error initializing wallet database environment %s!"), Directory());[m
+[32m+[m[32m        err = strprintf(_("Error initializing wallet database environment %s!"), std::quoted(fs::PathToString(Directory())));[m
+         return false;[m
+     }[m
+ [m
+     fs::path pathLogDir = pathIn / "database";[m
+     TryCreateDirectories(pathLogDir);[m
+     fs::path pathErrorFile = pathIn / "db.log";[m
+[31m-    LogPrintf("BerkeleyEnvironment::Open: LogDir=%s ErrorFile=%s\n", pathLogDir.string(), pathErrorFile.string());[m
+[32m+[m[32m    LogPrintf("BerkeleyEnvironment::Open: LogDir=%s ErrorFile=%s\n", fs::PathToString(pathLogDir), fs::PathToString(pathErrorFile));[m
+ [m
+     unsigned int nEnvFlags = 0;[m
+     if (gArgs.GetBoolArg("-privdb", DEFAULT_WALLET_PRIVDB))[m
+         nEnvFlags |= DB_PRIVATE;[m
+ [m
+[31m-    dbenv->set_lg_dir(pathLogDir.string().c_str());[m
+[32m+[m[32m    dbenv->set_lg_dir(fs::PathToString(pathLogDir).c_str());[m
+     dbenv->set_cachesize(0, 0x100000, 1); // 1 MiB should be enough for just the wallet[m
+     dbenv->set_lg_bsize(0x10000);[m
+     dbenv->set_lg_max(1048576);[m
+[36m@@ -173,7 +174,7 @@[m [mbool BerkeleyEnvironment::Open(bilingual_str& err)[m
+             LogPrintf("BerkeleyEnvironment::Open: Error %d closing failed database environment: %s\n", ret2, DbEnv::strerror(ret2));[m
+         }[m
+         Reset();[m
+[31m-        err = strprintf(_("Error initializing wallet database environment %s!"), Directory());[m
+[32m+[m[32m        err = strprintf(_("Error initializing wallet database environment %s!"), std::quoted(fs::PathToString(Directory())));[m
+         if (ret == DB_RUNRECOVERY) {[m
+             err += Untranslated(" ") + _("This error could occur if this wallet was not shutdown cleanly and was last loaded using a build with a newer version of Berkeley DB. If so, please use the software that last loaded this wallet");[m
+         }[m
+[36m@@ -261,7 +262,7 @@[m [mbool BerkeleyDatabase::Verify(bilingual_str& errorStr)[m
+     fs::path file_path = walletDir / strFile;[m
+ [m
+     LogPrintf("Using BerkeleyDB version %s\n", BerkeleyDatabaseVersion());[m
+[31m-    LogPrintf("Using wallet %s\n", file_path.string());[m
+[32m+[m[32m    LogPrintf("Using wallet %s\n", fs::PathToString(file_path));[m
+ [m
+     if (!env->Open(errorStr)) {[m
+         return false;[m
+[36m@@ -274,7 +275,7 @@[m [mbool BerkeleyDatabase::Verify(bilingual_str& errorStr)[m
+         Db db(env->dbenv.get(), 0);[m
+         int result = db.verify(strFile.c_str(), nullptr, nullptr, 0);[m
+         if (result != 0) {[m
+[31m-            errorStr = strprintf(_("%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup."), file_path);[m
+[32m+[m[32m            errorStr = strprintf(_("%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup."), std::quoted(fs::PathToString(file_path)));[m
+             return false;[m
+         }[m
+     }[m
+[36m@@ -566,7 +567,7 @@[m [mvoid BerkeleyEnvironment::Flush(bool fShutdown)[m
+                 dbenv->log_archive(&listp, DB_ARCH_REMOVE);[m
+                 Close();[m
+                 if (!fMockDb) {[m
+[31m-                    fs::remove_all(fs::path(strPath) / "database");[m
+[32m+[m[32m                    fs::remove_all(fs::PathFromString(strPath) / "database");[m
+                 }[m
+             }[m
+         }[m
+[36m@@ -614,21 +615,21 @@[m [mbool BerkeleyDatabase::Backup(const std::string& strDest) const[m
+ [m
+                 // Copy wallet file[m
+                 fs::path pathSrc = env->Directory() / strFile;[m
+[31m-                fs::path pathDest(strDest);[m
+[32m+[m[32m                fs::path pathDest(fs::PathFromString(strDest));[m
+                 if (fs::is_directory(pathDest))[m
+[31m-                    pathDest /= strFile;[m
+[32m+[m[32m                    pathDest /= fs::PathFromString(strFile);[m
+ [m
+                 try {[m
+                     if (fs::equivalent(pathSrc, pathDest)) {[m
+[31m-                        LogPrintf("cannot backup to wallet source file %s\n", pathDest.string());[m
+[32m+[m[32m                        LogPrintf("cannot backup to wallet source file %s\n", fs::PathToString(pathDest));[m
+                         return false;[m
+                     }[m
+ [m
+                     fs::copy_file(pathSrc, pathDest, fs::copy_option::overwrite_if_exists);[m
+[31m-                    LogPrintf("copied %s to %s\n", strFile, pathDest.string());[m
+[32m+[m[32m                    LogPrintf("copied %s to %s\n", strFile, fs::PathToString(pathDest));[m
+                     return true;[m
+                 } catch (const fs::filesystem_error& e) {[m
+[31m-                    LogPrintf("error copying %s to %s - %s\n", strFile, pathDest.string(), fsbridge::get_filesystem_error_message(e));[m
+[32m+[m[32m                    LogPrintf("error copying %s to %s - %s\n", strFile, fs::PathToString(pathDest), fsbridge::get_filesystem_error_message(e));[m
+                     return false;[m
+                 }[m
+             }[m
+[33mdiff --git a/src/wallet/bdb.h b/src/wallet/bdb.h[m
+[33mindex a8209587d..171df1843 100644[m
+[33m--- a/src/wallet/bdb.h[m
+[33m+++ b/src/wallet/bdb.h[m
+[36m@@ -63,7 +63,7 @@[m [mpublic:[m
+ [m
+     bool IsMock() const { return fMockDb; }[m
+     bool IsInitialized() const { return fDbEnvInit; }[m
+[31m-    fs::path Directory() const { return strPath; }[m
+[32m+[m[32m    fs::path Directory() const { return fs::PathFromString(strPath); }[m
+ [m
+     bool Open(bilingual_str& error);[m
+     void Close();[m
+[33mdiff --git a/src/wallet/db.cpp b/src/wallet/db.cpp[m
+[33mindex 8d5316e0a..8fe452632 100644[m
+[33m--- a/src/wallet/db.cpp[m
+[33m+++ b/src/wallet/db.cpp[m
+[36m@@ -12,7 +12,7 @@[m
+ [m
+ std::vector<fs::path> ListDatabases(const fs::path& wallet_dir)[m
+ {[m
+[31m-    const size_t offset = wallet_dir.string().size() + (wallet_dir == wallet_dir.root_name() ? 0 : 1);[m
+[32m+[m[32m    const size_t offset = wallet_dir.native().size() + (wallet_dir == wallet_dir.root_name() ? 0 : 1);[m
+     std::vector<fs::path> paths;[m
+     boost::system::error_code ec;[m
+ [m
+[36m@@ -30,7 +30,8 @@[m [mstd::vector<fs::path> ListDatabases(const fs::path& wallet_dir)[m
+         try {[m
+             // Get wallet path relative to walletdir by removing walletdir from the wallet path.[m
+             // This can be replaced by boost::filesystem::lexically_relative once boost is bumped to 1.60.[m
+[31m-            const fs::path path = it->path().string().substr(offset);[m
+[32m+[m[32m            const auto path_str = it->path().native().substr(offset);[m
+[32m+[m[32m            const fs::path path{path_str.begin(), path_str.end()};[m
+ [m
+             if (it->status().type() == fs::directory_file &&[m
+                 (IsBDBFile(BDBDataFile(it->path())) || IsSQLiteFile(SQLiteDataFile(it->path())))) {[m
+[36m@@ -85,7 +86,7 @@[m [mbool IsBDBFile(const fs::path& path)[m
+     // This check also prevents opening lock files.[m
+     boost::system::error_code ec;[m
+     auto size = fs::file_size(path, ec);[m
+[31m-    if (ec) LogPrintf("%s: %s %s\n", __func__, ec.message(), path.string());[m
+[32m+[m[32m    if (ec) LogPrintf("%s: %s %s\n", __func__, ec.message(), fs::PathToString(path));[m
+     if (size < 4096) return false;[m
+ [m
+     fsbridge::ifstream file(path, std::ios::binary);[m
+[36m@@ -109,7 +110,7 @@[m [mbool IsSQLiteFile(const fs::path& path)[m
+     // A SQLite Database file is at least 512 bytes.[m
+     boost::system::error_code ec;[m
+     auto size = fs::file_size(path, ec);[m
+[31m-    if (ec) LogPrintf("%s: %s %s\n", __func__, ec.message(), path.string());[m
+[32m+[m[32m    if (ec) LogPrintf("%s: %s %s\n", __func__, ec.message(), fs::PathToString(path));[m
+     if (size < 512) return false;[m
+ [m
+     fsbridge::ifstream file(path, std::ios::binary);[m
+[33mdiff --git a/src/wallet/dump.cpp b/src/wallet/dump.cpp[m
+[33mindex c39c0c7e7..08d94b76d 100644[m
+[33m--- a/src/wallet/dump.cpp[m
+[33m+++ b/src/wallet/dump.cpp[m
+[36m@@ -19,16 +19,16 @@[m [mbool DumpWallet(CWallet& wallet, bilingual_str& error)[m
+         return false;[m
+     }[m
+ [m
+[31m-    fs::path path = dump_filename;[m
+[32m+[m[32m    fs::path path = fs::PathFromString(dump_filename);[m
+     path = fs::absolute(path);[m
+     if (fs::exists(path)) {[m
+[31m-        error = strprintf(_("File %s already exists. If you are sure this is what you want, move it out of the way first."), path.string());[m
+[32m+[m[32m        error = strprintf(_("File %s already exists. If you are sure this is what you want, move it out of the way first."), fs::PathToString(path));[m
+         return false;[m
+     }[m
+     fsbridge::ofstream dump_file;[m
+     dump_file.open(path);[m
+     if (dump_file.fail()) {[m
+[31m-        error = strprintf(_("Unable to open %s for writing"), path.string());[m
+[32m+[m[32m        error = strprintf(_("Unable to open %s for writing"), fs::PathToString(path));[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -114,10 +114,10 @@[m [mbool CreateFromDump(const std::string& name, const fs::path& wallet_path, biling[m
+         return false;[m
+     }[m
+ [m
+[31m-    fs::path dump_path = dump_filename;[m
+[32m+[m[32m    fs::path dump_path = fs::PathFromString(dump_filename);[m
+     dump_path = fs::absolute(dump_path);[m
+     if (!fs::exists(dump_path)) {[m
+[31m-        error = strprintf(_("Dump file %s does not exist."), dump_path.string());[m
+[32m+[m[32m        error = strprintf(_("Dump file %s does not exist."), fs::PathToString(dump_path));[m
+         return false;[m
+     }[m
+     fsbridge::ifstream dump_file(dump_path);[m
+[33mdiff --git a/src/wallet/interfaces.cpp b/src/wallet/interfaces.cpp[m
+[33mindex 9a8c1e3c0..3fe2d3a9f 100644[m
+[33m--- a/src/wallet/interfaces.cpp[m
+[33m+++ b/src/wallet/interfaces.cpp[m
+[36m@@ -549,13 +549,13 @@[m [mpublic:[m
+     }[m
+     std::string getWalletDir() override[m
+     {[m
+[31m-        return GetWalletDir().string();[m
+[32m+[m[32m        return fs::PathToString(GetWalletDir());[m
+     }[m
+     std::vector<std::string> listWalletDir() override[m
+     {[m
+         std::vector<std::string> paths;[m
+         for (auto& path : ListDatabases(GetWalletDir())) {[m
+[31m-            paths.push_back(path.string());[m
+[32m+[m[32m            paths.push_back(fs::PathToString(path));[m
+         }[m
+         return paths;[m
+     }[m
+[33mdiff --git a/src/wallet/load.cpp b/src/wallet/load.cpp[m
+[33mindex 1b841026b..7ef5a0cf5 100644[m
+[33m--- a/src/wallet/load.cpp[m
+[33m+++ b/src/wallet/load.cpp[m
+[36m@@ -25,25 +25,25 @@[m [mbool VerifyWallets(WalletContext& context)[m
+     ArgsManager& args = *Assert(context.args);[m
+ [m
+     if (args.IsArgSet("-walletdir")) {[m
+[31m-        fs::path wallet_dir = args.GetArg("-walletdir", "");[m
+[32m+[m[32m        fs::path wallet_dir = fs::PathFromString(args.GetArg("-walletdir", ""));[m
+         boost::system::error_code error;[m
+         // The canonical path cleans the path, preventing >1 Berkeley environment instances for the same directory[m
+         fs::path canonical_wallet_dir = fs::canonical(wallet_dir, error);[m
+         if (error || !fs::exists(wallet_dir)) {[m
+[31m-            chain.initError(strprintf(_("Specified -walletdir \"%s\" does not exist"), wallet_dir.string()));[m
+[32m+[m[32m            chain.initError(strprintf(_("Specified -walletdir \"%s\" does not exist"), fs::PathToString(wallet_dir)));[m
+             return false;[m
+         } else if (!fs::is_directory(wallet_dir)) {[m
+[31m-            chain.initError(strprintf(_("Specified -walletdir \"%s\" is not a directory"), wallet_dir.string()));[m
+[32m+[m[32m            chain.initError(strprintf(_("Specified -walletdir \"%s\" is not a directory"), fs::PathToString(wallet_dir)));[m
+             return false;[m
+         // The canonical path transforms relative paths into absolute ones, so we check the non-canonical version[m
+         } else if (!wallet_dir.is_absolute()) {[m
+[31m-            chain.initError(strprintf(_("Specified -walletdir \"%s\" is a relative path"), wallet_dir.string()));[m
+[32m+[m[32m            chain.initError(strprintf(_("Specified -walletdir \"%s\" is a relative path"), fs::PathToString(wallet_dir)));[m
+             return false;[m
+         }[m
+[31m-        args.ForceSetArg("-walletdir", canonical_wallet_dir.string());[m
+[32m+[m[32m        args.ForceSetArg("-walletdir", fs::PathToString(canonical_wallet_dir));[m
+     }[m
+ [m
+[31m-    LogPrintf("Using wallet directory %s\n", GetWalletDir().string());[m
+[32m+[m[32m    LogPrintf("Using wallet directory %s\n", fs::PathToString(GetWalletDir()));[m
+ [m
+     chain.initMessage(_("Verifying wallet(s)…").translated);[m
+ [m
+[36m@@ -70,7 +70,7 @@[m [mbool VerifyWallets(WalletContext& context)[m
+ [m
+     for (const auto& wallet : chain.getSettingsList("wallet")) {[m
+         const auto& wallet_file = wallet.get_str();[m
+[31m-        const fs::path path = fsbridge::AbsPathJoin(GetWalletDir(), wallet_file);[m
+[32m+[m[32m        const fs::path path = fsbridge::AbsPathJoin(GetWalletDir(), fs::PathFromString(wallet_file));[m
+ [m
+         if (!wallet_paths.insert(path).second) {[m
+             chain.initWarning(strprintf(_("Ignoring duplicate -wallet %s."), wallet_file));[m
+[36m@@ -102,7 +102,7 @@[m [mbool LoadWallets(WalletContext& context)[m
+         std::set<fs::path> wallet_paths;[m
+         for (const auto& wallet : chain.getSettingsList("wallet")) {[m
+             const auto& name = wallet.get_str();[m
+[31m-            if (!wallet_paths.insert(name).second) {[m
+[32m+[m[32m            if (!wallet_paths.insert(fs::PathFromString(name)).second) {[m
+                 continue;[m
+             }[m
+             DatabaseOptions options;[m
+[33mdiff --git a/src/wallet/rpcdump.cpp b/src/wallet/rpcdump.cpp[m
+[33mindex 72c60c8fe..060722ccb 100644[m
+[33m--- a/src/wallet/rpcdump.cpp[m
+[33m+++ b/src/wallet/rpcdump.cpp[m
+[36m@@ -550,7 +550,7 @@[m [mRPCHelpMan importwallet()[m
+         EnsureWalletIsUnlocked(*pwallet);[m
+ [m
+         fsbridge::ifstream file;[m
+[31m-        file.open(request.params[0].get_str(), std::ios::in | std::ios::ate);[m
+[32m+[m[32m        file.open(fs::u8path(request.params[0].get_str()), std::ios::in | std::ios::ate);[m
+         if (!file.is_open()) {[m
+             throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");[m
+         }[m
+[36m@@ -745,7 +745,7 @@[m [mRPCHelpMan dumpwallet()[m
+ [m
+     EnsureWalletIsUnlocked(wallet);[m
+ [m
+[31m-    fs::path filepath = request.params[0].get_str();[m
+[32m+[m[32m    fs::path filepath = fs::u8path(request.params[0].get_str());[m
+     filepath = fs::absolute(filepath);[m
+ [m
+     /* Prevent arbitrary files from being overwritten. There have been reports[m
+[36m@@ -754,7 +754,7 @@[m [mRPCHelpMan dumpwallet()[m
+      * It may also avoid other security issues.[m
+      */[m
+     if (fs::exists(filepath)) {[m
+[31m-        throw JSONRPCError(RPC_INVALID_PARAMETER, filepath.string() + " already exists. If you are sure this is what you want, move it out of the way first");[m
+[32m+[m[32m        throw JSONRPCError(RPC_INVALID_PARAMETER, filepath.u8string() + " already exists. If you are sure this is what you want, move it out of the way first");[m
+     }[m
+ [m
+     fsbridge::ofstream file;[m
+[36m@@ -844,7 +844,7 @@[m [mRPCHelpMan dumpwallet()[m
+     file.close();[m
+ [m
+     UniValue reply(UniValue::VOBJ);[m
+[31m-    reply.pushKV("filename", filepath.string());[m
+[32m+[m[32m    reply.pushKV("filename", filepath.u8string());[m
+ [m
+     return reply;[m
+ },[m
+[33mdiff --git a/src/wallet/rpcwallet.cpp b/src/wallet/rpcwallet.cpp[m
+[33mindex ff9e10c5a..d5deb724e 100644[m
+[33m--- a/src/wallet/rpcwallet.cpp[m
+[33m+++ b/src/wallet/rpcwallet.cpp[m
+[36m@@ -2536,7 +2536,7 @@[m [mstatic RPCHelpMan listwalletdir()[m
+     UniValue wallets(UniValue::VARR);[m
+     for (const auto& path : ListDatabases(GetWalletDir())) {[m
+         UniValue wallet(UniValue::VOBJ);[m
+[31m-        wallet.pushKV("name", path.string());[m
+[32m+[m[32m        wallet.pushKV("name", path.u8string());[m
+         wallets.push_back(wallet);[m
+     }[m
+ [m
+[36m@@ -2845,14 +2845,14 @@[m [mstatic RPCHelpMan restorewallet()[m
+ [m
+     std::string wallet_name = request.params[0].get_str();[m
+ [m
+[31m-    const fs::path wallet_path = fsbridge::AbsPathJoin(GetWalletDir(), wallet_name);[m
+[32m+[m[32m    const fs::path wallet_path = fsbridge::AbsPathJoin(GetWalletDir(), fs::u8path(wallet_name));[m
+ [m
+     if (fs::exists(wallet_path)) {[m
+         throw JSONRPCError(RPC_INVALID_PARAMETER, "Wallet name already exists.");[m
+     }[m
+ [m
+     if (!TryCreateDirectories(wallet_path)) {[m
+[31m-        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Failed to create database path '%s'. Database already exists.", wallet_path.string()));[m
+[32m+[m[32m        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Failed to create database path '%s'. Database already exists.", wallet_path.u8string()));[m
+     }[m
+ [m
+     auto wallet_file = wallet_path / "wallet.dat";[m
+[33mdiff --git a/src/wallet/sqlite.cpp b/src/wallet/sqlite.cpp[m
+[33mindex 2e60aca01..ad8f2a44c 100644[m
+[33m--- a/src/wallet/sqlite.cpp[m
+[33m+++ b/src/wallet/sqlite.cpp[m
+[36m@@ -67,7 +67,7 @@[m [mstatic void SetPragma(sqlite3* db, const std::string& key, const std::string& va[m
+ }[m
+ [m
+ SQLiteDatabase::SQLiteDatabase(const fs::path& dir_path, const fs::path& file_path, bool mock)[m
+[31m-    : WalletDatabase(), m_mock(mock), m_dir_path(dir_path.string()), m_file_path(file_path.string())[m
+[32m+[m[32m    : WalletDatabase(), m_mock(mock), m_dir_path(fs::PathToString(dir_path)), m_file_path(fs::PathToString(file_path))[m
+ {[m
+     {[m
+         LOCK(g_sqlite_mutex);[m
+[36m@@ -206,7 +206,7 @@[m [mvoid SQLiteDatabase::Open()[m
+ [m
+     if (m_db == nullptr) {[m
+         if (!m_mock) {[m
+[31m-            TryCreateDirectories(m_dir_path);[m
+[32m+[m[32m            TryCreateDirectories(fs::PathFromString(m_dir_path));[m
+         }[m
+         int ret = sqlite3_open_v2(m_file_path.c_str(), &m_db, flags, nullptr);[m
+         if (ret != SQLITE_OK) {[m
+[33mdiff --git a/src/wallet/test/db_tests.cpp b/src/wallet/test/db_tests.cpp[m
+[33mindex 16cb7e0ba..10a1d9a55 100644[m
+[33m--- a/src/wallet/test/db_tests.cpp[m
+[33m+++ b/src/wallet/test/db_tests.cpp[m
+[36m@@ -25,11 +25,7 @@[m [mBOOST_AUTO_TEST_CASE(getwalletenv_file)[m
+     std::string test_name = "test_name.dat";[m
+     const fs::path datadir = gArgs.GetDataDirNet();[m
+     fs::path file_path = datadir / test_name;[m
+[31m-#if BOOST_VERSION >= 107700[m
+[31m-    std::ofstream f(BOOST_FILESYSTEM_C_STR(file_path));[m
+[31m-#else[m
+[31m-    std::ofstream f(file_path.BOOST_FILESYSTEM_C_STR);[m
+[31m-#endif // BOOST_VERSION >= 107700[m
+[32m+[m[32m    fs::ofstream f(file_path);[m
+     f.close();[m
+ [m
+     std::string filename;[m
+[33mdiff --git a/src/wallet/test/init_test_fixture.cpp b/src/wallet/test/init_test_fixture.cpp[m
+[33mindex 53c972c46..170675c03 100644[m
+[33m--- a/src/wallet/test/init_test_fixture.cpp[m
+[33m+++ b/src/wallet/test/init_test_fixture.cpp[m
+[36m@@ -32,11 +32,7 @@[m [mInitWalletDirTestingSetup::InitWalletDirTestingSetup(const std::string& chainNam[m
+     fs::create_directories(m_walletdir_path_cases["default"]);[m
+     fs::create_directories(m_walletdir_path_cases["custom"]);[m
+     fs::create_directories(m_walletdir_path_cases["relative"]);[m
+[31m-#if BOOST_VERSION >= 107700[m
+[31m-    std::ofstream f(BOOST_FILESYSTEM_C_STR(m_walletdir_path_cases["file"]));[m
+[31m-#else[m
+[31m-    std::ofstream f(m_walletdir_path_cases["file"].BOOST_FILESYSTEM_C_STR);[m
+[31m-#endif // BOOST_VERSION >= 107700[m
+[32m+[m[32m    fs::ofstream f(m_walletdir_path_cases["file"]);[m
+     f.close();[m
+ }[m
+ [m
+[36m@@ -50,5 +46,5 @@[m [mInitWalletDirTestingSetup::~InitWalletDirTestingSetup()[m
+ [m
+ void InitWalletDirTestingSetup::SetWalletDir(const fs::path& walletdir_path)[m
+ {[m
+[31m-    gArgs.ForceSetArg("-walletdir", walletdir_path.string());[m
+[32m+[m[32m    gArgs.ForceSetArg("-walletdir", fs::PathToString(walletdir_path));[m
+ }[m
+[33mdiff --git a/src/wallet/test/init_tests.cpp b/src/wallet/test/init_tests.cpp[m
+[33mindex 45e1b8c4b..222c2bf4b 100644[m
+[33m--- a/src/wallet/test/init_tests.cpp[m
+[33m+++ b/src/wallet/test/init_tests.cpp[m
+[36m@@ -17,7 +17,7 @@[m [mBOOST_AUTO_TEST_CASE(walletinit_verify_walletdir_default)[m
+     SetWalletDir(m_walletdir_path_cases["default"]);[m
+     bool result = m_wallet_client->verify();[m
+     BOOST_CHECK(result == true);[m
+[31m-    fs::path walletdir = gArgs.GetArg("-walletdir", "");[m
+[32m+[m[32m    fs::path walletdir = fs::PathFromString(gArgs.GetArg("-walletdir", ""));[m
+     fs::path expected_path = fs::canonical(m_walletdir_path_cases["default"]);[m
+     BOOST_CHECK_EQUAL(walletdir, expected_path);[m
+ }[m
+[36m@@ -27,7 +27,7 @@[m [mBOOST_AUTO_TEST_CASE(walletinit_verify_walletdir_custom)[m
+     SetWalletDir(m_walletdir_path_cases["custom"]);[m
+     bool result = m_wallet_client->verify();[m
+     BOOST_CHECK(result == true);[m
+[31m-    fs::path walletdir = gArgs.GetArg("-walletdir", "");[m
+[32m+[m[32m    fs::path walletdir = fs::PathFromString(gArgs.GetArg("-walletdir", ""));[m
+     fs::path expected_path = fs::canonical(m_walletdir_path_cases["custom"]);[m
+     BOOST_CHECK_EQUAL(walletdir, expected_path);[m
+ }[m
+[36m@@ -67,7 +67,7 @@[m [mBOOST_AUTO_TEST_CASE(walletinit_verify_walletdir_no_trailing)[m
+     SetWalletDir(m_walletdir_path_cases["trailing"]);[m
+     bool result = m_wallet_client->verify();[m
+     BOOST_CHECK(result == true);[m
+[31m-    fs::path walletdir = gArgs.GetArg("-walletdir", "");[m
+[32m+[m[32m    fs::path walletdir = fs::PathFromString(gArgs.GetArg("-walletdir", ""));[m
+     fs::path expected_path = fs::canonical(m_walletdir_path_cases["default"]);[m
+     BOOST_CHECK_EQUAL(walletdir, expected_path);[m
+ }[m
+[36m@@ -77,7 +77,7 @@[m [mBOOST_AUTO_TEST_CASE(walletinit_verify_walletdir_no_trailing2)[m
+     SetWalletDir(m_walletdir_path_cases["trailing2"]);[m
+     bool result = m_wallet_client->verify();[m
+     BOOST_CHECK(result == true);[m
+[31m-    fs::path walletdir = gArgs.GetArg("-walletdir", "");[m
+[32m+[m[32m    fs::path walletdir = fs::PathFromString(gArgs.GetArg("-walletdir", ""));[m
+     fs::path expected_path = fs::canonical(m_walletdir_path_cases["default"]);[m
+     BOOST_CHECK_EQUAL(walletdir, expected_path);[m
+ }[m
+[33mdiff --git a/src/wallet/wallet.cpp b/src/wallet/wallet.cpp[m
+[33mindex 70349b245..078398526 100644[m
+[33m--- a/src/wallet/wallet.cpp[m
+[33m+++ b/src/wallet/wallet.cpp[m
+[36m@@ -12,6 +12,7 @@[m
+ #include <fs.h>[m
+ #include <interfaces/chain.h>[m
+ #include <interfaces/wallet.h>[m
+[32m+[m[32m#include <iomanip>[m
+ #include <key.h>[m
+ #include <key_io.h>[m
+ #include <outputtype.h>[m
+[36m@@ -2490,16 +2491,16 @@[m [mstd::unique_ptr<WalletDatabase> MakeWalletDatabase(const std::string& name, cons[m
+     // 2. Path to an existing directory.[m
+     // 3. Path to a symlink to a directory.[m
+     // 4. For backwards compatibility, the name of a data file in -walletdir.[m
+[31m-    const fs::path wallet_path = fsbridge::AbsPathJoin(GetWalletDir(), name);[m
+[32m+[m[32m    const fs::path wallet_path = fsbridge::AbsPathJoin(GetWalletDir(), fs::PathFromString(name));[m
+     fs::file_type path_type = fs::symlink_status(wallet_path).type();[m
+     if (!(path_type == fs::file_not_found || path_type == fs::directory_file ||[m
+           (path_type == fs::symlink_file && fs::is_directory(wallet_path)) ||[m
+[31m-          (path_type == fs::regular_file && fs::path(name).filename() == name))) {[m
+[32m+[m[32m          (path_type == fs::regular_file && fs::PathFromString(name).filename() == fs::PathFromString(name)))) {[m
+         error_string = Untranslated(strprintf([m
+               "Invalid -wallet path '%s'. -wallet path should point to a directory where wallet.dat and "[m
+               "database/log.?????????? files can be stored, a location where such a directory could be created, "[m
+               "or (for backwards compatibility) the name of an existing data file in -walletdir (%s)",[m
+[31m-              name, GetWalletDir()));[m
+[32m+[m[32m              name, std::quoted(fs::PathToString(GetWalletDir()))));[m
+         status = DatabaseStatus::FAILED_BAD_PATH;[m
+         return nullptr;[m
+     }[m
+[33mdiff --git a/src/wallet/walletdb.cpp b/src/wallet/walletdb.cpp[m
+[33mindex 03464cd2c..8b28c3d14 100644[m
+[33m--- a/src/wallet/walletdb.cpp[m
+[33m+++ b/src/wallet/walletdb.cpp[m
+[36m@@ -1073,7 +1073,7 @@[m [mstd::unique_ptr<WalletDatabase> MakeDatabase(const fs::path& path, const Databas[m
+     try {[m
+         exists = fs::symlink_status(path).type() != fs::file_not_found;[m
+     } catch (const fs::filesystem_error& e) {[m
+[31m-        error = Untranslated(strprintf("Failed to access database path '%s': %s", path.string(), fsbridge::get_filesystem_error_message(e)));[m
+[32m+[m[32m        error = Untranslated(strprintf("Failed to access database path '%s': %s", fs::PathToString(path), fsbridge::get_filesystem_error_message(e)));[m
+         status = DatabaseStatus::FAILED_BAD_PATH;[m
+         return nullptr;[m
+     }[m
+[36m@@ -1085,33 +1085,33 @@[m [mstd::unique_ptr<WalletDatabase> MakeDatabase(const fs::path& path, const Databas[m
+         }[m
+         if (IsSQLiteFile(SQLiteDataFile(path))) {[m
+             if (format) {[m
+[31m-                error = Untranslated(strprintf("Failed to load database path '%s'. Data is in ambiguous format.", path.string()));[m
+[32m+[m[32m                error = Untranslated(strprintf("Failed to load database path '%s'. Data is in ambiguous format.", fs::PathToString(path)));[m
+                 status = DatabaseStatus::FAILED_BAD_FORMAT;[m
+                 return nullptr;[m
+             }[m
+             format = DatabaseFormat::SQLITE;[m
+         }[m
+     } else if (options.require_existing) {[m
+[31m-        error = Untranslated(strprintf("Failed to load database path '%s'. Path does not exist.", path.string()));[m
+[32m+[m[32m        error = Untranslated(strprintf("Failed to load database path '%s'. Path does not exist.", fs::PathToString(path)));[m
+         status = DatabaseStatus::FAILED_NOT_FOUND;[m
+         return nullptr;[m
+     }[m
+ [m
+     if (!format && options.require_existing) {[m
+[31m-        error = Untranslated(strprintf("Failed to load database path '%s'. Data is not in recognized format.", path.string()));[m
+[32m+[m[32m        error = Untranslated(strprintf("Failed to load database path '%s'. Data is not in recognized format.", fs::PathToString(path)));[m
+         status = DatabaseStatus::FAILED_BAD_FORMAT;[m
+         return nullptr;[m
+     }[m
+ [m
+     if (format && options.require_create) {[m
+[31m-        error = Untranslated(strprintf("Failed to create database path '%s'. Database already exists.", path.string()));[m
+[32m+[m[32m        error = Untranslated(strprintf("Failed to create database path '%s'. Database already exists.", fs::PathToString(path)));[m
+         status = DatabaseStatus::FAILED_ALREADY_EXISTS;[m
+         return nullptr;[m
+     }[m
+ [m
+     // A db already exists so format is set, but options also specifies the format, so make sure they agree[m
+     if (format && options.require_format && format != options.require_format) {[m
+[31m-        error = Untranslated(strprintf("Failed to load database path '%s'. Data is not in required format.", path.string()));[m
+[32m+[m[32m        error = Untranslated(strprintf("Failed to load database path '%s'. Data is not in required format.", fs::PathToString(path)));[m
+         status = DatabaseStatus::FAILED_BAD_FORMAT;[m
+         return nullptr;[m
+     }[m
+[36m@@ -1133,7 +1133,7 @@[m [mstd::unique_ptr<WalletDatabase> MakeDatabase(const fs::path& path, const Databas[m
+ #ifdef USE_SQLITE[m
+         return MakeSQLiteDatabase(path, options, status, error);[m
+ #endif[m
+[31m-        error = Untranslated(strprintf("Failed to open database path '%s'. Build does not support SQLite database format.", path.string()));[m
+[32m+[m[32m        error = Untranslated(strprintf("Failed to open database path '%s'. Build does not support SQLite database format.", fs::PathToString(path)));[m
+         status = DatabaseStatus::FAILED_BAD_FORMAT;[m
+         return nullptr;[m
+     }[m
+[36m@@ -1141,7 +1141,7 @@[m [mstd::unique_ptr<WalletDatabase> MakeDatabase(const fs::path& path, const Databas[m
+ #ifdef USE_BDB[m
+     return MakeBerkeleyDatabase(path, options, status, error);[m
+ #endif[m
+[31m-    error = Untranslated(strprintf("Failed to open database path '%s'. Build does not support Berkeley DB database format.", path.string()));[m
+[32m+[m[32m    error = Untranslated(strprintf("Failed to open database path '%s'. Build does not support Berkeley DB database format.", fs::PathToString(path)));[m
+     status = DatabaseStatus::FAILED_BAD_FORMAT;[m
+     return nullptr;[m
+ }[m
+[33mdiff --git a/src/wallet/wallettool.cpp b/src/wallet/wallettool.cpp[m
+[33mindex 50b6c9d29..ecb672e94 100644[m
+[33m--- a/src/wallet/wallettool.cpp[m
+[33m+++ b/src/wallet/wallettool.cpp[m
+[36m@@ -121,7 +121,7 @@[m [mbool ExecuteWalletToolFunc(const ArgsManager& args, const std::string& command)[m
+         return false;[m
+     }[m
+     const std::string name = args.GetArg("-wallet", "");[m
+[31m-    const fs::path path = fsbridge::AbsPathJoin(GetWalletDir(), name);[m
+[32m+[m[32m    const fs::path path = fsbridge::AbsPathJoin(GetWalletDir(), fs::PathFromString(name));[m
+ [m
+     if (command == "create") {[m
+         DatabaseOptions options;[m
+[33mdiff --git a/src/wallet/walletutil.cpp b/src/wallet/walletutil.cpp[m
+[33mindex 1c518daba..7f813432b 100644[m
+[33m--- a/src/wallet/walletutil.cpp[m
+[33m+++ b/src/wallet/walletutil.cpp[m
+[36m@@ -12,7 +12,7 @@[m [mfs::path GetWalletDir()[m
+     fs::path path;[m
+ [m
+     if (gArgs.IsArgSet("-walletdir")) {[m
+[31m-        path = gArgs.GetArg("-walletdir", "");[m
+[32m+[m[32m        path = fs::PathFromString(gArgs.GetArg("-walletdir", ""));[m
+         if (!fs::is_directory(path)) {[m
+             // If the path specified doesn't exist, we return the deliberately[m
+             // invalid empty string.[m

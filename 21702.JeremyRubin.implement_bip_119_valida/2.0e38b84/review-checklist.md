@@ -1,0 +1,19 @@
+- [ ] 782a1b6585 [TESTS] Update Transaction Tests to permit setting a flag as always on and disabling the exhaustive failure test
+- [ ] 0162cdd587 [TESTS] Allow tx_invalid.json tests to include flag rules for if_unset: [A,B,C] then_unset: [D]
+- [ ] 51f0bdd363 Add StandardTemplateHash definition
+- [ ] 479b0c9c16 Add SignatureChecker method for checking DefaultCheckTemplateVerifyHash.
+- [ ] 0543f61365 Add OP_CHECKTEMPLATEVERIFY Opcode as OP_NOP4
+- [ ] 9a3dbc6faa Change printing of NOP4 to CheckTemplateVerify (separate commit for ease of bisecting should downstream software expect to parse NOP4 this now fails)
+- [ ] b6d2ba82fd Precompute the DefaultCheckTemplateVerifyHash
+- [ ] 6fea822343 Document and pack the fields in the PrecomputedData
+- [ ] 4c823859fc Use HandleMissingData for unexpected missing precomputed data
+- [ ] b08fd3717d Make Bare OP_CHECKTEMPLATEVERIFY basic transactions standard
+- [ ] 87966f5df7 OP_CHECKTEMPLATEVERIFY Deployment parameters
+- [ ] 1cf879a795 [TESTS] Add OP_CHECKTEMPLATEVERIFY functional tests
+- [ ] c4ab814011 [TESTS] add tx_valid.json tests for BIP-119 CheckTemplateVerify
+- [ ] c884c5843f [TESTS] Add tx_invalid.json examples for BIP-119 CheckTemplateVerify
+- [ ] 3109df5616 [TESTS] Add CTV Hash Computation Unit Test & Mutation Tester
+- [ ] 3e664d2627 Experimental: Don't Cache CTV Hash
+- [ ] aed6ad4430 Make PrecomputedTransactionData non-const and lazily init BIP-119 hash data
+- [ ] 635ef80c4e [TESTS] Fixup: CTV Hash Computation Tests patch lazy init
+- [ ] 0e38b84909 Refactor BIP-119 LazyInit to use lambda for dependency injecting sync primitives for laziness

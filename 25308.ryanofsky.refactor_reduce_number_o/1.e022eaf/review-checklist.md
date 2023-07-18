@@ -1,0 +1,4 @@
+- [ ] c7c3059507 refactor: Reduce number of LoadChainstate parameters
+- [ ] fac56cb261 refactor: Reduce number of LoadChainstate return values
+- [ ] 05994e0ca5 refactor: Reduce number of SanityChecks return values
+- [ ] e022eaf87c ci: Enable IWYU in src/kernel directory

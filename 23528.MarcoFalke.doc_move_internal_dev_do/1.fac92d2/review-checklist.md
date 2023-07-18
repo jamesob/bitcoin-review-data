@@ -1,0 +1,3 @@
+- [ ] fa9caa1679 doc: Move internal dev docs to doc/devel/
+- [ ] fa9a7b9081 doc: Move internal dev docs to new section in main readme
+- [ ] fac92d218e doc: Use internal links where possible

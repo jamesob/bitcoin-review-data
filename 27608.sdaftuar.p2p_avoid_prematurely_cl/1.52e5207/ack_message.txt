@@ -1,0 +1,5 @@
+ACK 52e52071e01f4e98d87a47e1d5f3c5c3cc6dbaf4 ([`jamesob/ackr/27608.1.sdaftuar.p2p_avoid_prematurely_cl`](https://github.com/jamesob/bitcoin/tree/ackr/27608.1.sdaftuar.p2p_avoid_prematurely_cl))
+
+Built, reviewed code locally. Deployed to b-02.slug on https://bmon.info; all
+metrics there look normal (peer count, tip connection).
+

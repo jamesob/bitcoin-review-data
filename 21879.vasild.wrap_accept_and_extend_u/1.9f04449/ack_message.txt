@@ -1,0 +1,7 @@
+ACK 9f04449a8ec7dc167a0d6d0cb47c5facd205a81a ([`jamesob/ackr/21879.1.vasild.wrap_accept_and_extend_u`](https://github.com/jamesob/bitcoin/tree/ackr/21879.1.vasild.wrap_accept_and_extend_u))
+
+Change looks good to me and, as others have noted, making network code more mockable will make writing comprehensive tests more feasible. Cloned locally and ran unit, functional tests.
+
+When I made the dumb mutation below, both test suites passed so I guess we don't have any tests exercising invalid socket errors.
+
+<patch>

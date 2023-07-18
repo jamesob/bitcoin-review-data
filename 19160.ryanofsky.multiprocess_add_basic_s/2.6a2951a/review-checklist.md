@@ -1,0 +1,6 @@
+- [ ] 7e43e7a556 Update libmultiprocess library
+- [ ] c135acc100 multiprocess: Add Ipc and Init interface definitions
+- [ ] 437e20cacb multiprocess: Add Ipc interface implementation
+- [ ] 360821c035 multiprocess: Add bitcoin-node process spawning support
+- [ ] 66937157bc multiprocess: Add comments and documentation
+- [ ] 6a2951a7c7 multiprocess: Add echoipc RPC method and test

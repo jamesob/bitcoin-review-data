@@ -1,0 +1,1 @@
+- [ ] 0e21b56a44 assumeutxo: catch and log fs::remove error instead of two exist checks

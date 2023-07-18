@@ -1,0 +1,2 @@
+- [ ] 8bc2dd7737 Add a regtest peers.dat in test/functional/data/ directory
+- [ ] 22a17be0b9 Regression test for addrman tried table corruption on restart with asmap

@@ -1,0 +1,105 @@
+[33mdiff --git a/src/net_processing.cpp b/src/net_processing.cpp[m
+[33mindex f5552cfcd8..0f1fa0499c 100644[m
+[33m--- a/src/net_processing.cpp[m
+[33m+++ b/src/net_processing.cpp[m
+[36m@@ -883,8 +883,11 @@[m [mprivate:[m
+     /** Remove this block from our tracked requested blocks. Called if:[m
+      *  - the block has been received from a peer[m
+      *  - the request for the block has timed out[m
+[32m+[m[32m     * If "from_peer" is specified, then only remove the block if it is in[m
+[32m+[m[32m     * flight from that peer (to avoid one peer's network traffic from[m
+[32m+[m[32m     * affecting another's state).[m
+      */[m
+[31m-    void RemoveBlockRequest(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[32m+[m[32m    void RemoveBlockRequest(const uint256& hash, std::optional<NodeId> from_peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+     /* Mark a block as in flight[m
+      * Returns false, still setting pit, if the block was already in flight from the same peer[m
+[36m@@ -1120,7 +1123,7 @@[m [mbool PeerManagerImpl::IsBlockRequested(const uint256& hash)[m
+     return mapBlocksInFlight.find(hash) != mapBlocksInFlight.end();[m
+ }[m
+ [m
+[31m-void PeerManagerImpl::RemoveBlockRequest(const uint256& hash)[m
+[32m+[m[32mvoid PeerManagerImpl::RemoveBlockRequest(const uint256& hash, std::optional<NodeId> from_peer)[m
+ {[m
+     auto it = mapBlocksInFlight.find(hash);[m
+     if (it == mapBlocksInFlight.end()) {[m
+[36m@@ -1129,6 +1132,12 @@[m [mvoid PeerManagerImpl::RemoveBlockRequest(const uint256& hash)[m
+     }[m
+ [m
+     auto [node_id, list_it] = it->second;[m
+[32m+[m
+[32m+[m[32m    if (from_peer && node_id != *from_peer) {[m
+[32m+[m[32m        // Block was requested by another peer[m
+[32m+[m[32m        return;[m
+[32m+[m[32m    }[m
+[32m+[m
+     CNodeState *state = State(node_id);[m
+     assert(state != nullptr);[m
+ [m
+[36m@@ -1164,7 +1173,7 @@[m [mbool PeerManagerImpl::BlockRequested(NodeId nodeid, const CBlockIndex& block, st[m
+     }[m
+ [m
+     // Make sure it's not listed somewhere already.[m
+[31m-    RemoveBlockRequest(hash);[m
+[32m+[m[32m    RemoveBlockRequest(hash, std::nullopt);[m
+ [m
+     std::list<QueuedBlock>::iterator it = state->vBlocksInFlight.insert(state->vBlocksInFlight.end(),[m
+             {&block, std::unique_ptr<PartiallyDownloadedBlock>(pit ? new PartiallyDownloadedBlock(&m_mempool) : nullptr)});[m
+[36m@@ -3155,6 +3164,11 @@[m [mvoid PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlo[m
+     m_chainman.ProcessNewBlock(block, force_processing, min_pow_checked, &new_block);[m
+     if (new_block) {[m
+         node.m_last_block_time = GetTime<std::chrono::seconds>();[m
+[32m+[m[32m        // In case this block came from a different peer than we requested[m
+[32m+[m[32m        // from, we can erase the block request now anyway (as we just stored[m
+[32m+[m[32m        // this block to disk).[m
+[32m+[m[32m        LOCK(cs_main);[m
+[32m+[m[32m        RemoveBlockRequest(block->GetHash(), std::nullopt);[m
+     } else {[m
+         LOCK(cs_main);[m
+         mapBlockSource.erase(block->GetHash());[m
+[36m@@ -4305,7 +4319,7 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+                 PartiallyDownloadedBlock& partialBlock = *(*queuedBlockIt)->partialBlock;[m
+                 ReadStatus status = partialBlock.InitData(cmpctblock, vExtraTxnForCompact);[m
+                 if (status == READ_STATUS_INVALID) {[m
+[31m-                    RemoveBlockRequest(pindex->GetBlockHash()); // Reset in-flight state in case Misbehaving does not result in a disconnect[m
+[32m+[m[32m                    RemoveBlockRequest(pindex->GetBlockHash(), pfrom.GetId()); // Reset in-flight state in case Misbehaving does not result in a disconnect[m
+                     Misbehaving(*peer, 100, "invalid compact block");[m
+                     return;[m
+                 } else if (status == READ_STATUS_FAILED) {[m
+[36m@@ -4400,7 +4414,7 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+                 // process from some other peer.  We do this after calling[m
+                 // ProcessNewBlock so that a malleated cmpctblock announcement[m
+                 // can't be used to interfere with block relay.[m
+[31m-                RemoveBlockRequest(pblock->GetHash());[m
+[32m+[m[32m                RemoveBlockRequest(pblock->GetHash(), std::nullopt);[m
+             }[m
+         }[m
+         return;[m
+[36m@@ -4432,7 +4446,7 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+             PartiallyDownloadedBlock& partialBlock = *it->second.second->partialBlock;[m
+             ReadStatus status = partialBlock.FillBlock(*pblock, resp.txn);[m
+             if (status == READ_STATUS_INVALID) {[m
+[31m-                RemoveBlockRequest(resp.blockhash); // Reset in-flight state in case Misbehaving does not result in a disconnect[m
+[32m+[m[32m                RemoveBlockRequest(resp.blockhash, pfrom.GetId()); // Reset in-flight state in case Misbehaving does not result in a disconnect[m
+                 Misbehaving(*peer, 100, "invalid compact block/non-matching block transactions");[m
+                 return;[m
+             } else if (status == READ_STATUS_FAILED) {[m
+[36m@@ -4458,7 +4472,7 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+                 // though the block was successfully read, and rely on the[m
+                 // handling in ProcessNewBlock to ensure the block index is[m
+                 // updated, etc.[m
+[31m-                RemoveBlockRequest(resp.blockhash); // it is now an empty pointer[m
+[32m+[m[32m                RemoveBlockRequest(resp.blockhash, pfrom.GetId()); // it is now an empty pointer[m
+                 fBlockRead = true;[m
+                 // mapBlockSource is used for potentially punishing peers and[m
+                 // updating which peers send us compact blocks, so the race[m
+[36m@@ -4547,7 +4561,7 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+             // Always process the block if we requested it, since we may[m
+             // need it even when it's not a candidate for a new best tip.[m
+             forceProcessing = IsBlockRequested(hash);[m
+[31m-            RemoveBlockRequest(hash);[m
+[32m+[m[32m            RemoveBlockRequest(hash, pfrom.GetId());[m
+             // mapBlockSource is only used for punishing peers and setting[m
+             // which peers send us compact blocks, so the race between here and[m
+             // cs_main in ProcessNewBlock is fine.[m

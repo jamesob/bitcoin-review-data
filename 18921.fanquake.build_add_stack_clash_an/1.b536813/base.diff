@@ -1,0 +1,19 @@
+[33mdiff --git a/configure.ac b/configure.ac[m
+[33mindex 12bece6903..c26180ab3e 100644[m
+[33m--- a/configure.ac[m
+[33m+++ b/configure.ac[m
+[36m@@ -785,6 +785,14 @@[m [mif test x$use_hardening != xno; then[m
+   AX_CHECK_COMPILE_FLAG([-Wstack-protector],[HARDENED_CXXFLAGS="$HARDENED_CXXFLAGS -Wstack-protector"])[m
+   AX_CHECK_COMPILE_FLAG([-fstack-protector-all],[HARDENED_CXXFLAGS="$HARDENED_CXXFLAGS -fstack-protector-all"])[m
+ [m
+[32m+[m[32m  AX_CHECK_COMPILE_FLAG([-fcf-protection=full],[HARDENED_CXXFLAGS="$HARDENED_CXXFLAGS -fcf-protection=full"])[m
+[32m+[m
+[32m+[m[32m  dnl stack-clash-protection does not work properly when building for Windows.[m
+[32m+[m[32m  dnl We use the test case from https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90458[m
+[32m+[m[32m  dnl to determine if it can be enabled.[m
+[32m+[m[32m  AX_CHECK_COMPILE_FLAG([-fstack-clash-protection],[HARDENED_CXXFLAGS="$HARDENED_CXXFLAGS -fstack-clash-protection"],[],["-O0"],[m
+[32m+[m[32m    [AC_LANG_SOURCE([[class D {public: unsigned char buf[32768];}; int main() {D d; return 0;}]])])[m
+[32m+[m
+   dnl When enable_debug is yes, all optimizations are disabled.[m
+   dnl However, FORTIFY_SOURCE requires that there is some level of optimization, otherwise it does nothing and just creates a compiler warning.[m
+   dnl Since FORTIFY_SOURCE is a no-op without optimizations, do not enable it when enable_debug is yes.[m

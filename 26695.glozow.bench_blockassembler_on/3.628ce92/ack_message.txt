@@ -1,0 +1,3 @@
+ACK 628ce92c494c6d3b6181d2ee6f64494de38a67e3 ([`jamesob/ackr/26695.3.glozow.bench_blockassembler_on`](https://github.com/jamesob/bitcoin/tree/ackr/26695.3.glozow.bench_blockassembler_on))
+
+re-ACK

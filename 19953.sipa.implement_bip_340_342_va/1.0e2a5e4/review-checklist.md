@@ -1,0 +1,19 @@
+- [x] f8c099e220 --- [TAPROOT] Refactors ---
+- [x] 107b57df9f scripted-diff: put ECDSA in name of signature functions
+- [x] 8bd2b4e784 refactor: rename scriptPubKey in VerifyWitnessProgram to exec_script
+- [x] 5d62e3a68b refactor: keep spent outputs in PrecomputedTransactionData
+- [x] 450d2b2371 --- [TAPROOT] BIP340/341/342 consensus rules ---
+- [x] 9eb590894f Add TaggedHash function (BIP 340)
+- [x] 5de246ca81 Implement Taproot signature hashing (BIP 341)
+- [ ] 0664f5fe1f Support for Schnorr signatures and integration in SignatureCheckers (BIP 340)
+- [ ] 8bbed4b7ac Implement Taproot validation (BIP 341)
+- [ ] 330de894a9 Use ScriptExecutionData to pass through annex hash
+- [ ] 72422ce396 Implement Tapscript script validation rules (BIP 342)
+- [ ] 865d2c37e2 --- [TAPROOT] Regtest activation and policy ---
+- [ ] e9a021d7e6 Make Taproot spends standard + policy limits
+- [ ] d7ff237f29 Activate Taproot/Tapscript on regtest (BIP 341, BIP 342)
+- [ ] 206fb180ec --- [TAPROOT] Tests ---
+- [ ] 3c226639eb tests: add BIP340 Schnorr signature support to test framework
+- [ ] f06e6d0345 tests: functional tests for Schnorr/Taproot/Tapscript
+- [ ] 4567ba034c tests: add generic qa-asset-based script verification unit test
+- [ ] 0e2a5e448f tests: dumping and minimizing of script assets data

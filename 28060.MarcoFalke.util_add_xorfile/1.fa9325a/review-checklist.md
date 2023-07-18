@@ -1,0 +1,3 @@
+- [ ] fa901bf9be Extract util::Xor, Add key_offset option, Add bench
+- [ ] fa22763558 Add AutoFile detail_read and feof member functions
+- [ ] fa9325a145 streams: Add XorFile

@@ -1,0 +1,5 @@
+- [ ] 2222842ae7 test: Allow absolute fee in MiniWallet create_self_transfer
+- [ ] fac3800d2c test: Allow amount_per_output in MiniWallet create_self_transfer_multi
+- [ ] fa29245827 test: Allow setting sequence per input in MiniWallet create_self_transfer_multi
+- [ ] fa5059b7df test: Make the scriptPubKey of MiniWallet created txs mutable
+- [ ] fad690ba0a test: Remove -acceptnonstdtxn=1 from feature_rbf.py

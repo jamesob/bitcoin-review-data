@@ -1,0 +1,357 @@
+[33mdiff --git a/Makefile.am b/Makefile.am[m
+[33mindex d84dab184..17aa8d525 100644[m
+[33m--- a/Makefile.am[m
+[33m+++ b/Makefile.am[m
+[36m@@ -291,6 +291,7 @@[m [mEXTRA_DIST += \[m
+     test/util/data/blanktxv1.json \[m
+     test/util/data/blanktxv2.hex \[m
+     test/util/data/blanktxv2.json \[m
+[32m+[m[32m    test/util/data/grind.hex \[m
+     test/util/data/tt-delin1-out.hex \[m
+     test/util/data/tt-delin1-out.json \[m
+     test/util/data/tt-delout1-out.hex \[m
+[33mdiff --git a/build_msvc/bitcoin-util/bitcoin-util.vcxproj b/build_msvc/bitcoin-util/bitcoin-util.vcxproj[m
+[33mnew file mode 100644[m
+[33mindex 000000000..3a6aa4a83[m
+[33m--- /dev/null[m
+[33m+++ b/build_msvc/bitcoin-util/bitcoin-util.vcxproj[m
+[36m@@ -0,0 +1,37 @@[m
+[32m+[m[32m<?xml version="1.0" encoding="utf-8"?>[m
+[32m+[m[32m<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">[m
+[32m+[m[32m  <Import Project="..\common.init.vcxproj" />[m
+[32m+[m[32m  <PropertyGroup Label="Globals">[m
+[32m+[m[32m    <ProjectGuid>{D3022AF6-AD33-4CE3-B358-87CB6A1B29CF}</ProjectGuid>[m
+[32m+[m[32m  </PropertyGroup>[m
+[32m+[m[32m  <PropertyGroup Label="Configuration">[m
+[32m+[m[32m    <ConfigurationType>Application</ConfigurationType>[m
+[32m+[m[32m    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>[m
+[32m+[m[32m  </PropertyGroup>[m
+[32m+[m[32m  <ItemGroup>[m
+[32m+[m[32m    <ClCompile Include="..\..\src\bitcoin-util.cpp" />[m
+[32m+[m[32m  </ItemGroup>[m
+[32m+[m[32m  <ItemGroup>[m
+[32m+[m[32m    <ProjectReference Include="..\libbitcoinconsensus\libbitcoinconsensus.vcxproj">[m
+[32m+[m[32m      <Project>{2b384fa8-9ee1-4544-93cb-0d733c25e8ce}</Project>[m
+[32m+[m[32m    </ProjectReference>[m
+[32m+[m[32m    <ProjectReference Include="..\libbitcoin_common\libbitcoin_common.vcxproj">[m
+[32m+[m[32m      <Project>{7c87e378-df58-482e-aa2f-1bc129bc19ce}</Project>[m
+[32m+[m[32m    </ProjectReference>[m
+[32m+[m[32m    <ProjectReference Include="..\libbitcoin_crypto\libbitcoin_crypto.vcxproj">[m
+[32m+[m[32m      <Project>{6190199c-6cf4-4dad-bfbd-93fa72a760c1}</Project>[m
+[32m+[m[32m    </ProjectReference>[m
+[32m+[m[32m    <ProjectReference Include="..\libbitcoin_util\libbitcoin_util.vcxproj">[m
+[32m+[m[32m      <Project>{b53a5535-ee9d-4c6f-9a26-f79ee3bc3754}</Project>[m
+[32m+[m[32m    </ProjectReference>[m
+[32m+[m[32m    <ProjectReference Include="..\libunivalue\libunivalue.vcxproj">[m
+[32m+[m[32m      <Project>{5724ba7d-a09a-4ba8-800b-c4c1561b3d69}</Project>[m
+[32m+[m[32m    </ProjectReference>[m
+[32m+[m[32m    <ProjectReference Include="..\libsecp256k1\libsecp256k1.vcxproj">[m
+[32m+[m[32m      <Project>{bb493552-3b8c-4a8c-bf69-a6e7a51d2ea6}</Project>[m
+[32m+[m[32m    </ProjectReference>[m
+[32m+[m[32m  </ItemGroup>[m
+[32m+[m[32m  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />[m
+[32m+[m[32m  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />[m
+[32m+[m[32m  <Import Project="..\common.vcxproj" />[m
+[32m+[m[32m</Project>[m
+[33mdiff --git a/build_msvc/bitcoin.sln b/build_msvc/bitcoin.sln[m
+[33mindex 5e9715451..7d8591c10 100644[m
+[33m--- a/build_msvc/bitcoin.sln[m
+[33m+++ b/build_msvc/bitcoin.sln[m
+[36m@@ -32,6 +32,8 @@[m [mProject("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bench_bitcoin", "bench_bitc[m
+ EndProject[m
+ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bitcoin-tx", "bitcoin-tx\bitcoin-tx.vcxproj", "{D3022AF6-AD33-4CE3-B358-87CB6A1B29CF}"[m
+ EndProject[m
+[32m+[m[32mProject("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bitcoin-util", "bitcoin-util\bitcoin-util.vcxproj", "{D3022AF6-AD33-4CE3-B358-87CB6A1B29CF}"[m
+[32m+[m[32mEndProject[m
+ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bitcoin-wallet", "bitcoin-wallet\bitcoin-wallet.vcxproj", "{84DE8790-EDE3-4483-81AC-C32F15E861F4}"[m
+ EndProject[m
+ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libbitcoin_wallet_tool", "libbitcoin_wallet_tool\libbitcoin_wallet_tool.vcxproj", "{F91AC55E-6F5E-4C58-9AC5-B40DB7DEEF93}"[m
+[33mdiff --git a/src/bitcoin-util.cpp b/src/bitcoin-util.cpp[m
+[33mindex af07b28d3..5ced00c9f 100644[m
+[33m--- a/src/bitcoin-util.cpp[m
+[33m+++ b/src/bitcoin-util.cpp[m
+[36m@@ -7,28 +7,19 @@[m
+ #endif[m
+ [m
+ #include <arith_uint256.h>[m
+[32m+[m[32m#include <chain.h>[m
+[32m+[m[32m#include <chainparams.h>[m
+[32m+[m[32m#include <chainparamsbase.h>[m
+ #include <clientversion.h>[m
+[31m-#include <coins.h>[m
+[31m-#include <consensus/consensus.h>[m
+ #include <core_io.h>[m
+[31m-#include <key_io.h>[m
+[31m-#include <policy/rbf.h>[m
+[31m-#include <primitives/transaction.h>[m
+[31m-#include <script/script.h>[m
+[31m-#include <script/sign.h>[m
+[31m-#include <script/signingprovider.h>[m
+[31m-#include <univalue.h>[m
+[31m-#include <util/moneystr.h>[m
+[31m-#include <util/rbf.h>[m
+[31m-#include <util/strencodings.h>[m
+[31m-#include <util/string.h>[m
+[32m+[m[32m#include <streams.h>[m
+ #include <util/system.h>[m
+ #include <util/translation.h>[m
+ [m
+ #include <atomic>[m
+[32m+[m[32m#include <cstdio>[m
+ #include <functional>[m
+ #include <memory>[m
+[31m-#include <stdio.h>[m
+ #include <thread>[m
+ [m
+ #include <boost/algorithm/string.hpp>[m
+[36m@@ -44,34 +35,36 @@[m [mstatic void SetupBitcoinUtilArgs(ArgsManager &argsman)[m
+     argsman.AddArg("-version", "Print version and exit", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+ [m
+     SetupChainParamsBaseOptions(argsman);[m
+[32m+[m
+[32m+[m[32m    argsman.AddCommand("grind", "");[m
+ }[m
+ [m
+ // This function returns either one of EXIT_ codes when it's expected to stop the process or[m
+ // CONTINUE_EXECUTION when it's expected to continue further.[m
+[31m-static int AppInitUtil(int argc, char* argv[])[m
+[32m+[m[32mstatic int AppInitUtil(ArgsManager& args, int argc, char* argv[])[m
+ {[m
+[31m-    SetupBitcoinUtilArgs(gArgs);[m
+[32m+[m[32m    SetupBitcoinUtilArgs(args);[m
+     std::string error;[m
+[31m-    if (!gArgs.ParseParameters(argc, argv, error)) {[m
+[32m+[m[32m    if (!args.ParseParameters(argc, argv, error)) {[m
+         tfm::format(std::cerr, "Error parsing command line arguments: %s\n", error);[m
+         return EXIT_FAILURE;[m
+     }[m
+ [m
+     // Check for chain settings (Params() calls are only valid after this clause)[m
+     try {[m
+[31m-        SelectParams(gArgs.GetChainName());[m
+[32m+[m[32m        SelectParams(args.GetChainName());[m
+     } catch (const std::exception& e) {[m
+         tfm::format(std::cerr, "Error: %s\n", e.what());[m
+         return EXIT_FAILURE;[m
+     }[m
+ [m
+[31m-    if (argc < 2 || HelpRequested(gArgs) || gArgs.IsArgSet("-version")) {[m
+[32m+[m[32m    if (argc < 2 || HelpRequested(args) || args.IsArgSet("-version")) {[m
+         // First part of help message is specific to this utility[m
+         std::string strUsage = PACKAGE_NAME " bitcoin-util utility version " + FormatFullVersion() + "\n";[m
+[31m-        if (!gArgs.IsArgSet("-version")) {[m
+[32m+[m[32m        if (!args.IsArgSet("-version")) {[m
+             strUsage += "\n"[m
+                 "Usage:  bitcoin-util [options] [commands]  Do stuff\n";[m
+[31m-            strUsage += "\n" + gArgs.GetHelpMessage();[m
+[32m+[m[32m            strUsage += "\n" + args.GetHelpMessage();[m
+         }[m
+ [m
+         tfm::format(std::cout, "%s", strUsage);[m
+[36m@@ -111,15 +104,15 @@[m [mstatic void grind_task(uint32_t nBits, CBlockHeader& header_orig, uint32_t offse[m
+     }[m
+ }[m
+ [m
+[31m-static int Grind(int argc, char* argv[], std::string& strPrint)[m
+[32m+[m[32mstatic int Grind(const std::vector<std::string>& args, std::string& strPrint)[m
+ {[m
+[31m-    if (argc != 1) {[m
+[32m+[m[32m    if (args.size() != 1) {[m
+         strPrint = "Must specify block header to grind";[m
+         return 1;[m
+     }[m
+ [m
+     CBlockHeader header;[m
+[31m-    if (!DecodeHexBlockHeader(header, argv[0])) {[m
+[32m+[m[32m    if (!DecodeHexBlockHeader(header, args[0])) {[m
+         strPrint = "Could not decode block header";[m
+         return 1;[m
+     }[m
+[36m@@ -146,32 +139,27 @@[m [mstatic int Grind(int argc, char* argv[], std::string& strPrint)[m
+     return 0;[m
+ }[m
+ [m
+[31m-static int CommandLineUtil(int argc, char* argv[])[m
+[32m+[m[32mstatic int CommandLineUtil(ArgsManager& args, int argc, char* argv[])[m
+ {[m
+[31m-    if (argc <= 1) return 1;[m
+[32m+[m[32m    const auto command{args.GetCommand()};[m
+ [m
+     std::string strPrint;[m
+     int nRet = 0;[m
+ [m
+     try {[m
+[31m-        while (argc > 1 && IsSwitchChar(argv[1][0]) && (argv[1][1] != 0)) {[m
+[31m-            --argc;[m
+[31m-            ++argv;[m
+[31m-        }[m
+[31m-[m
+[31m-        char* command = argv[1];[m
+[31m-        if (strcmp(command, "grind") == 0) {[m
+[31m-            nRet = Grind(argc-2, argv+2, strPrint);[m
+[32m+[m[32m        if (!command) {[m
+[32m+[m[32m            strPrint = strprintf("No command provided. Please refer to `-help`.");[m
+[32m+[m[32m            nRet = 1;[m
+[32m+[m[32m        } else if (command->command == "grind") {[m
+[32m+[m[32m            nRet = Grind(command->args, strPrint);[m
+         } else {[m
+[31m-            strPrint = strprintf("Unknown command %s", command);[m
+[32m+[m[32m            strPrint = strprintf("Unknown command %s", command->command);[m
+             nRet = 1;[m
+         }[m
+[31m-    }[m
+[31m-    catch (const std::exception& e) {[m
+[32m+[m[32m    } catch (const std::exception& e) {[m
+         strPrint = std::string("error: ") + e.what();[m
+         nRet = EXIT_FAILURE;[m
+[31m-    }[m
+[31m-    catch (...) {[m
+[32m+[m[32m    } catch (...) {[m
+         PrintExceptionContinue(nullptr, "CommandLineUtil()");[m
+         throw;[m
+     }[m
+[36m@@ -188,19 +176,19 @@[m [mstatic int CommandLineUtil(int argc, char* argv[])[m
+ // the .reloc section from the binary, which is a requirement[m
+ // for ASLR. This is a temporary workaround until a fixed[m
+ // version of binutils is used for releases.[m
+[31m-__declspec(dllexport) int main(int argc, char* argv[])[m
+[31m-#else[m
+[2m-int main(int argc, char* argv[])[m
+[32m+[m[32m__declspec(dllexport)[m
+ #endif[m
+[2m+[m[2mint main(int argc, char* argv[])[m
+ {[m
+[32m+[m[32m    ArgsManager& args = gArgs;[m
+     SetupEnvironment();[m
+ [m
+     try {[m
+[31m-        int ret = AppInitUtil(argc, argv);[m
+[31m-        if (ret != CONTINUE_EXECUTION)[m
+[32m+[m[32m        int ret = AppInitUtil(args, argc, argv);[m
+[32m+[m[32m        if (ret != CONTINUE_EXECUTION) {[m
+             return ret;[m
+[31m-    }[m
+[31m-    catch (const std::exception& e) {[m
+[32m+[m[32m        }[m
+[32m+[m[32m    } catch (const std::exception& e) {[m
+         PrintExceptionContinue(&e, "AppInitUtil()");[m
+         return EXIT_FAILURE;[m
+     } catch (...) {[m
+[36m@@ -210,9 +198,8 @@[m [mint main(int argc, char* argv[])[m
+ [m
+     int ret = EXIT_FAILURE;[m
+     try {[m
+[31m-        ret = CommandLineUtil(argc, argv);[m
+[31m-    }[m
+[31m-    catch (const std::exception& e) {[m
+[32m+[m[32m        ret = CommandLineUtil(args, argc, argv);[m
+[32m+[m[32m    } catch (const std::exception& e) {[m
+         PrintExceptionContinue(&e, "CommandLineUtil()");[m
+     } catch (...) {[m
+         PrintExceptionContinue(nullptr, "CommandLineUtil()");[m
+[33mdiff --git a/src/bitcoin-wallet.cpp b/src/bitcoin-wallet.cpp[m
+[33mindex b84d909b0..765954c92 100644[m
+[33m--- a/src/bitcoin-wallet.cpp[m
+[33m+++ b/src/bitcoin-wallet.cpp[m
+[36m@@ -33,11 +33,11 @@[m [mstatic void SetupWalletToolArgs(ArgsManager& argsman)[m
+     argsman.AddArg("-format=<format>", "The format of the wallet file to create. Either \"bdb\" or \"sqlite\". Only used with 'createfromdump'", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+     argsman.AddArg("-printtoconsole", "Send trace/debug info to console (default: 1 when no -debug is true, 0 otherwise).", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);[m
+ [m
+[31m-    argsman.AddCommand("info", "Get wallet info", OptionsCategory::COMMANDS);[m
+[31m-    argsman.AddCommand("create", "Create new wallet file", OptionsCategory::COMMANDS);[m
+[31m-    argsman.AddCommand("salvage", "Attempt to recover private keys from a corrupt wallet. Warning: 'salvage' is experimental.", OptionsCategory::COMMANDS);[m
+[31m-    argsman.AddCommand("dump", "Print out all of the wallet key-value records", OptionsCategory::COMMANDS);[m
+[31m-    argsman.AddCommand("createfromdump", "Create new wallet file from dumped records", OptionsCategory::COMMANDS);[m
+[32m+[m[32m    argsman.AddCommand("info", "Get wallet info");[m
+[32m+[m[32m    argsman.AddCommand("create", "Create new wallet file");[m
+[32m+[m[32m    argsman.AddCommand("salvage", "Attempt to recover private keys from a corrupt wallet. Warning: 'salvage' is experimental.");[m
+[32m+[m[32m    argsman.AddCommand("dump", "Print out all of the wallet key-value records");[m
+[32m+[m[32m    argsman.AddCommand("createfromdump", "Create new wallet file from dumped records");[m
+ }[m
+ [m
+ static bool WalletAppInit(ArgsManager& args, int argc, char* argv[])[m
+[33mdiff --git a/src/util/system.cpp b/src/util/system.cpp[m
+[33mindex 5ea013927..ee7a76be2 100644[m
+[33m--- a/src/util/system.cpp[m
+[33m+++ b/src/util/system.cpp[m
+[36m@@ -620,14 +620,14 @@[m [mvoid ArgsManager::ForceSetArg(const std::string& strArg, const std::string& strV[m
+     m_settings.forced_settings[SettingName(strArg)] = strValue;[m
+ }[m
+ [m
+[31m-void ArgsManager::AddCommand(const std::string& cmd, const std::string& help, const OptionsCategory& cat)[m
+[32m+[m[32mvoid ArgsManager::AddCommand(const std::string& cmd, const std::string& help)[m
+ {[m
+     Assert(cmd.find('=') == std::string::npos);[m
+     Assert(cmd.at(0) != '-');[m
+ [m
+     LOCK(cs_args);[m
+     m_accept_any_command = false; // latch to false[m
+[31m-    std::map<std::string, Arg>& arg_map = m_available_args[cat];[m
+[32m+[m[32m    std::map<std::string, Arg>& arg_map = m_available_args[OptionsCategory::COMMANDS];[m
+     auto ret = arg_map.emplace(cmd, Arg{"", help, ArgsManager::COMMAND});[m
+     Assert(ret.second); // Fail on duplicate commands[m
+ }[m
+[33mdiff --git a/src/util/system.h b/src/util/system.h[m
+[33mindex ea9870a34..3547bad58 100644[m
+[33m--- a/src/util/system.h[m
+[33m+++ b/src/util/system.h[m
+[36m@@ -374,7 +374,7 @@[m [mpublic:[m
+     /**[m
+      * Add subcommand[m
+      */[m
+[31m-    void AddCommand(const std::string& cmd, const std::string& help, const OptionsCategory& cat);[m
+[32m+[m[32m    void AddCommand(const std::string& cmd, const std::string& help);[m
+ [m
+     /**[m
+      * Add many hidden arguments[m
+[33mdiff --git a/test/util/data/bitcoin-util-test.json b/test/util/data/bitcoin-util-test.json[m
+[33mindex 0a9846b4b..cdfa603e8 100644[m
+[33m--- a/test/util/data/bitcoin-util-test.json[m
+[33m+++ b/test/util/data/bitcoin-util-test.json[m
+[36m@@ -1,4 +1,39 @@[m
+ [[m
+[32m+[m[32m  { "exec": "./bitcoin-util",[m
+[32m+[m[32m    "args": ["foo"],[m
+[32m+[m[32m    "return_code": 1,[m
+[32m+[m[32m    "error_txt": "Error parsing command line arguments: Invalid command 'foo'",[m
+[32m+[m[32m    "description": ""[m
+[32m+[m[32m  },[m
+[32m+[m[32m  { "exec": "./bitcoin-util",[m
+[32m+[m[32m    "args": ["help"],[m
+[32m+[m[32m    "return_code": 1,[m
+[32m+[m[32m    "error_txt": "Error parsing command line arguments: Invalid command 'help'",[m
+[32m+[m[32m    "description": "`help` raises an error. Use `-help`"[m
+[32m+[m[32m  },[m
+[32m+[m[32m  { "exec": "./bitcoin-util",[m
+[32m+[m[32m    "args": ["grind"],[m
+[32m+[m[32m    "return_code": 1,[m
+[32m+[m[32m    "error_txt": "Must specify block header to grind",[m
+[32m+[m[32m    "description": ""[m
+[32m+[m[32m  },[m
+[32m+[m[32m  { "exec": "./bitcoin-util",[m
+[32m+[m[32m    "args": ["grind", "1", "2"],[m
+[32m+[m[32m    "return_code": 1,[m
+[32m+[m[32m    "error_txt": "Must specify block header to grind",[m
+[32m+[m[32m    "description": ""[m
+[32m+[m[32m  },[m
+[32m+[m[32m  { "exec": "./bitcoin-util",[m
+[32m+[m[32m    "args": ["grind", "aa"],[m
+[32m+[m[32m    "return_code": 1,[m
+[32m+[m[32m    "error_txt": "Could not decode block header",[m
+[32m+[m[32m    "description": ""[m
+[32m+[m[32m  },[m
+[32m+[m[32m  { "exec": "./bitcoin-util",[m
+[32m+[m[32m    "args": ["grind", "00000020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff60248c60ffff7f2000000000"],[m
+[32m+[m[32m    "output_cmp": "grind.hex",[m
+[32m+[m[32m    "description": ""[m
+[32m+[m[32m  },[m
+   { "exec": "./bitcoin-tx",[m
+     "args": ["-create", "nversion=1"],[m
+     "output_cmp": "blanktxv1.hex",[m
+[33mdiff --git a/test/util/data/grind.hex b/test/util/data/grind.hex[m
+[33mnew file mode 100644[m
+[33mindex 000000000..bbb38ea43[m
+[33m--- /dev/null[m
+[33m+++ b/test/util/data/grind.hex[m
+[36m@@ -0,0 +1 @@[m
+[32m+[m[32m00000020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff60248c60ffff7f2018000000[m

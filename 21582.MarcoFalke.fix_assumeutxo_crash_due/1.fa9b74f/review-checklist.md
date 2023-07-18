@@ -1,0 +1,89 @@
+- [ ] 78f75a2d60 Allow icon colorization on mac os to better support dark mode
+- [ ] 303cfc6227 allow darkmode on macos build
+- [ ] 3a0446fad4 script: Add explanatory comment to tc.sh
+- [ ] 73e1f7d754 rpc: document optional fields for getchaintxstats result
+- [ ] 2e5f7def22 wallet, rpc: update listdescriptors response format
+- [ ] 68c280f197 test, refactor: abstract the feature_nulldummy blockheight values
+- [ ] ccd976dd3d test: use 327 fewer blocks in feature_nulldummy
+- [ ] 9b05c49ade fuzz: implement unimplemented FuzzedSock methods
+- [ ] 3088f83d01 fuzz: extend FuzzedSock::Recv() to support MSG_PEEK
+- [ ] 5a887d49b2 fuzz: avoid FuzzedSock::Recv() repeated errors with EAGAIN
+- [ ] b5861100f8 net: add connect() and getsockopt() wrappers to Sock
+- [ ] 82d360b5a8 net: change ConnectSocketDirectly() to take a Sock argument
+- [ ] 9947e44de0 i2p: use pointers to Sock to accommodate mocking
+- [ ] 2d8ac77970 fuzz: add tests for the I2P Session public interface
+- [ ] 40316a37cb test: add I2P test for a runaway SAM proxy
+- [ ] ef3e1d7272 qt: Improve URI/file handling message
+- [ ] f126cbd6de Extract ProtectEvictionCandidatesByRatio from SelectNodeToEvict
+- [ ] 41f84d5ecc Move peer eviction tests to a separate test file
+- [ ] ca63b53ecd Use std::unordered_set instead of std::vector in IsEvicted()
+- [ ] 72e30e8e03 Add unit tests for ProtectEvictionCandidatesByRatio()
+- [ ] 8b1e156143 Add m_inbound_onion to AttemptToEvictConnection()
+- [ ] 8f1a53eb02 Use EraseLastKElements() throughout SelectNodeToEvict()
+- [ ] caa21f586f Protect onion+localhost peers in ProtectEvictionCandidatesByRatio()
+- [ ] 0cca08a8ee Add unit test coverage for our onion peer eviction protection
+- [ ] 732c7bddeb tests: Add test for CNetAddr::ToString IPv6 address formatting (RFC 5952)
+- [ ] 1c25adf6d2 [net] Construct addrman outside connman
+- [ ] 392a95d393 [net_processing] Keep addrman reference in PeerManager
+- [ ] 8073673dbc [net] remove CConnman::SetServices
+- [ ] bcd7f30b79 [net] remove CConnman::MarkAddressGood
+- [ ] 7c4cc67c0c [net] remove CConnman::AddNewAddresses
+- [ ] 3fc06d3d7b [net] remove fUpdateConnectionTime from FinalizeNode
+- [ ] 0eabb2abed build: Remove unused header from the build system
+- [ ] 257f55c119 qt, refactor: Drop redundant setEditTriggers(NoEditTriggers) calls
+- [ ] 085b3a7299 rpc: deprecate `addresses` and `reqSigs` from rpc outputs
+- [ ] 90ae3d8ca6 doc: Add release notes for -deprecatedrpc=addresses and bitcoin-tx
+- [ ] 51eef4a03e doc: Add release notes for #18335 (rpc work queue exceeded error)
+- [ ] 915e34112b qt: fix issue when disabling the auto-enabled blank wallet checkbox
+- [ ] 18a9b27dd6 p2p: Don't send FEEFILTER in blocksonly mode
+- [ ] 1a27af1d7b rpc: Improve gettxoutsetinfo help
+- [ ] 4973c5175c test: Remove wallet dependency of utxo set hash test
+- [ ] 4f2653a890 test: Use deterministic chain in utxo set hash test
+- [ ] 0c1b2bc549 Revert "miner: Remove old CreateNewBlock w/o chainstate param"
+- [ ] eede0647b0 Revert "scripted-diff: Invoke CreateNewBlock with chainstate"
+- [ ] e62067e7bc Revert "miner: Pass in chainstate to BlockAssembler::CreateNewBlock"
+- [ ] 7b8e976cd5 miner: Add chainstate member to BlockAssembler
+- [ ] 07156eb387 node/coinstats: Replace #include with fwd-declaration
+- [ ] dc4551c22c remove incompatibility release note for darkmode on macos
+- [ ] beead33a21 [test] no send feefilters when txrelay is turned off
+- [ ] b8e76479ce ci: Bump macOS VM image to the latest version
+- [ ] fa908a41f3 ci: Set DEPENDS_DIR when setting BASE_ROOT_DIR
+- [ ] fac577d423 ci: Build depends only once for Android build
+- [ ] fa97a17ac3 ci: Bump Android cross-build to Ubuntu Focal
+- [ ] ffff4e7373 cirrus: Only cache releases when needed
+- [ ] fa52d7d3ad cirrus: Add missing depends_sources_cache to Android task
+- [ ] 87deac66aa rand: only try and use freeifaddrs if available
+- [ ] 879215e665 build: check if -lsocket is required with *ifaddrs
+- [ ] 4783115fd4 net: add ifaddrs.h include
+- [ ] 9ac86bcc0d test: remove qt byteswap compattests
+- [ ] 7c543bc27b build: Enable safe warnings for msvc builds
+- [ ] c02fa47baa [net processing] Only call GetTime() once in SendMessages()
+- [ ] 4ad4abcf07 [net] Change addr send times fields to be guarded by new mutex
+- [ ] ad719297f2 [net processing] Extract `addr` send functionality into MaybeSendAddr()
+- [ ] c87423c58b [net processing] Change MaybeSendAddr() to take a reference
+- [ ] 38c0be5da3 [net processing] Refactor MaybeSendAddr() - early exits
+- [ ] 01a79ff924 [net processing] Fix overindentation in MaybeSendAddr()
+- [ ] faeba9819d rpc: Missing doc updates for bumpfee psbt update
+- [ ] 1111896eb7 doc: Merge release notes
+- [ ] 95cccf8a4b util: introduce helper AnyPtr to access std::any instances
+- [ ] 8dbb87a393 refactor: replace util::Ref by std::any (C++17)
+- [ ] 916ab0195d remove unused class util::Ref and its unit test
+- [ ] 765e0be534 build: split native_cctools
+- [ ] fa98f3f66e fuzz: [refactor] Use ConsumeScript in signature_checker fuzz target
+- [ ] eeee8f5be1 fuzz: Removed unused try-catch in coins_view
+- [ ] fa4926cca6 fuzz: [refactor] Use IsValidFlagCombination in signature_checker fuzz target
+- [ ] 1dd8ed7a84 net_processing: Move comments to declarations
+- [ ] 88aead263c node: Avoid potential UB by asserting assumptions
+- [ ] 7e8b5ee814 validation: Make BlockManager::LookupBlockIndex const
+- [ ] 98c4e252f0 node/ifaces: NodeImpl: Use an accessor for ChainMan
+- [ ] 693414d271 node/ifaces: ChainImpl: Use an accessor for ChainMan
+- [ ] 735610940c build: set --build when configuring packages in depends
+- [ ] 935d488922 [net processing] Refactor MaybeSendAddr()
+- [ ] fa8192f42e rpc: Fail to return undocumented return values
+- [ ] 5ed535a02f [net] Changes to RunInactivityChecks
+- [ ] 2f8272c2a4 [doc] GetBestBlock() doesn't do nothing
+- [ ] 8fa74aeb5b [doc] correct comment in chainparams
+- [ ] 4eca20d6f7 [doc] correct comment about ATMPW
+- [ ] e309646db6 Doc: Copyright: Fix embedded font file location
+- [ ] fa8fffebe8 refactor: Prefer clean assert over UB in coinstats
+- [ ] fa9b74f5ea Fix assumeutxo crash due to missing base_blockhash

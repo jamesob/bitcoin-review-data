@@ -1,0 +1,63 @@
+[33mdiff --git a/src/index/base.cpp b/src/index/base.cpp[m
+[33mindex fc6dd77a72..88c74ec543 100644[m
+[33m--- a/src/index/base.cpp[m
+[33m+++ b/src/index/base.cpp[m
+[36m@@ -91,7 +91,7 @@[m [mbool BaseIndex::Init()[m
+             const CBlockIndex* block = active_chain.Tip();[m
+             prune_violation = true;[m
+             // check backwards from the tip if we have all block data until we reach the indexes bestblock[m
+[31m-            while (block_to_test && block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+[32m+[m[32m            while (block_to_test && block && (block->nStatus & BLOCK_HAVE_DATA)) {[m
+                 if (block_to_test == block) {[m
+                     prune_violation = false;[m
+                     break;[m
+[33mdiff --git a/test/functional/feature_blockfilterindex_prune.py b/test/functional/feature_blockfilterindex_prune.py[m
+[33mindex b740f2cc27..13f4274ec1 100755[m
+[33m--- a/test/functional/feature_blockfilterindex_prune.py[m
+[33m+++ b/test/functional/feature_blockfilterindex_prune.py[m
+[36m@@ -24,11 +24,7 @@[m [mclass FeatureBlockfilterindexPruneTest(BitcoinTestFramework):[m
+         self.log.info("check if we can access a blockfilter when pruning is enabled but no blocks are actually pruned")[m
+         self.sync_index(height=200)[m
+         assert_greater_than(len(self.nodes[0].getblockfilter(self.nodes[0].getbestblockhash())['filter']), 0)[m
+[31m-        # Mine two batches of blocks to avoid hitting NODE_NETWORK_LIMITED_MIN_BLOCKS disconnection[m
+[31m-        self.generate(self.nodes[0], 250)[m
+[31m-        self.sync_all()[m
+[31m-        self.generate(self.nodes[0], 250)[m
+[31m-        self.sync_all()[m
+[32m+[m[32m        self.generate(self.nodes[0], 500)[m
+         self.sync_index(height=700)[m
+ [m
+         self.log.info("prune some blocks")[m
+[36m@@ -41,16 +37,29 @@[m [mclass FeatureBlockfilterindexPruneTest(BitcoinTestFramework):[m
+         self.log.info("check if we can access the blockfilter of a pruned block")[m
+         assert_greater_than(len(self.nodes[0].getblockfilter(self.nodes[0].getblockhash(2))['filter']), 0)[m
+ [m
+[32m+[m[32m        # mine and sync index up to a height that will later be the pruneheight[m
+[32m+[m[32m        self.generate(self.nodes[0], 298)[m
+[32m+[m[32m        self.sync_index(height=998)[m
+[32m+[m
+         self.log.info("start node without blockfilterindex")[m
+         self.restart_node(0, extra_args=["-fastprune", "-prune=1"])[m
+ [m
+         self.log.info("make sure accessing the blockfilters throws an error")[m
+         assert_raises_rpc_error(-1, "Index is not enabled for filtertype basic", self.nodes[0].getblockfilter, self.nodes[0].getblockhash(2))[m
+[2m-        self.generate(self.nodes[0], 1000)[m
+[32m+[m[32m        self.generate(self.nodes[0], 502)[m
+[32m+[m
+[32m+[m[32m        self.log.info("prune exactly up to the blockfilterindexes best block while blockfilters are disabled")[m
+[32m+[m[32m        pruneheight_2 = self.nodes[0].pruneblockchain(1000)[m
+[32m+[m[32m        assert_equal(pruneheight_2, 998)[m
+[32m+[m[32m        self.restart_node(0, extra_args=["-fastprune", "-prune=1", "-blockfilterindex=1"])[m
+[32m+[m[32m        self.log.info("make sure that we can continue with the partially synced index after having pruned up to the index height")[m
+[32m+[m[32m        self.sync_index(height=1500)[m
+ [m
+         self.log.info("prune below the blockfilterindexes best block while blockfilters are disabled")[m
+[31m-        pruneheight_new = self.nodes[0].pruneblockchain(1000)[m
+[31m-        assert_greater_than(pruneheight_new, pruneheight)[m
+[32m+[m[32m        self.restart_node(0, extra_args=["-fastprune", "-prune=1"])[m
+[2m+[m[2m        self.generate(self.nodes[0], 1000)[m
+[32m+[m[32m        pruneheight_3 = self.nodes[0].pruneblockchain(2000)[m
+[32m+[m[32m        assert_greater_than(pruneheight_3, pruneheight_2)[m
+         self.stop_node(0)[m
+ [m
+         self.log.info("make sure we get an init error when starting the node again with block filters")[m

@@ -1,0 +1,7 @@
+- [ ] 0a93a16614 interfaces, refactor: Add more block information to block connected notifications
+- [ ] 2f8a5307b7 indexes, refactor: Pass Chain interface instead of CChainState class to indexes
+- [ ] 4cb826e1af indexes, refactor: Remove CBlockIndex* uses in coinstatsindex LookUpOne function
+- [ ] 6550bc9ef5 indexes, refactor: Remove CBlockIndex* uses in index Init methods
+- [ ] 88cad3cb60 indexes, refactor: Remove CBlockIndex* uses in index WriteBlock methods
+- [ ] 08c3c361a5 indexes, refactor: Remove CBlockIndex* uses in index Rewind methods
+- [ ] ddbbdcf411 indexes, refactor: Remove CChainState use in index CommitInternal method

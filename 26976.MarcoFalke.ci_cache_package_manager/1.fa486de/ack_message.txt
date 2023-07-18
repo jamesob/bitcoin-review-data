@@ -1,0 +1,4 @@
+ACK fa486de212108b4609d7c247d2a578f0b4df9703 ([`jamesob/ackr/26976.1.MarcoFalke.ci_cache_package_manager`](https://github.com/jamesob/bitcoin/tree/ackr/26976.1.MarcoFalke.ci_cache_package_manager))
+
+Ran `./ci/test_run_all.sh`, container built successfully. `DOCKER_BUILDKIT=1` is
+cool!

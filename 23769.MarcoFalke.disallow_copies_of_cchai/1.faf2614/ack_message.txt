@@ -1,0 +1,4 @@
+ACK faf2614f60efe972b47b6fa00cfbc22d04ea7239 ([`jamesob/ackr/23769.1.MarcoFalke.disallow_copies_of_cchai`](https://github.com/jamesob/bitcoin/tree/ackr/23769.1.MarcoFalke.disallow_copies_of_cchai))
+
+Great idea. Reviewed code locally and built.
+

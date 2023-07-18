@@ -1,0 +1,19 @@
+ACK b536813cefc13f5c54a28a7c2fce8c69e89d6624 ([`jamesob/ackr/18921.1.fanquake.build_add_stack_clash_an`](https://github.com/jamesob/bitcoin/tree/ackr/18921.1.fanquake.build_add_stack_clash_an))
+
+Tested locally via bench results above.
+
+<details><summary>Show platform data</summary>
+<p>
+
+```
+Tested on Linux-4.19.0-10-amd64-x86_64-with-glibc2.28
+
+Configured with ./configure LDFLAGS=-L/home/james/src/bitcoin/db4/lib/ CPPFLAGS=-I/home/james/src/bitcoin/db4/include/ CXXFLAGS=-std=c++11 -Wthread-safety-analysis -Werror --enable-wallet --enable-debug --with-daemon CXX=/usr/bin/clang++ CC=/usr/bin/clang --disable-jni PYTHONPATH= --disable-shared --with-pic --enable-benchmark=no --with-bignum=no --enable-module-recovery --disable-shared --with-pic --enable-benchmark=no --with-bignum=no --enable-module-recovery --no-create --no-recursion
+
+Compiled with /usr/bin/ccache /usr/bin/clang++ -std=c++11 -mavx -mavx2 -std=c++11 -Wthread-safety-analysis -Werror -O0 -g3 -ftrapv  -Wstack-protector -fstack-protector-all -msse4 -msha -msse4.1 -msse4.2  i
+
+Compiler version: clang version 7.0.1-8 (tags/RELEASE_701/final)
+```
+
+</p></details>
+

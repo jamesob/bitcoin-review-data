@@ -1,0 +1,2 @@
+- [ ] 9836c76ae0 net: add `GetMappedAS` in `CConnman`
+- [ ] 0076bed45e logging: log ASN when using `-asmap`

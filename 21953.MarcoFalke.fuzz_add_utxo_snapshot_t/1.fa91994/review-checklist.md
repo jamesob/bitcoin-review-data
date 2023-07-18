@@ -1,0 +1,1 @@
+- [ ] fa91994b1 fuzz: Add utxo_snapshot target

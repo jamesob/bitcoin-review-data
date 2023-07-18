@@ -1,0 +1,53 @@
+[33mdiff --git a/src/coins.cpp b/src/coins.cpp[m
+[33mindex ecbd625cd7..31ac67674a 100644[m
+[33m--- a/src/coins.cpp[m
+[33m+++ b/src/coins.cpp[m
+[36m@@ -249,15 +249,18 @@[m [mbool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn[m
+ }[m
+ [m
+ bool CCoinsViewCache::Flush() {[m
+[31m-    bool fOk = base->BatchWrite(cacheCoins, hashBlock, /*erase=*/ true);[m
+[31m-    cacheCoins.clear();[m
+[32m+[m[32m    bool fOk = base->BatchWrite(cacheCoins, hashBlock, /*erase=*/true);[m
+[32m+[m[32m    if (fOk && !cacheCoins.empty()) {[m
+[32m+[m[32m        /* BatchWrite must erase all cacheCoins elements when erase=true. */[m
+[32m+[m[32m        throw std::logic_error("Not all cached coins were erased");[m
+[32m+[m[32m    }[m
+     cachedCoinsUsage = 0;[m
+     return fOk;[m
+ }[m
+ [m
+ bool CCoinsViewCache::Sync()[m
+ {[m
+[31m-    bool fOk = base->BatchWrite(cacheCoins, hashBlock, /*erase=*/ false);[m
+[32m+[m[32m    bool fOk = base->BatchWrite(cacheCoins, hashBlock, /*erase=*/false);[m
+     // Instead of clearing `cacheCoins` as we would in Flush(), just clear the[m
+     // FRESH/DIRTY flags of any coin that isn't spent.[m
+     for (auto it = cacheCoins.begin(); it != cacheCoins.end(); ) {[m
+[33mdiff --git a/src/test/coins_tests.cpp b/src/test/coins_tests.cpp[m
+[33mindex 92bad8dd2e..312f417129 100644[m
+[33m--- a/src/test/coins_tests.cpp[m
+[33m+++ b/src/test/coins_tests.cpp[m
+[36m@@ -55,7 +55,7 @@[m [mpublic:[m
+ [m
+     bool BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock, bool erase = true) override[m
+     {[m
+[31m-        for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end(); it = erase ? mapCoins.erase(it) : ++it) {[m
+[32m+[m[32m        for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end(); it = erase ? mapCoins.erase(it) : std::next(it)) {[m
+             if (it->second.flags & CCoinsCacheEntry::DIRTY) {[m
+                 // Same optimization used in CCoinsViewDB is to only write dirty entries.[m
+                 map_[it->first] = it->second.coin;[m
+[33mdiff --git a/src/test/fuzz/coins_view.cpp b/src/test/fuzz/coins_view.cpp[m
+[33mindex 46026d8df3..e75dc3ce91 100644[m
+[33m--- a/src/test/fuzz/coins_view.cpp[m
+[33m+++ b/src/test/fuzz/coins_view.cpp[m
+[36m@@ -74,6 +74,9 @@[m [mFUZZ_TARGET_INIT(coins_view, initialize_coins_view)[m
+             [&] {[m
+                 (void)coins_view_cache.Flush();[m
+             },[m
+[32m+[m[32m            [&] {[m
+[32m+[m[32m                (void)coins_view_cache.Sync();[m
+[32m+[m[32m            },[m
+             [&] {[m
+                 coins_view_cache.SetBestBlock(ConsumeUInt256(fuzzed_data_provider));[m
+             },[m

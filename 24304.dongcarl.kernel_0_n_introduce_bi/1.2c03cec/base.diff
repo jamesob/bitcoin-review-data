@@ -1,0 +1,489 @@
+[33mdiff --git a/.cirrus.yml b/.cirrus.yml[m
+[33mindex 5624c97d56..dea85f7ff5 100644[m
+[33m--- a/.cirrus.yml[m
+[33m+++ b/.cirrus.yml[m
+[36m@@ -259,13 +259,13 @@[m [mtask:[m
+     FILE_ENV: "./ci/test/00_setup_env_i686_multiprocess.sh"[m
+ [m
+ task:[m
+[31m-  name: '[no wallet] [bionic]'[m
+[32m+[m[32m  name: '[no wallet, libbitcoinkernel] [bionic]'[m
+   << : *GLOBAL_TASK_TEMPLATE[m
+   container:[m
+     image: ubuntu:bionic[m
+   env:[m
+     << : *CIRRUS_EPHEMERAL_WORKER_TEMPLATE_ENV[m
+[31m-    FILE_ENV: "./ci/test/00_setup_env_native_nowallet.sh"[m
+[32m+[m[32m    FILE_ENV: "./ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh"[m
+ [m
+ task:[m
+   name: 'macOS 10.15 [gui, no tests] [focal]'[m
+[33mdiff --git a/.gitignore b/.gitignore[m
+[33mindex f84a53178e..0f07a86401 100644[m
+[33m--- a/.gitignore[m
+[33m+++ b/.gitignore[m
+[36m@@ -9,6 +9,7 @@[m [msrc/bitcoin-gui[m
+ src/bitcoin-node[m
+ src/bitcoin-tx[m
+ src/bitcoin-util[m
+[32m+[m[32msrc/bitcoin-chainstate[m
+ src/bitcoin-wallet[m
+ src/test/fuzz/fuzz[m
+ src/test/test_bitcoin[m
+[33mdiff --git a/ci/test/00_setup_env_native_nowallet.sh b/ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh[m
+[33msimilarity index 84%[m
+[33mrename from ci/test/00_setup_env_native_nowallet.sh[m
+[33mrename to ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh[m
+[33mindex d80a7f9633..89d6256298 100755[m
+[33m--- a/ci/test/00_setup_env_native_nowallet.sh[m
+[33m+++ b/ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh[m
+[36m@@ -6,9 +6,9 @@[m
+ [m
+ export LC_ALL=C.UTF-8[m
+ [m
+[31m-export CONTAINER_NAME=ci_native_nowallet[m
+[32m+[m[32mexport CONTAINER_NAME=ci_native_nowallet_libbitcoinkernel[m
+ export DOCKER_NAME_TAG=ubuntu:18.04  # Use bionic to have one config run the tests in python3.6, see doc/dependencies.md[m
+ export PACKAGES="python3-zmq clang-7 llvm-7 libc++abi-7-dev libc++-7-dev"  # Use clang-7 to test C++17 compatibility, see doc/dependencies.md[m
+ export DEP_OPTS="NO_WALLET=1 CC=clang-7 CXX='clang++-7 -stdlib=libc++'"[m
+ export GOAL="install"[m
+[31m-export BITCOIN_CONFIG="--enable-reduce-exports CC=clang-7 CXX='clang++-7 -stdlib=libc++'"[m
+[32m+[m[32mexport BITCOIN_CONFIG="--enable-reduce-exports CC=clang-7 CXX='clang++-7 -stdlib=libc++' --enable-experimental-util-chainstate"[m
+[33mdiff --git a/configure.ac b/configure.ac[m
+[33mindex 11a01f310c..cdae88e81f 100644[m
+[33m--- a/configure.ac[m
+[33m+++ b/configure.ac[m
+[36m@@ -24,6 +24,7 @@[m [mBITCOIN_GUI_NAME=bitcoin-qt[m
+ BITCOIN_CLI_NAME=bitcoin-cli[m
+ BITCOIN_TX_NAME=bitcoin-tx[m
+ BITCOIN_UTIL_NAME=bitcoin-util[m
+[32m+[m[32mBITCOIN_CHAINSTATE_NAME=bitcoin-chainstate[m
+ BITCOIN_WALLET_TOOL_NAME=bitcoin-wallet[m
+ dnl Multi Process[m
+ BITCOIN_MP_NODE_NAME=bitcoin-node[m
+[36m@@ -626,6 +627,12 @@[m [mAC_ARG_ENABLE([util-util],[m
+   [build_bitcoin_util=$enableval],[m
+   [build_bitcoin_util=$build_bitcoin_utils])[m
+ [m
+[32m+[m[32mAC_ARG_ENABLE([experimental-util-chainstate],[m
+[32m+[m[32m  [AS_HELP_STRING([--enable-experimental-util-chainstate],[m
+[32m+[m[32m  [build experimental bitcoin-chainstate executable (default=no)])],[m
+[32m+[m[32m  [build_bitcoin_chainstate=$enableval],[m
+[32m+[m[32m  [build_bitcoin_chainstate=no])[m
+[32m+[m
+ AC_ARG_WITH([libs],[m
+   [AS_HELP_STRING([--with-libs],[m
+   [build libraries (default=yes)])],[m
+[36m@@ -1249,6 +1256,7 @@[m [mif test "$enable_fuzz" = "yes"; then[m
+   build_bitcoin_cli=no[m
+   build_bitcoin_tx=no[m
+   build_bitcoin_util=no[m
+[32m+[m[32m  build_bitcoin_chainstate=no[m
+   build_bitcoin_wallet=no[m
+   build_bitcoind=no[m
+   build_bitcoin_libs=no[m
+[36m@@ -1589,6 +1597,10 @@[m [mAC_MSG_CHECKING([whether to build bitcoin-util])[m
+ AM_CONDITIONAL([BUILD_BITCOIN_UTIL], [test $build_bitcoin_util = "yes"])[m
+ AC_MSG_RESULT($build_bitcoin_util)[m
+ [m
+[32m+[m[32mAC_MSG_CHECKING([whether to build experimental bitcoin-chainstate])[m
+[32m+[m[32mAM_CONDITIONAL([BUILD_BITCOIN_CHAINSTATE], [test $build_bitcoin_chainstate = "yes"])[m
+[32m+[m[32mAC_MSG_RESULT($build_bitcoin_chainstate)[m
+[32m+[m
+ AC_MSG_CHECKING([whether to build libraries])[m
+ AM_CONDITIONAL([BUILD_BITCOIN_LIBS], [test $build_bitcoin_libs = "yes"])[m
+ if test "$build_bitcoin_libs" = "yes"; then[m
+[36m@@ -1807,6 +1819,7 @@[m [mAC_SUBST(BITCOIN_GUI_NAME)[m
+ AC_SUBST(BITCOIN_CLI_NAME)[m
+ AC_SUBST(BITCOIN_TX_NAME)[m
+ AC_SUBST(BITCOIN_UTIL_NAME)[m
+[32m+[m[32mAC_SUBST(BITCOIN_CHAINSTATE_NAME)[m
+ AC_SUBST(BITCOIN_WALLET_TOOL_NAME)[m
+ AC_SUBST(BITCOIN_MP_NODE_NAME)[m
+ AC_SUBST(BITCOIN_MP_GUI_NAME)[m
+[33mdiff --git a/src/Makefile.am b/src/Makefile.am[m
+[33mindex efc32da55d..ac6524909a 100644[m
+[33m--- a/src/Makefile.am[m
+[33m+++ b/src/Makefile.am[m
+[36m@@ -102,6 +102,10 @@[m [mif BUILD_BITCOIN_UTIL[m
+   bin_PROGRAMS += bitcoin-util[m
+ endif[m
+ [m
+[32m+[m[32mif BUILD_BITCOIN_CHAINSTATE[m
+[32m+[m[32m  bin_PROGRAMS += bitcoin-chainstate[m
+[32m+[m[32mendif[m
+[32m+[m
+ .PHONY: FORCE check-symbols check-security[m
+ # bitcoin core #[m
+ BITCOIN_CORE_H = \[m
+[36m@@ -759,6 +763,102 @@[m [mbitcoin_util_LDADD = \[m
+   $(LIBSECP256K1)[m
+ #[m
+ [m
+[32m+[m[32m# bitcoin-chainstate binary #[m
+[32m+[m[32mbitcoin_chainstate_SOURCES = \[m
+[32m+[m[32m  bitcoin-chainstate.cpp \[m
+[32m+[m[32m  arith_uint256.cpp \[m
+[32m+[m[32m  blockfilter.cpp \[m
+[32m+[m[32m  chain.cpp \[m
+[32m+[m[32m  chainparamsbase.cpp \[m
+[32m+[m[32m  chainparams.cpp \[m
+[32m+[m[32m  clientversion.cpp \[m
+[32m+[m[32m  coins.cpp \[m
+[32m+[m[32m  compat/glibcxx_sanity.cpp \[m
+[32m+[m[32m  compressor.cpp \[m
+[32m+[m[32m  consensus/merkle.cpp \[m
+[32m+[m[32m  consensus/tx_check.cpp \[m
+[32m+[m[32m  consensus/tx_verify.cpp \[m
+[32m+[m[32m  core_read.cpp \[m
+[32m+[m[32m  dbwrapper.cpp \[m
+[32m+[m[32m  deploymentinfo.cpp \[m
+[32m+[m[32m  deploymentstatus.cpp \[m
+[32m+[m[32m  flatfile.cpp \[m
+[32m+[m[32m  fs.cpp \[m
+[32m+[m[32m  hash.cpp \[m
+[32m+[m[32m  index/base.cpp \[m
+[32m+[m[32m  index/blockfilterindex.cpp \[m
+[32m+[m[32m  index/coinstatsindex.cpp \[m
+[32m+[m[32m  init/common.cpp \[m
+[32m+[m[32m  key.cpp \[m
+[32m+[m[32m  logging.cpp \[m
+[32m+[m[32m  netaddress.cpp \[m
+[32m+[m[32m  node/blockstorage.cpp \[m
+[32m+[m[32m  node/chainstate.cpp \[m
+[32m+[m[32m  node/coinstats.cpp \[m
+[32m+[m[32m  node/ui_interface.cpp \[m
+[32m+[m[32m  policy/feerate.cpp \[m
+[32m+[m[32m  policy/fees.cpp \[m
+[32m+[m[32m  policy/packages.cpp \[m
+[32m+[m[32m  policy/policy.cpp \[m
+[32m+[m[32m  policy/rbf.cpp \[m
+[32m+[m[32m  policy/settings.cpp \[m
+[32m+[m[32m  pow.cpp \[m
+[32m+[m[32m  primitives/block.cpp \[m
+[32m+[m[32m  primitives/transaction.cpp \[m
+[32m+[m[32m  pubkey.cpp \[m
+[32m+[m[32m  random.cpp \[m
+[32m+[m[32m  randomenv.cpp \[m
+[32m+[m[32m  scheduler.cpp \[m
+[32m+[m[32m  script/interpreter.cpp \[m
+[32m+[m[32m  script/script.cpp \[m
+[32m+[m[32m  script/script_error.cpp \[m
+[32m+[m[32m  script/sigcache.cpp \[m
+[32m+[m[32m  script/standard.cpp \[m
+[32m+[m[32m  shutdown.cpp \[m
+[32m+[m[32m  signet.cpp \[m
+[32m+[m[32m  support/cleanse.cpp \[m
+[32m+[m[32m  support/lockedpool.cpp \[m
+[32m+[m[32m  sync.cpp \[m
+[32m+[m[32m  threadinterrupt.cpp \[m
+[32m+[m[32m  timedata.cpp \[m
+[32m+[m[32m  txdb.cpp \[m
+[32m+[m[32m  txmempool.cpp \[m
+[32m+[m[32m  uint256.cpp \[m
+[32m+[m[32m  util/asmap.cpp \[m
+[32m+[m[32m  util/bytevectorhash.cpp \[m
+[32m+[m[32m  util/getuniquepath.cpp \[m
+[32m+[m[32m  util/hasher.cpp \[m
+[32m+[m[32m  util/moneystr.cpp \[m
+[32m+[m[32m  util/rbf.cpp \[m
+[32m+[m[32m  util/serfloat.cpp \[m
+[32m+[m[32m  util/settings.cpp \[m
+[32m+[m[32m  util/strencodings.cpp \[m
+[32m+[m[32m  util/syscall_sandbox.cpp \[m
+[32m+[m[32m  util/system.cpp \[m
+[32m+[m[32m  util/thread.cpp \[m
+[32m+[m[32m  util/threadnames.cpp \[m
+[32m+[m[32m  util/time.cpp \[m
+[32m+[m[32m  util/tokenpipe.cpp \[m
+[32m+[m[32m  validation.cpp \[m
+[32m+[m[32m  validationinterface.cpp \[m
+[32m+[m[32m  versionbits.cpp \[m
+[32m+[m[32m  warnings.cpp[m
+[32m+[m[32mbitcoin_chainstate_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)[m
+[32m+[m[32mbitcoin_chainstate_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)[m
+[32m+[m[32mbitcoin_chainstate_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)[m
+[32m+[m[32mbitcoin_chainstate_LDADD = \[m
+[32m+[m[32m  $(LIBBITCOIN_CRYPTO) \[m
+[32m+[m[32m  $(LIBUNIVALUE) \[m
+[32m+[m[32m  $(LIBSECP256K1) \[m
+[32m+[m[32m  $(LIBLEVELDB) \[m
+[32m+[m[32m  $(LIBLEVELDB_SSE42) \[m
+[32m+[m[32m  $(LIBMEMENV)[m
+[32m+[m
+[32m+[m[32m# Required for obj/build.h to be generated first.[m
+[32m+[m[32m# More details: https://www.gnu.org/software/automake/manual/html_node/Built-Sources-Example.html[m
+[32m+[m[32mbitcoin_chainstate-clientversion.$(OBJEXT): obj/build.h[m
+[32m+[m[32m#[m
+[32m+[m
+ # bitcoinconsensus library #[m
+ if BUILD_BITCOIN_LIBS[m
+ include_HEADERS = script/bitcoinconsensus.h[m
+[33mdiff --git a/src/bitcoin-chainstate.cpp b/src/bitcoin-chainstate.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..f93197350d[m
+[33m--- /dev/null[m
+[33m+++ b/src/bitcoin-chainstate.cpp[m
+[36m@@ -0,0 +1,262 @@[m
+[32m+[m[32m// Copyright (c) 2022 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m[32m//[m
+[32m+[m[32m// The bitcoin-chainstate executable serves to surface the dependencies required[m
+[32m+[m[32m// by a program wishing to use Bitcoin Core's consensus engine as it is right[m
+[32m+[m[32m// now.[m
+[32m+[m[32m//[m
+[32m+[m[32m// DEVELOPER NOTE: Since this is a "demo-only", experimental, etc. executable,[m
+[32m+[m[32m//                 it may diverge from Bitcoin Core's coding style.[m
+[32m+[m[32m//[m
+[32m+[m[32m// It is part of the libbitcoinkernel project.[m
+[32m+[m
+[32m+[m[32m#include <chainparams.h>[m
+[32m+[m[32m#include <consensus/validation.h>[m
+[32m+[m[32m#include <core_io.h>[m
+[32m+[m[32m#include <init/common.h>[m
+[32m+[m[32m#include <node/blockstorage.h>[m
+[32m+[m[32m#include <node/chainstate.h>[m
+[32m+[m[32m#include <scheduler.h>[m
+[32m+[m[32m#include <script/sigcache.h>[m
+[32m+[m[32m#include <util/system.h>[m
+[32m+[m[32m#include <util/thread.h>[m
+[32m+[m[32m#include <validation.h>[m
+[32m+[m[32m#include <validationinterface.h>[m
+[32m+[m
+[32m+[m[32m#include <filesystem>[m
+[32m+[m[32m#include <functional>[m
+[32m+[m[32m#include <iosfwd>[m
+[32m+[m
+[32m+[m[32mconst std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;[m
+[32m+[m
+[32m+[m[32mint main(int argc, char* argv[])[m
+[32m+[m[32m{[m
+[32m+[m[32m    // SETUP: Argument parsing and handling[m
+[32m+[m[32m    if (argc != 2) {[m
+[32m+[m[32m        std::cerr[m
+[32m+[m[32m            << "Usage: " << argv[0] << " DATADIR" << std::endl[m
+[32m+[m[32m            << "Display DATADIR information, and process hex-encoded blocks on standard input." << std::endl[m
+[32m+[m[32m            << std::endl[m
+[32m+[m[32m            << "IMPORTANT: THIS EXECUTABLE IS EXPERIMENTAL, FOR TESTING ONLY, AND EXPECTED TO" << std::endl[m
+[32m+[m[32m            << "           BREAK IN FUTURE VERSIONS. DO NOT USE ON YOUR ACTUAL DATADIR." << std::endl;[m
+[32m+[m[32m        return 1;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::filesystem::path abs_datadir = std::filesystem::absolute(argv[1]);[m
+[32m+[m[32m    std::filesystem::create_directories(abs_datadir);[m
+[32m+[m[32m    gArgs.ForceSetArg("-datadir", abs_datadir.string());[m
+[32m+[m
+[32m+[m
+[32m+[m[32m    // SETUP: Misc Globals[m
+[32m+[m[32m    SelectParams(CBaseChainParams::MAIN);[m
+[32m+[m[32m    const CChainParams& chainparams = Params();[m
+[32m+[m
+[32m+[m[32m    init::SetGlobals(); // ECC_Start, etc.[m
+[32m+[m
+[32m+[m[32m    // Necessary for CheckInputScripts (eventually called by ProcessNewBlock),[m
+[32m+[m[32m    // which will try the script cache first and fall back to actually[m
+[32m+[m[32m    // performing the check with the signature cache.[m
+[32m+[m[32m    InitSignatureCache();[m
+[32m+[m[32m    InitScriptExecutionCache();[m
+[32m+[m
+[32m+[m
+[32m+[m[32m    // SETUP: Scheduling and Background Signals[m
+[32m+[m[32m    CScheduler scheduler{};[m
+[32m+[m[32m    // Start the lightweight task scheduler thread[m
+[32m+[m[32m    scheduler.m_service_thread = std::thread(util::TraceThread, "scheduler", [&] { scheduler.serviceQueue(); });[m
+[32m+[m
+[32m+[m[32m    // Gather some entropy once per minute.[m
+[32m+[m[32m    scheduler.scheduleEvery(RandAddPeriodic, std::chrono::minutes{1});[m
+[32m+[m
+[32m+[m[32m    GetMainSignals().RegisterBackgroundSignalScheduler(scheduler);[m
+[32m+[m
+[32m+[m
+[32m+[m[32m    // SETUP: Chainstate[m
+[32m+[m[32m    ChainstateManager chainman;[m
+[32m+[m
+[32m+[m[32m    auto rv = node::LoadChainstate(false,[m
+[32m+[m[32m                                   std::ref(chainman),[m
+[32m+[m[32m                                   nullptr,[m
+[32m+[m[32m                                   false,[m
+[32m+[m[32m                                   chainparams.GetConsensus(),[m
+[32m+[m[32m                                   false,[m
+[32m+[m[32m                                   2 << 20,[m
+[32m+[m[32m                                   2 << 22,[m
+[32m+[m[32m                                   (450 << 20) - (2 << 20) - (2 << 22),[m
+[32m+[m[32m                                   false,[m
+[32m+[m[32m                                   false,[m
+[32m+[m[32m                                   []() { return false; });[m
+[32m+[m[32m    if (rv.has_value()) {[m
+[32m+[m[32m        std::cerr << "Failed to load Chain state from your datadir." << std::endl;[m
+[32m+[m[32m        goto epilogue;[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m        auto maybe_verify_error = node::VerifyLoadedChainstate(std::ref(chainman),[m
+[32m+[m[32m                                                               false,[m
+[32m+[m[32m                                                               false,[m
+[32m+[m[32m                                                               chainparams.GetConsensus(),[m
+[32m+[m[32m                                                               DEFAULT_CHECKBLOCKS,[m
+[32m+[m[32m                                                               DEFAULT_CHECKLEVEL,[m
+[32m+[m[32m                                                               /*get_unix_time_seconds=*/static_cast<int64_t (*)()>(GetTime));[m
+[32m+[m[32m        if (maybe_verify_error.has_value()) {[m
+[32m+[m[32m            std::cerr << "Failed to verify loaded Chain state from your datadir." << std::endl;[m
+[32m+[m[32m            goto epilogue;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    for (CChainState* chainstate : WITH_LOCK(::cs_main, return chainman.GetAll())) {[m
+[32m+[m[32m        BlockValidationState state;[m
+[32m+[m[32m        if (!chainstate->ActivateBestChain(state, nullptr)) {[m
+[32m+[m[32m            std::cerr << "Failed to connect best block (" << state.ToString() << ")" << std::endl;[m
+[32m+[m[32m            goto epilogue;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Main program logic starts here[m
+[32m+[m[32m    std::cout[m
+[32m+[m[32m        << "Hello! I'm going to print out some information about your datadir." << std::endl[m
+[32m+[m[32m        << "\t" << "Path: " << gArgs.GetDataDirNet() << std::endl[m
+[32m+[m[32m        << "\t" << "Reindexing: " << std::boolalpha << node::fReindex.load() << std::noboolalpha << std::endl[m
+[32m+[m[32m        << "\t" << "Snapshot Active: " << std::boolalpha << chainman.IsSnapshotActive() << std::noboolalpha << std::endl[m
+[32m+[m[32m        << "\t" << "Active Height: " << chainman.ActiveHeight() << std::endl[m
+[32m+[m[32m        << "\t" << "Active IBD: " << std::boolalpha << chainman.ActiveChainstate().IsInitialBlockDownload() << std::noboolalpha << std::endl;[m
+[32m+[m[32m    {[m
+[32m+[m[32m        CBlockIndex* tip = chainman.ActiveTip();[m
+[32m+[m[32m        if (tip) {[m
+[32m+[m[32m            std::cout << "\t" << tip->ToString() << std::endl;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    for (std::string line; std::getline(std::cin, line);) {[m
+[32m+[m[32m        if (line.empty()) {[m
+[32m+[m[32m            std::cerr << "Empty line found" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        std::shared_ptr<CBlock> blockptr = std::make_shared<CBlock>();[m
+[32m+[m[32m        CBlock& block = *blockptr;[m
+[32m+[m
+[32m+[m[32m        if (!DecodeHexBlk(block, line)) {[m
+[32m+[m[32m            std::cerr << "Block decode failed" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        if (block.vtx.empty() || !block.vtx[0]->IsCoinBase()) {[m
+[32m+[m[32m            std::cerr << "Block does not start with a coinbase" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        uint256 hash = block.GetHash();[m
+[32m+[m[32m        {[m
+[32m+[m[32m            LOCK(cs_main);[m
+[32m+[m[32m            const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(hash);[m
+[32m+[m[32m            if (pindex) {[m
+[32m+[m[32m                if (pindex->IsValid(BLOCK_VALID_SCRIPTS)) {[m
+[32m+[m[32m                    std::cerr << "duplicate" << std::endl;[m
+[32m+[m[32m                    break;[m
+[32m+[m[32m                }[m
+[32m+[m[32m                if (pindex->nStatus & BLOCK_FAILED_MASK) {[m
+[32m+[m[32m                    std::cerr << "duplicate-invalid" << std::endl;[m
+[32m+[m[32m                    break;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        {[m
+[32m+[m[32m            LOCK(cs_main);[m
+[32m+[m[32m            const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock);[m
+[32m+[m[32m            if (pindex) {[m
+[32m+[m[32m                UpdateUncommittedBlockStructures(block, pindex, chainparams.GetConsensus());[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Adapted from rpc/mining.cpp[m
+[32m+[m[32m        class submitblock_StateCatcher final : public CValidationInterface[m
+[32m+[m[32m        {[m
+[32m+[m[32m        public:[m
+[32m+[m[32m            uint256 hash;[m
+[32m+[m[32m            bool found;[m
+[32m+[m[32m            BlockValidationState state;[m
+[32m+[m
+[32m+[m[32m            explicit submitblock_StateCatcher(const uint256& hashIn) : hash(hashIn), found(false), state() {}[m
+[32m+[m
+[32m+[m[32m        protected:[m
+[32m+[m[32m            void BlockChecked(const CBlock& block, const BlockValidationState& stateIn) override[m
+[32m+[m[32m            {[m
+[32m+[m[32m                if (block.GetHash() != hash)[m
+[32m+[m[32m                    return;[m
+[32m+[m[32m                found = true;[m
+[32m+[m[32m                state = stateIn;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        };[m
+[32m+[m
+[32m+[m[32m        bool new_block;[m
+[32m+[m[32m        auto sc = std::make_shared<submitblock_StateCatcher>(block.GetHash());[m
+[32m+[m[32m        RegisterSharedValidationInterface(sc);[m
+[32m+[m[32m        bool accepted = chainman.ProcessNewBlock(chainparams, blockptr, /* force_processing */ true, /* new_block */ &new_block);[m
+[32m+[m[32m        UnregisterSharedValidationInterface(sc);[m
+[32m+[m[32m        if (!new_block && accepted) {[m
+[32m+[m[32m            std::cerr << "duplicate" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if (!sc->found) {[m
+[32m+[m[32m            std::cerr << "inconclusive" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        std::cout << sc->state.ToString() << std::endl;[m
+[32m+[m[32m        switch (sc->state.GetResult()) {[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_RESULT_UNSET:[m
+[32m+[m[32m            std::cerr << "initial value. Block has not yet been rejected" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_CONSENSUS:[m
+[32m+[m[32m            std::cerr << "invalid by consensus rules (excluding any below reasons)" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_RECENT_CONSENSUS_CHANGE:[m
+[32m+[m[32m            std::cerr << "Invalid by a change to consensus rules more recent than SegWit." << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_CACHED_INVALID:[m
+[32m+[m[32m            std::cerr << "this block was cached as being invalid and we didn't store the reason why" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_INVALID_HEADER:[m
+[32m+[m[32m            std::cerr << "invalid proof of work or time too old" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_MUTATED:[m
+[32m+[m[32m            std::cerr << "the block's data didn't match the data committed to by the PoW" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_MISSING_PREV:[m
+[32m+[m[32m            std::cerr << "We don't have the previous block the checked one is built on" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_INVALID_PREV:[m
+[32m+[m[32m            std::cerr << "A block this one builds on is invalid" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_TIME_FUTURE:[m
+[32m+[m[32m            std::cerr << "block timestamp was > 2 hours in the future (or our clock is bad)" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        case BlockValidationResult::BLOCK_CHECKPOINT:[m
+[32m+[m[32m            std::cerr << "the block failed to meet one of our checkpoints" << std::endl;[m
+[32m+[m[32m            break;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32mepilogue:[m
+[32m+[m[32m    // Without this precise shutdown sequence, there will be a lot of nullptr[m
+[32m+[m[32m    // dereferencing and UB.[m
+[32m+[m[32m    scheduler.stop();[m
+[32m+[m[32m    if (chainman.m_load_block.joinable()) chainman.m_load_block.join();[m
+[32m+[m[32m    StopScriptCheckWorkerThreads();[m
+[32m+[m
+[32m+[m[32m    GetMainSignals().FlushBackgroundCallbacks();[m
+[32m+[m[32m    {[m
+[32m+[m[32m        LOCK(cs_main);[m
+[32m+[m[32m        for (CChainState* chainstate : chainman.GetAll()) {[m
+[32m+[m[32m            if (chainstate->CanFlushToDisk()) {[m
+[32m+[m[32m                chainstate->ForceFlushStateToDisk();[m
+[32m+[m[32m                chainstate->ResetCoinsViews();[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m    GetMainSignals().UnregisterBackgroundSignalScheduler();[m
+[32m+[m
+[32m+[m[32m    UnloadBlockIndex(nullptr, chainman);[m
+[32m+[m
+[32m+[m[32m    init::UnsetGlobals();[m
+[32m+[m[32m}[m

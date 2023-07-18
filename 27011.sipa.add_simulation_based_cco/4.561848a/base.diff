@@ -1,0 +1,613 @@
+[33mdiff --git a/src/Makefile.test.include b/src/Makefile.test.include[m
+[33mindex 4d867fdc2f..d6992640ff 100644[m
+[33m--- a/src/Makefile.test.include[m
+[33m+++ b/src/Makefile.test.include[m
+[36m@@ -248,6 +248,7 @@[m [mtest_fuzz_fuzz_SOURCES = \[m
+  test/fuzz/chain.cpp \[m
+  test/fuzz/checkqueue.cpp \[m
+  test/fuzz/coins_view.cpp \[m
+[32m+[m[32m test/fuzz/coinscache_sim.cpp \[m
+  test/fuzz/connman.cpp \[m
+  test/fuzz/crypto.cpp \[m
+  test/fuzz/crypto_aes256.cpp \[m
+[33mdiff --git a/src/coins.cpp b/src/coins.cpp[m
+[33mindex e98bf816ab..5a6ae525a7 100644[m
+[33m--- a/src/coins.cpp[m
+[33m+++ b/src/coins.cpp[m
+[36m@@ -32,7 +32,10 @@[m [mbool CCoinsViewBacked::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock,[m
+ std::unique_ptr<CCoinsViewCursor> CCoinsViewBacked::Cursor() const { return base->Cursor(); }[m
+ size_t CCoinsViewBacked::EstimateSize() const { return base->EstimateSize(); }[m
+ [m
+[31m-CCoinsViewCache::CCoinsViewCache(CCoinsView* baseIn) : CCoinsViewBacked(baseIn) {}[m
+[32m+[m[32mCCoinsViewCache::CCoinsViewCache(CCoinsView* baseIn, bool deterministic) :[m
+[32m+[m[32m    CCoinsViewBacked(baseIn), m_deterministic(deterministic),[m
+[32m+[m[32m    cacheCoins(0, SaltedOutpointHasher(/*deterministic=*/deterministic))[m
+[32m+[m[32m{}[m
+ [m
+ size_t CCoinsViewCache::DynamicMemoryUsage() const {[m
+     return memusage::DynamicUsage(cacheCoins) + cachedCoinsUsage;[m
+[36m@@ -311,7 +314,24 @@[m [mvoid CCoinsViewCache::ReallocateCache()[m
+     // Cache should be empty when we're calling this.[m
+     assert(cacheCoins.size() == 0);[m
+     cacheCoins.~CCoinsMap();[m
+[31m-    ::new (&cacheCoins) CCoinsMap();[m
+[32m+[m[32m    ::new (&cacheCoins) CCoinsMap(0, SaltedOutpointHasher(/*deterministic=*/m_deterministic));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid CCoinsViewCache::SanityCheck() const[m
+[32m+[m[32m{[m
+[32m+[m[32m    size_t recomputed_usage = 0;[m
+[32m+[m[32m    for (const auto& [_, entry] : cacheCoins) {[m
+[32m+[m[32m        unsigned attr = 0;[m
+[32m+[m[32m        if (entry.flags & CCoinsCacheEntry::DIRTY) attr |= 1;[m
+[32m+[m[32m        if (entry.flags & CCoinsCacheEntry::FRESH) attr |= 2;[m
+[32m+[m[32m        if (entry.coin.IsSpent()) attr |= 4;[m
+[32m+[m[32m        // Only 5 combinations are possible.[m
+[32m+[m[32m        assert(attr != 2 && attr != 4 && attr != 7);[m
+[32m+[m
+[32m+[m[32m        // Recompute cachedCoinsUsage.[m
+[32m+[m[32m        recomputed_usage += entry.coin.DynamicMemoryUsage();[m
+[32m+[m[32m    }[m
+[32m+[m[32m    assert(recomputed_usage == cachedCoinsUsage);[m
+ }[m
+ [m
+ static const size_t MIN_TRANSACTION_OUTPUT_WEIGHT = WITNESS_SCALE_FACTOR * ::GetSerializeSize(CTxOut(), PROTOCOL_VERSION);[m
+[33mdiff --git a/src/coins.h b/src/coins.h[m
+[33mindex 710b8c7c83..dd336b210a 100644[m
+[33m--- a/src/coins.h[m
+[33m+++ b/src/coins.h[m
+[36m@@ -211,6 +211,9 @@[m [mpublic:[m
+ /** CCoinsView that adds a memory cache for transactions to another CCoinsView */[m
+ class CCoinsViewCache : public CCoinsViewBacked[m
+ {[m
+[32m+[m[32mprivate:[m
+[32m+[m[32m    const bool m_deterministic;[m
+[32m+[m
+ protected:[m
+     /**[m
+      * Make mutable so that we can "fill the cache" even from Get-methods[m
+[36m@@ -223,7 +226,7 @@[m [mprotected:[m
+     mutable size_t cachedCoinsUsage{0};[m
+ [m
+ public:[m
+[31m-    CCoinsViewCache(CCoinsView *baseIn);[m
+[32m+[m[32m    CCoinsViewCache(CCoinsView *baseIn, bool deterministic = false);[m
+ [m
+     /**[m
+      * By deleting the copy constructor, we prevent accidentally using it when one intends to create a cache on top of a base cache.[m
+[36m@@ -320,6 +323,9 @@[m [mpublic:[m
+     //! See: https://stackoverflow.com/questions/42114044/how-to-release-unordered-map-memory[m
+     void ReallocateCache();[m
+ [m
+[32m+[m[32m    //! Run an internal sanity check on the cache data structure. */[m
+[32m+[m[32m    void SanityCheck() const;[m
+[32m+[m
+ private:[m
+     /**[m
+      * @note this is marked const, but may actually append to `cacheCoins`, increasing[m
+[33mdiff --git a/src/test/fuzz/coins_view.cpp b/src/test/fuzz/coins_view.cpp[m
+[33mindex e75dc3ce91..e80c772aa4 100644[m
+[33m--- a/src/test/fuzz/coins_view.cpp[m
+[33m+++ b/src/test/fuzz/coins_view.cpp[m
+[36m@@ -46,7 +46,7 @@[m [mFUZZ_TARGET_INIT(coins_view, initialize_coins_view)[m
+ {[m
+     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};[m
+     CCoinsView backend_coins_view;[m
+[31m-    CCoinsViewCache coins_view_cache{&backend_coins_view};[m
+[32m+[m[32m    CCoinsViewCache coins_view_cache{&backend_coins_view, /*deterministic=*/true};[m
+     COutPoint random_out_point;[m
+     Coin random_coin;[m
+     CMutableTransaction random_mutable_transaction;[m
+[33mdiff --git a/src/test/fuzz/coinscache_sim.cpp b/src/test/fuzz/coinscache_sim.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..f350c9d032[m
+[33m--- /dev/null[m
+[33m+++ b/src/test/fuzz/coinscache_sim.cpp[m
+[36m@@ -0,0 +1,478 @@[m
+[32m+[m[32m// Copyright (c) 2023 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <coins.h>[m
+[32m+[m[32m#include <crypto/sha256.h>[m
+[32m+[m[32m#include <primitives/transaction.h>[m
+[32m+[m[32m#include <test/fuzz/fuzz.h>[m
+[32m+[m[32m#include <test/fuzz/FuzzedDataProvider.h>[m
+[32m+[m[32m#include <test/fuzz/util.h>[m
+[32m+[m
+[32m+[m[32m#include <assert.h>[m
+[32m+[m[32m#include <optional>[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <stdint.h>[m
+[32m+[m[32m#include <vector>[m
+[32m+[m
+[32m+[m[32mnamespace {[m
+[32m+[m
+[32m+[m[32m/** Number of distinct COutPoint values used in this test. */[m
+[32m+[m[32mconstexpr uint32_t NUM_OUTPOINTS = 256;[m
+[32m+[m[32m/** Number of distinct Coin values used in this test (ignoring nHeight). */[m
+[32m+[m[32mconstexpr uint32_t NUM_COINS = 256;[m
+[32m+[m[32m/** Maximum number CCoinsViewCache objects used in this test. */[m
+[32m+[m[32mconstexpr uint32_t MAX_CACHES = 4;[m
+[32m+[m[32m/** Data type large enough to hold NUM_COINS-1. */[m
+[32m+[m[32musing coinidx_type = uint8_t;[m
+[32m+[m
+[32m+[m[32mstruct PrecomputedData[m
+[32m+[m[32m{[m
+[32m+[m[32m    //! Randomly generated COutPoint values.[m
+[32m+[m[32m    COutPoint outpoints[NUM_OUTPOINTS];[m
+[32m+[m
+[32m+[m[32m    //! Randomly generated Coin values.[m
+[32m+[m[32m    Coin coins[NUM_COINS];[m
+[32m+[m
+[32m+[m[32m    PrecomputedData()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        static const uint8_t PREFIX_O[1] = {'o'}; /** Hash prefix for outpoint hashes. */[m
+[32m+[m[32m        static const uint8_t PREFIX_S[1] = {'s'}; /** Hash prefix for coins scriptPubKeys. */[m
+[32m+[m[32m        static const uint8_t PREFIX_M[1] = {'m'}; /** Hash prefix for coins nValue/fCoinBase. */[m
+[32m+[m
+[32m+[m[32m        for (uint32_t i = 0; i < NUM_OUTPOINTS; ++i) {[m
+[32m+[m[32m            uint32_t idx = (i * 1200U) >> 12; /* Map 3 or 4 entries to same txid. */[m
+[32m+[m[32m            const uint8_t ser[4] = {uint8_t(idx), uint8_t(idx >> 8), uint8_t(idx >> 16), uint8_t(idx >> 24)};[m
+[32m+[m[32m            CSHA256().Write(PREFIX_O, 1).Write(ser, sizeof(ser)).Finalize(outpoints[i].hash.begin());[m
+[32m+[m[32m            outpoints[i].n = i;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        for (uint32_t i = 0; i < NUM_COINS; ++i) {[m
+[32m+[m[32m            const uint8_t ser[4] = {uint8_t(i), uint8_t(i >> 8), uint8_t(i >> 16), uint8_t(i >> 24)};[m
+[32m+[m[32m            uint256 hash;[m
+[32m+[m[32m            CSHA256().Write(PREFIX_S, 1).Write(ser, sizeof(ser)).Finalize(hash.begin());[m
+[32m+[m[32m            /* Convert hash to scriptPubkeys (of different lengths, so SanityCheck's cached memory[m
+[32m+[m[32m             * usage check has a chance to detect mismatches). */[m
+[32m+[m[32m            switch (i % 5U) {[m
+[32m+[m[32m            case 0: /* P2PKH */[m
+[32m+[m[32m                coins[i].out.scriptPubKey.resize(25);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[0] = OP_DUP;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[1] = OP_HASH160;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[2] = 20;[m
+[32m+[m[32m                std::copy(hash.begin(), hash.begin() + 20, coins[i].out.scriptPubKey.begin() + 3);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[23] = OP_EQUALVERIFY;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[24] = OP_CHECKSIG;[m
+[32m+[m[32m                break;[m
+[32m+[m[32m            case 1: /* P2SH */[m
+[32m+[m[32m                coins[i].out.scriptPubKey.resize(23);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[0] = OP_HASH160;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[1] = 20;[m
+[32m+[m[32m                std::copy(hash.begin(), hash.begin() + 20, coins[i].out.scriptPubKey.begin() + 2);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[12] = OP_EQUAL;[m
+[32m+[m[32m                break;[m
+[32m+[m[32m            case 2: /* P2WPKH */[m
+[32m+[m[32m                coins[i].out.scriptPubKey.resize(22);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[0] = OP_0;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[1] = 20;[m
+[32m+[m[32m                std::copy(hash.begin(), hash.begin() + 20, coins[i].out.scriptPubKey.begin() + 2);[m
+[32m+[m[32m                break;[m
+[32m+[m[32m            case 3: /* P2WSH */[m
+[32m+[m[32m                coins[i].out.scriptPubKey.resize(34);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[0] = OP_0;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[1] = 32;[m
+[32m+[m[32m                std::copy(hash.begin(), hash.begin() + 32, coins[i].out.scriptPubKey.begin() + 2);[m
+[32m+[m[32m                break;[m
+[32m+[m[32m            case 4: /* P2TR */[m
+[32m+[m[32m                coins[i].out.scriptPubKey.resize(34);[m
+[32m+[m[32m                coins[i].out.scriptPubKey[0] = OP_1;[m
+[32m+[m[32m                coins[i].out.scriptPubKey[1] = 32;[m
+[32m+[m[32m                std::copy(hash.begin(), hash.begin() + 32, coins[i].out.scriptPubKey.begin() + 2);[m
+[32m+[m[32m                break;[m
+[32m+[m[32m            }[m
+[32m+[m[32m            /* Hash again to construct nValue and fCoinBase. */[m
+[32m+[m[32m            CSHA256().Write(PREFIX_M, 1).Write(ser, sizeof(ser)).Finalize(hash.begin());[m
+[32m+[m[32m            coins[i].out.nValue = CAmount(hash.GetUint64(0) % MAX_MONEY);[m
+[32m+[m[32m            coins[i].fCoinBase = (hash.GetUint64(1) & 7) == 0;[m
+[32m+[m[32m            coins[i].nHeight = 0; /* Real nHeight used in simulation is set dynamically. */[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32menum class EntryType : uint8_t[m
+[32m+[m[32m{[m
+[32m+[m[32m    /* This entry in the cache does not exist (so we'd have to look in the parent cache). */[m
+[32m+[m[32m    NONE,[m
+[32m+[m
+[32m+[m[32m    /* This entry in the cache corresponds to an unspent coin. */[m
+[32m+[m[32m    UNSPENT,[m
+[32m+[m
+[32m+[m[32m    /* This entry in the cache corresponds to a spent coin. */[m
+[32m+[m[32m    SPENT,[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mstruct CacheEntry[m
+[32m+[m[32m{[m
+[32m+[m[32m    /* Type of entry. */[m
+[32m+[m[32m    EntryType entrytype;[m
+[32m+[m
+[32m+[m[32m    /* Index in the coins array this entry corresponds to (only if entrytype == UNSPENT). */[m
+[32m+[m[32m    coinidx_type coinidx;[m
+[32m+[m
+[32m+[m[32m    /* nHeight value for this entry (so the coins[coinidx].nHeight value is ignored; only if entrytype == UNSPENT). */[m
+[32m+[m[32m    uint32_t height;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mstruct CacheLevel[m
+[32m+[m[32m{[m
+[32m+[m[32m    CacheEntry entry[NUM_OUTPOINTS];[m
+[32m+[m
+[32m+[m[32m    void Wipe() {[m
+[32m+[m[32m        for (uint32_t i = 0; i < NUM_OUTPOINTS; ++i) {[m
+[32m+[m[32m            entry[i].entrytype = EntryType::NONE;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m/** Class for the base of the hierarchy (roughly simulating a memory-backed CCoinsViewDB).[m
+[32m+[m[32m *[m
+[32m+[m[32m * The initial state consists of the empty UTXO set, though coins whose output index[m
+[32m+[m[32m * is 3 (mod 5) always have GetCoin() succeed (but returning an IsSpent() coin unless a UTXO[m
+[32m+[m[32m * exists). Coins whose output index is 4 (mod 5) have GetCoin() always succeed after being spent.[m
+[32m+[m[32m * This exercises code paths with spent, non-DIRTY cache entries.[m
+[32m+[m[32m */[m
+[32m+[m[32mclass CoinsViewBottom final : public CCoinsView[m
+[32m+[m[32m{[m
+[32m+[m[32m    std::map<COutPoint, Coin> m_data;[m
+[32m+[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    bool GetCoin(const COutPoint& outpoint, Coin& coin) const final[m
+[32m+[m[32m    {[m
+[32m+[m[32m        auto it = m_data.find(outpoint);[m
+[32m+[m[32m        if (it == m_data.end()) {[m
+[32m+[m[32m            if ((outpoint.n % 5) == 3) {[m
+[32m+[m[32m                coin.Clear();[m
+[32m+[m[32m                return true;[m
+[32m+[m[32m            }[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            coin = it->second;[m
+[32m+[m[32m            return true;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    bool HaveCoin(const COutPoint& outpoint) const final[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return m_data.count(outpoint);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    uint256 GetBestBlock() const final { return {}; }[m
+[32m+[m[32m    std::vector<uint256> GetHeadBlocks() const final { return {}; }[m
+[32m+[m[32m    std::unique_ptr<CCoinsViewCursor> Cursor() const final { return {}; }[m
+[32m+[m[32m    size_t EstimateSize() const final { return m_data.size(); }[m
+[32m+[m
+[32m+[m[32m    bool BatchWrite(CCoinsMap& data, const uint256&, bool erase) final[m
+[32m+[m[32m    {[m
+[32m+[m[32m        for (auto it = data.begin(); it != data.end(); it = erase ? data.erase(it) : std::next(it)) {[m
+[32m+[m[32m            if (it->second.flags & CCoinsCacheEntry::DIRTY) {[m
+[32m+[m[32m                if (it->second.coin.IsSpent() && (it->first.n % 5) != 4) {[m
+[32m+[m[32m                    m_data.erase(it->first);[m
+[32m+[m[32m                } else if (erase) {[m
+[32m+[m[32m                    m_data[it->first] = std::move(it->second.coin);[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    m_data[it->first] = it->second.coin;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                /* For non-dirty entries being written, compare them with what we have. */[m
+[32m+[m[32m                auto it2 = m_data.find(it->first);[m
+[32m+[m[32m                if (it->second.coin.IsSpent()) {[m
+[32m+[m[32m                    assert(it2 == m_data.end() || it2->second.IsSpent());[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    assert(it2 != m_data.end());[m
+[32m+[m[32m                    assert(it->second.coin.out == it2->second.out);[m
+[32m+[m[32m                    assert(it->second.coin.fCoinBase == it2->second.fCoinBase);[m
+[32m+[m[32m                    assert(it->second.coin.nHeight == it2->second.nHeight);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return true;[m
+[32m+[m[32m    }[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m} // namespace[m
+[32m+[m
+[32m+[m[32mFUZZ_TARGET(coinscache_sim)[m
+[32m+[m[32m{[m
+[32m+[m[32m    /** Precomputed COutPoint and CCoins values. */[m
+[32m+[m[32m    static const PrecomputedData data;[m
+[32m+[m
+[32m+[m[32m    /** Dummy coinsview instance (base of the hierarchy). */[m
+[32m+[m[32m    CoinsViewBottom bottom;[m
+[32m+[m[32m    /** Real CCoinsViewCache objects. */[m
+[32m+[m[32m    std::vector<std::unique_ptr<CCoinsViewCache>> caches;[m
+[32m+[m[32m    /** Simulated cache data (sim_caches[0] matches bottom, sim_caches[i+1] matches caches[i]). */[m
+[32m+[m[32m    CacheLevel sim_caches[MAX_CACHES + 1];[m
+[32m+[m[32m    /** Current height in the simulation. */[m
+[32m+[m[32m    uint32_t current_height = 1U;[m
+[32m+[m
+[32m+[m[32m    // Initialize bottom simulated cache.[m
+[32m+[m[32m    sim_caches[0].Wipe();[m
+[32m+[m
+[32m+[m[32m    /** Helper lookup function in the simulated cache stack. */[m
+[32m+[m[32m    auto lookup = [&](uint32_t outpointidx, int sim_idx = -1) -> std::optional<std::pair<coinidx_type, uint32_t>> {[m
+[32m+[m[32m        uint32_t cache_idx = sim_idx == -1 ? caches.size() : sim_idx;[m
+[32m+[m[32m        while (true) {[m
+[32m+[m[32m            const auto& entry = sim_caches[cache_idx].entry[outpointidx];[m
+[32m+[m[32m            if (entry.entrytype == EntryType::UNSPENT) {[m
+[32m+[m[32m                return {{entry.coinidx, entry.height}};[m
+[32m+[m[32m            } else if (entry.entrytype == EntryType::SPENT) {[m
+[32m+[m[32m                return std::nullopt;[m
+[32m+[m[32m            };[m
+[32m+[m[32m            if (cache_idx == 0) break;[m
+[32m+[m[32m            --cache_idx;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return std::nullopt;[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    /** Flush changes in top cache to the one below. */[m
+[32m+[m[32m    auto flush = [&]() {[m
+[32m+[m[32m        assert(caches.size() >= 1);[m
+[32m+[m[32m        auto& cache = sim_caches[caches.size()];[m
+[32m+[m[32m        auto& prev_cache = sim_caches[caches.size() - 1];[m
+[32m+[m[32m        for (uint32_t outpointidx = 0; outpointidx < NUM_OUTPOINTS; ++outpointidx) {[m
+[32m+[m[32m            if (cache.entry[outpointidx].entrytype != EntryType::NONE) {[m
+[32m+[m[32m                prev_cache.entry[outpointidx] = cache.entry[outpointidx];[m
+[32m+[m[32m                cache.entry[outpointidx].entrytype = EntryType::NONE;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    // Main simulation loop: read commands from the fuzzer input, and apply them[m
+[32m+[m[32m    // to both the real cache stack and the simulation.[m
+[32m+[m[32m    FuzzedDataProvider provider(buffer.data(), buffer.size());[m
+[32m+[m[32m    LIMITED_WHILE(provider.remaining_bytes(), 10000) {[m
+[32m+[m[32m        // Every operation (except "Change height") moves current height forward,[m
+[32m+[m[32m        // so it functions as a kind of epoch, making ~all UTXOs unique.[m
+[32m+[m[32m        ++current_height;[m
+[32m+[m[32m        // Make sure there is always at least one CCoinsViewCache.[m
+[32m+[m[32m        if (caches.empty()) {[m
+[32m+[m[32m            caches.emplace_back(new CCoinsViewCache(&bottom, /*deterministic=*/true));[m
+[32m+[m[32m            sim_caches[caches.size()].Wipe();[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Execute command.[m
+[32m+[m[32m        CallOneOf([m
+[32m+[m[32m            provider,[m
+[32m+[m
+[32m+[m[32m            [&]() { // GetCoin[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Look up in simulation data.[m
+[32m+[m[32m                auto sim = lookup(outpointidx);[m
+[32m+[m[32m                // Look up in real caches.[m
+[32m+[m[32m                Coin realcoin;[m
+[32m+[m[32m                auto real = caches.back()->GetCoin(data.outpoints[outpointidx], realcoin);[m
+[32m+[m[32m                // Compare results.[m
+[32m+[m[32m                if (!sim.has_value()) {[m
+[32m+[m[32m                    assert(!real || realcoin.IsSpent());[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    assert(real && !realcoin.IsSpent());[m
+[32m+[m[32m                    const auto& simcoin = data.coins[sim->first];[m
+[32m+[m[32m                    assert(realcoin.out == simcoin.out);[m
+[32m+[m[32m                    assert(realcoin.fCoinBase == simcoin.fCoinBase);[m
+[32m+[m[32m                    assert(realcoin.nHeight == sim->second);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // HaveCoin[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Look up in simulation data.[m
+[32m+[m[32m                auto sim = lookup(outpointidx);[m
+[32m+[m[32m                // Look up in real caches.[m
+[32m+[m[32m                auto real = caches.back()->HaveCoin(data.outpoints[outpointidx]);[m
+[32m+[m[32m                // Compare results.[m
+[32m+[m[32m                assert(sim.has_value() == real);[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // HaveCoinInCache[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Invoke on real cache (there is no equivalent in simulation, so nothing to compare result with).[m
+[32m+[m[32m                (void)caches.back()->HaveCoinInCache(data.outpoints[outpointidx]);[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // AccessCoin[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Look up in simulation data.[m
+[32m+[m[32m                auto sim = lookup(outpointidx);[m
+[32m+[m[32m                // Look up in real caches.[m
+[32m+[m[32m                const auto& realcoin = caches.back()->AccessCoin(data.outpoints[outpointidx]);[m
+[32m+[m[32m                // Compare results.[m
+[32m+[m[32m                if (!sim.has_value()) {[m
+[32m+[m[32m                    assert(realcoin.IsSpent());[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    assert(!realcoin.IsSpent());[m
+[32m+[m[32m                    const auto& simcoin = data.coins[sim->first];[m
+[32m+[m[32m                    assert(simcoin.out == realcoin.out);[m
+[32m+[m[32m                    assert(simcoin.fCoinBase == realcoin.fCoinBase);[m
+[32m+[m[32m                    assert(realcoin.nHeight == sim->second);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // AddCoin (only possible_overwrite if necessary)[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                uint32_t coinidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_COINS - 1);[m
+[32m+[m[32m                // Look up in simulation data (to know whether we must set possible_overwrite or not).[m
+[32m+[m[32m                auto sim = lookup(outpointidx);[m
+[32m+[m[32m                // Invoke on real caches.[m
+[32m+[m[32m                Coin coin = data.coins[coinidx];[m
+[32m+[m[32m                coin.nHeight = current_height;[m
+[32m+[m[32m                caches.back()->AddCoin(data.outpoints[outpointidx], std::move(coin), sim.has_value());[m
+[32m+[m[32m                // Apply to simulation data.[m
+[32m+[m[32m                auto& entry = sim_caches[caches.size()].entry[outpointidx];[m
+[32m+[m[32m                entry.entrytype = EntryType::UNSPENT;[m
+[32m+[m[32m                entry.coinidx = coinidx;[m
+[32m+[m[32m                entry.height = current_height;[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // AddCoin (always possible_overwrite)[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                uint32_t coinidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_COINS - 1);[m
+[32m+[m[32m                // Invoke on real caches.[m
+[32m+[m[32m                Coin coin = data.coins[coinidx];[m
+[32m+[m[32m                coin.nHeight = current_height;[m
+[32m+[m[32m                caches.back()->AddCoin(data.outpoints[outpointidx], std::move(coin), true);[m
+[32m+[m[32m                // Apply to simulation data.[m
+[32m+[m[32m                auto& entry = sim_caches[caches.size()].entry[outpointidx];[m
+[32m+[m[32m                entry.entrytype = EntryType::UNSPENT;[m
+[32m+[m[32m                entry.coinidx = coinidx;[m
+[32m+[m[32m                entry.height = current_height;[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // SpendCoin (moveto = nullptr)[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Invoke on real caches.[m
+[32m+[m[32m                caches.back()->SpendCoin(data.outpoints[outpointidx], nullptr);[m
+[32m+[m[32m                // Apply to simulation data.[m
+[32m+[m[32m                sim_caches[caches.size()].entry[outpointidx].entrytype = EntryType::SPENT;[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // SpendCoin (with moveto)[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Look up in simulation data (to compare the returned *moveto with).[m
+[32m+[m[32m                auto sim = lookup(outpointidx);[m
+[32m+[m[32m                // Invoke on real caches.[m
+[32m+[m[32m                Coin realcoin;[m
+[32m+[m[32m                caches.back()->SpendCoin(data.outpoints[outpointidx], &realcoin);[m
+[32m+[m[32m                // Apply to simulation data.[m
+[32m+[m[32m                sim_caches[caches.size()].entry[outpointidx].entrytype = EntryType::SPENT;[m
+[32m+[m[32m                // Compare *moveto with the value expected based on simulation data.[m
+[32m+[m[32m                if (!sim.has_value()) {[m
+[32m+[m[32m                    assert(realcoin.IsSpent());[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    assert(!realcoin.IsSpent());[m
+[32m+[m[32m                    const auto& simcoin = data.coins[sim->first];[m
+[32m+[m[32m                    assert(simcoin.out == realcoin.out);[m
+[32m+[m[32m                    assert(simcoin.fCoinBase == realcoin.fCoinBase);[m
+[32m+[m[32m                    assert(realcoin.nHeight == sim->second);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Uncache[m
+[32m+[m[32m                uint32_t outpointidx = provider.ConsumeIntegralInRange<uint32_t>(0, NUM_OUTPOINTS - 1);[m
+[32m+[m[32m                // Apply to real caches (there is no equivalent in our simulation).[m
+[32m+[m[32m                caches.back()->Uncache(data.outpoints[outpointidx]);[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Add a cache level (if not already at the max).[m
+[32m+[m[32m                if (caches.size() != MAX_CACHES) {[m
+[32m+[m[32m                    // Apply to real caches.[m
+[32m+[m[32m                    caches.emplace_back(new CCoinsViewCache(&*caches.back(), /*deterministic=*/true));[m
+[32m+[m[32m                    // Apply to simulation data.[m
+[32m+[m[32m                    sim_caches[caches.size()].Wipe();[m
+[32m+[m[32m                }[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Remove a cache level.[m
+[32m+[m[32m                // Apply to real caches (this reduces caches.size(), implicitly doing the same on the simulation data).[m
+[32m+[m[32m                caches.back()->SanityCheck();[m
+[32m+[m[32m                caches.pop_back();[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Flush.[m
+[32m+[m[32m                // Apply to simulation data.[m
+[32m+[m[32m                flush();[m
+[32m+[m[32m                // Apply to real caches.[m
+[32m+[m[32m                caches.back()->Flush();[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Sync.[m
+[32m+[m[32m                // Apply to simulation data (note that in our simulation, syncing and flushing is the same thing).[m
+[32m+[m[32m                flush();[m
+[32m+[m[32m                // Apply to real caches.[m
+[32m+[m[32m                caches.back()->Sync();[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Flush + ReallocateCache.[m
+[32m+[m[32m                // Apply to simulation data.[m
+[32m+[m[32m                flush();[m
+[32m+[m[32m                // Apply to real caches.[m
+[32m+[m[32m                caches.back()->Flush();[m
+[32m+[m[32m                caches.back()->ReallocateCache();[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // GetCacheSize[m
+[32m+[m[32m                (void)caches.back()->GetCacheSize();[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // DynamicMemoryUsage[m
+[32m+[m[32m                (void)caches.back()->DynamicMemoryUsage();[m
+[32m+[m[32m            },[m
+[32m+[m
+[32m+[m[32m            [&]() { // Change height[m
+[32m+[m[32m                current_height = provider.ConsumeIntegralInRange<uint32_t>(1, current_height - 1);[m
+[32m+[m[32m            }[m
+[32m+[m[32m        );[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Sanity check all the remaining caches[m
+[32m+[m[32m    for (const auto& cache : caches) {[m
+[32m+[m[32m        cache->SanityCheck();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Full comparison between caches and simulation data, from bottom to top,[m
+[32m+[m[32m    // as AccessCoin on a higher cache may affect caches below it.[m
+[32m+[m[32m    for (unsigned sim_idx = 1; sim_idx <= caches.size(); ++sim_idx) {[m
+[32m+[m[32m        auto& cache = *caches[sim_idx - 1];[m
+[32m+[m[32m        size_t cache_size = 0;[m
+[32m+[m
+[32m+[m[32m        for (uint32_t outpointidx = 0; outpointidx < NUM_OUTPOINTS; ++outpointidx) {[m
+[32m+[m[32m            cache_size += cache.HaveCoinInCache(data.outpoints[outpointidx]);[m
+[32m+[m[32m            const auto& real = cache.AccessCoin(data.outpoints[outpointidx]);[m
+[32m+[m[32m            auto sim = lookup(outpointidx, sim_idx);[m
+[32m+[m[32m            if (!sim.has_value()) {[m
+[32m+[m[32m                assert(real.IsSpent());[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                assert(!real.IsSpent());[m
+[32m+[m[32m                assert(real.out == data.coins[sim->first].out);[m
+[32m+[m[32m                assert(real.fCoinBase == data.coins[sim->first].fCoinBase);[m
+[32m+[m[32m                assert(real.nHeight == sim->second);[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // HaveCoinInCache ignores spent coins, so GetCacheSize() may exceed it. */[m
+[32m+[m[32m        assert(cache.GetCacheSize() >= cache_size);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Compare the bottom coinsview (not a CCoinsViewCache) with sim_cache[0].[m
+[32m+[m[32m    for (uint32_t outpointidx = 0; outpointidx < NUM_OUTPOINTS; ++outpointidx) {[m
+[32m+[m[32m        Coin realcoin;[m
+[32m+[m[32m        bool real = bottom.GetCoin(data.outpoints[outpointidx], realcoin);[m
+[32m+[m[32m        auto sim = lookup(outpointidx, 0);[m
+[32m+[m[32m        if (!sim.has_value()) {[m
+[32m+[m[32m            assert(!real || realcoin.IsSpent());[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            assert(real && !realcoin.IsSpent());[m
+[32m+[m[32m            assert(realcoin.out == data.coins[sim->first].out);[m
+[32m+[m[32m            assert(realcoin.fCoinBase == data.coins[sim->first].fCoinBase);[m
+[32m+[m[32m            assert(realcoin.nHeight == sim->second);[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/util/hasher.cpp b/src/util/hasher.cpp[m
+[33mindex a3a3f7a429..81e9b990e1 100644[m
+[33m--- a/src/util/hasher.cpp[m
+[33m+++ b/src/util/hasher.cpp[m
+[36m@@ -9,7 +9,10 @@[m
+ [m
+ SaltedTxidHasher::SaltedTxidHasher() : k0(GetRand<uint64_t>()), k1(GetRand<uint64_t>()) {}[m
+ [m
+[31m-SaltedOutpointHasher::SaltedOutpointHasher() : k0(GetRand<uint64_t>()), k1(GetRand<uint64_t>()) {}[m
+[32m+[m[32mSaltedOutpointHasher::SaltedOutpointHasher(bool deterministic) :[m
+[32m+[m[32m    k0(deterministic ? 0x8e819f2607a18de6 : GetRand<uint64_t>()),[m
+[32m+[m[32m    k1(deterministic ? 0xf4020d2e3983b0eb : GetRand<uint64_t>())[m
+[32m+[m[32m{}[m
+ [m
+ SaltedSipHasher::SaltedSipHasher() : m_k0(GetRand<uint64_t>()), m_k1(GetRand<uint64_t>()) {}[m
+ [m
+[33mdiff --git a/src/util/hasher.h b/src/util/hasher.h[m
+[33mindex 82d278b086..506ae9415d 100644[m
+[33m--- a/src/util/hasher.h[m
+[33m+++ b/src/util/hasher.h[m
+[36m@@ -36,7 +36,7 @@[m [mprivate:[m
+     const uint64_t k0, k1;[m
+ [m
+ public:[m
+[31m-    SaltedOutpointHasher();[m
+[32m+[m[32m    SaltedOutpointHasher(bool deterministic = false);[m
+ [m
+     /**[m
+      * Having the hash noexcept allows libstdc++'s unordered_map to recalculate[m

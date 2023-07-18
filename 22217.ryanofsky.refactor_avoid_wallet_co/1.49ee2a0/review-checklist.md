@@ -1,0 +1,1 @@
+- [ ] 49ee2a0ad8 Avoid wallet code writing node settings file

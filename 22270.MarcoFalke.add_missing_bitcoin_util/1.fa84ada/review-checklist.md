@@ -1,0 +1,6 @@
+- [ ] fabbacd9f test: Add bitcoin-util tests
+- [ ] fafb05021 Remove unused includes from bitcoin-util
+- [ ] faac11b1e Remove unused else in bitcoin-util
+- [ ] fa0f25673 Remove unused OptionsCategory arg from AddCommand
+- [ ] fabba5010 Remove gArgs from AppInitUtil
+- [ ] fa84adab8 Use ArgsManager::GetCommand in bitcoin-util

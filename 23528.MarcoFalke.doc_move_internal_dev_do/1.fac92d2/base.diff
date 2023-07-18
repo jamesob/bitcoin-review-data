@@ -1,0 +1,368 @@
+[33mdiff --git a/.github/PULL_REQUEST_TEMPLATE.md b/.github/PULL_REQUEST_TEMPLATE.md[m
+[33mindex ae92fc78f2..065b84c010 100644[m
+[33m--- a/.github/PULL_REQUEST_TEMPLATE.md[m
+[33m+++ b/.github/PULL_REQUEST_TEMPLATE.md[m
+[36m@@ -31,7 +31,7 @@[m [msignificantly:[m
+   are useful, what downsides they have and why they *significantly* improve[m
+   developer experience or avoid serious programming bugs. Note that code style[m
+   is often a subjective matter. Unless they are explicitly mentioned to be[m
+[31m-  preferred in the [developer notes](/doc/developer-notes.md), stylistic code[m
+[32m+[m[32m  preferred in the [developer notes](/doc/devel/dev-notes.md), stylistic code[m
+   changes are usually rejected.[m
+ -->[m
+ [m
+[33mdiff --git a/CONTRIBUTING.md b/CONTRIBUTING.md[m
+[33mindex acf5cc08d1..227910c1bc 100644[m
+[33m--- a/CONTRIBUTING.md[m
+[33m+++ b/CONTRIBUTING.md[m
+[36m@@ -105,7 +105,7 @@[m [mrecommended to first open a pull request against the GUI repository. When there[m
+ is agreement to proceed with the changes, a pull request with the build system[m
+ and interfaces changes can be submitted to the node repository.[m
+ [m
+[31m-The project coding conventions in the [developer notes](doc/developer-notes.md)[m
+[32m+[m[32mThe project coding conventions in the [developer notes](doc/devel/dev-notes.md)[m
+ must be followed.[m
+ [m
+ ### Committing Patches[m
+[36m@@ -176,7 +176,7 @@[m [msubsequent comment to the PR.[m
+ ### Translation changes[m
+ [m
+ Note that translations should not be submitted as pull requests. Please see[m
+[31m-[Translation Process](https://github.com/bitcoin/bitcoin/blob/master/doc/translation_process.md)[m
+[32m+[m[32m[Translation Process](/doc/devel/translation_process.md)[m
+ for more information on helping with translations.[m
+ [m
+ ### Work in Progress Changes and Requests for Comments[m
+[36m@@ -235,7 +235,7 @@[m [mand the resulting git tree hash must be deterministic and reproducible. The scri[m
+ [m
+ After a rebase, reviewers are encouraged to sign off on the force push. This should be relatively straightforward with[m
+ the `git range-diff` tool explained in the [productivity[m
+[31m-notes](/doc/productivity.md#diff-the-diffs-with-git-range-diff). To avoid needless review churn, maintainers will[m
+[32m+[m[32mnotes](/doc/devel/productivity.md#diff-the-diffs-with-git-range-diff). To avoid needless review churn, maintainers will[m
+ generally merge pull requests that received the most review attention first.[m
+ [m
+ Pull Request Philosophy[m
+[36m@@ -299,7 +299,7 @@[m [mIn general, all pull requests must:[m
+     the project (for example refactoring for modularisation);[m
+   - Be well peer-reviewed;[m
+   - Have unit tests, functional tests, and fuzz tests, where appropriate;[m
+[31m-  - Follow code style guidelines ([C++](doc/developer-notes.md), [functional tests](test/functional/README.md));[m
+[32m+[m[32m  - Follow code style guidelines ([C++](doc/devel/dev-notes.md), [functional tests](test/functional/README.md));[m
+   - Not break the existing test suite;[m
+   - Where bugs are fixed, where possible, there should be unit tests[m
+     demonstrating the bug and also proving the fix. This helps prevent regression.[m
+[36m@@ -380,7 +380,7 @@[m [mabout:[m
+     (because people don't assume *others* won't actually like the proposal). Don't take[m
+     that personally, though! Instead, take another critical look at what you are suggesting[m
+     and see if it: changes too much, is too broad, doesn't adhere to the[m
+[31m-    [developer notes](doc/developer-notes.md), is dangerous or insecure, is messily written, etc.[m
+[32m+[m[32m    [developer notes](doc/devel/dev-notes.md), is dangerous or insecure, is messily written, etc.[m
+     Identify and address any of the issues you find. Then ask e.g. on IRC if someone could give[m
+     their opinion on the concept itself.[m
+   - It may be because your code is too complex for all but a few people, and those people[m
+[33mdiff --git a/README.md b/README.md[m
+[33mindex 56132d7496..82a7507b3f 100644[m
+[33m--- a/README.md[m
+[33m+++ b/README.md[m
+[36m@@ -38,7 +38,7 @@[m [mrepositories. Release branches and tags do not exist, so please do not fork[m
+ that repository unless it is for development reasons.[m
+ [m
+ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md)[m
+[31m-and useful hints for developers can be found in [doc/developer-notes.md](doc/developer-notes.md).[m
+[32m+[m[32mand useful hints for developers can be found in the [developer notes](doc/devel/dev-notes.md).[m
+ [m
+ Testing[m
+ -------[m
+[36m@@ -76,7 +76,7 @@[m [mChanges to translations as well as new translations can be submitted to[m
+ [Bitcoin Core's Transifex page](https://www.transifex.com/bitcoin/bitcoin/).[m
+ [m
+ Translations are periodically pulled from Transifex and merged into the git repository. See the[m
+[31m-[translation process](doc/translation_process.md) for details on how this works.[m
+[32m+[m[32m[translation process](doc/devel/translation_process.md) for details on how this works.[m
+ [m
+ **Important**: We do not accept translation changes as GitHub pull requests because the next[m
+ pull from Transifex would automatically overwrite them again.[m
+[33mdiff --git a/REVIEWERS b/REVIEWERS[m
+[33mindex 0caacec440..9e3c14a710 100644[m
+[33m--- a/REVIEWERS[m
+[33m+++ b/REVIEWERS[m
+[36m@@ -30,7 +30,7 @@[m
+ /doc/*[a-zA-Z-].md                          @harding[m
+ /doc/Doxyfile.in                            @fanquake[m
+ /doc/REST-interface.md                      @jonasschnelli[m
+[31m-/doc/benchmarking.md                        @ariard[m
+[32m+[m[32m/doc/devel/benchmarking.md                  @ariard[m
+ /doc/bitcoin-conf.md                        @hebasto[m
+ /doc/build-freebsd.md                       @fanquake[m
+ /doc/build-netbsd.md                        @fanquake[m
+[36m@@ -39,12 +39,12 @@[m
+ /doc/build-unix.md                          @laanwj[m
+ /doc/build-windows.md                       @sipsorcery[m
+ /doc/dependencies.md                        @fanquake[m
+[31m-/doc/developer-notes.md                     @laanwj[m
+[32m+[m[32m/doc/devel/dev-notes.md                     @laanwj[m
+ /doc/files.md                               @hebasto[m
+ /doc/reduce-memory.md                       @fanquake[m
+ /doc/reduce-traffic.md                      @jonasschnelli[m
+[31m-/doc/release-process.md                     @laanwj[m
+[31m-/doc/translation_strings_policy.md          @laanwj[m
+[32m+[m[32m/doc/devel/release-process.md               @laanwj[m
+[32m+[m[32m/doc/devel/translation_strings_policy.md    @laanwj[m
+ [m
+ # Build aux[m
+ /build-aux/m4/bitcoin_qt.m4                 @hebasto[m
+[33mdiff --git a/contrib/README.md b/contrib/README.md[m
+[33mindex ae1372e95d..92c68add37 100644[m
+[33m--- a/contrib/README.md[m
+[33m+++ b/contrib/README.md[m
+[36m@@ -27,7 +27,7 @@[m [mThe [Debian](/contrib/debian) subfolder contains the copyright file.[m
+ All other packaging related files can be found in the [bitcoin-core/packaging](https://github.com/bitcoin-core/packaging) repository.[m
+ [m
+ ### [Builder keys](/contrib/builder-keys)[m
+[31m-PGP keys used for signing Bitcoin Core [release](/doc/release-process.md) results.[m
+[32m+[m[32mPGP keys used for signing Bitcoin Core [release](/doc/devel/release-process.md) results.[m
+ [m
+ ### [MacDeploy](/contrib/macdeploy) ###[m
+ Scripts and notes for Mac builds.[m
+[33mdiff --git a/contrib/guix/README.md b/contrib/guix/README.md[m
+[33mindex 51a034c26e..d3b729fee9 100644[m
+[33m--- a/contrib/guix/README.md[m
+[33m+++ b/contrib/guix/README.md[m
+[36m@@ -68,7 +68,7 @@[m [mfollowing from the top of a clean repository:[m
+ [m
+ The `guix-codesign` command attaches codesignatures (produced by codesigners) to[m
+ existing non-codesigned outputs. Please see the [release process[m
+[31m-documentation](/doc/release-process.md) for more context.[m
+[32m+[m[32mdocumentation](/doc/devel/release-process.md) for more context.[m
+ [m
+ It respects many of the same environment variable flags as `guix-build`, with 2[m
+ crucial differences:[m
+[33mdiff --git a/doc/README.md b/doc/README.md[m
+[33mindex 4845f00ade..ccbbb23f60 100644[m
+[33m--- a/doc/README.md[m
+[33m+++ b/doc/README.md[m
+[36m@@ -47,34 +47,20 @@[m [mThe following are developer notes on how to build Bitcoin Core on your native pl[m
+ - [NetBSD Build Notes](build-netbsd.md)[m
+ - [Android Build Notes](build-android.md)[m
+ [m
+[31m-Development[m
+[31m----------------------[m
+[31m-The Bitcoin repo's [root README](/README.md) contains relevant information on the development process and automated testing.[m
+[2m+[m[2m### Resources[m
+[2m+[m[2m* Discuss on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Development & Technical Discussion board](https://bitcointalk.org/index.php?board=6.0).[m
+[2m+[m[2m* Discuss project-specific development on #bitcoin-core-dev on Libera Chat. If you don't have an IRC client, you can use [web.libera.chat](https://web.libera.chat/#bitcoin-core-dev).[m
+[2m+[m
+[2m+[m[2m### Miscellaneous[m
+ [m
+[31m-- [Developer Notes](developer-notes.md)[m
+[31m-- [Productivity Notes](productivity.md)[m
+ - [Release Notes](release-notes.md)[m
+[31m-- [Release Process](release-process.md)[m
+[2m-- [Source Code Documentation (External Link)](https://doxygen.bitcoincore.org/)[m
+[31m-- [Translation Process](translation_process.md)[m
+[31m-- [Translation Strings Policy](translation_strings_policy.md)[m
+ - [JSON-RPC Interface](JSON-RPC-interface.md)[m
+ - [Unauthenticated REST Interface](REST-interface.md)[m
+ - [Shared Libraries](shared-libraries.md)[m
+ - [BIPS](bips.md)[m
+[31m-- [Dnsseed Policy](dnsseed-policy.md)[m
+[31m-- [Benchmarking](benchmarking.md)[m
+[31m-[m
+[2m-### Resources[m
+[2m-* Discuss on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Development & Technical Discussion board](https://bitcointalk.org/index.php?board=6.0).[m
+[2m-* Discuss project-specific development on #bitcoin-core-dev on Libera Chat. If you don't have an IRC client, you can use [web.libera.chat](https://web.libera.chat/#bitcoin-core-dev).[m
+[2m-[m
+[2m-### Miscellaneous[m
+ - [Assets Attribution](assets-attribution.md)[m
+[31m-- [Assumeutxo design](assumeutxo.md)[m
+ - [bitcoin.conf Configuration File](bitcoin-conf.md)[m
+ - [Files](files.md)[m
+[31m-- [Fuzz-testing](fuzzing.md)[m
+ - [I2P Support](i2p.md)[m
+ - [Init Scripts (systemd/upstart/openrc)](init.md)[m
+ - [Managing Wallets](managing-wallets.md)[m
+[36m@@ -84,6 +70,21 @@[m [mThe Bitcoin repo's [root README](/README.md) contains relevant information on th[m
+ - [Tor Support](tor.md)[m
+ - [ZMQ](zmq.md)[m
+ [m
+[32m+[m[32m### Internal development documentation[m
+[32m+[m
+[32m+[m[32mThe repo's [root README](/README.md) contains relevant information on the development process and automated testing.[m
+[32m+[m
+[32m+[m[32m- [Developer Notes](devel/dev-notes.md)[m
+[32m+[m[32m- [Productivity Notes](devel/productivity.md)[m
+[32m+[m[32m- [Release Process](devel/release-process.md)[m
+[2m+[m[2m- [Source Code Documentation (External Link)](https://doxygen.bitcoincore.org/)[m
+[32m+[m[32m- [Translation Process](devel/translation_process.md)[m
+[32m+[m[32m- [Translation Strings Policy](devel/translation_strings_policy.md)[m
+[32m+[m[32m- [Dnsseed Policy](devel/dnsseed-policy.md)[m
+[32m+[m[32m- [Benchmarking](devel/benchmarking.md)[m
+[32m+[m[32m- [Assumeutxo design](devel/assumeutxo.md)[m
+[32m+[m[32m- [Fuzz-testing](devel/fuzzing.md)[m
+[32m+[m
+ License[m
+ ---------------------[m
+ Distributed under the [MIT software license](/COPYING).[m
+[33mdiff --git a/doc/assumeutxo.md b/doc/devel/assumeutxo.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/assumeutxo.md[m
+[33mrename to doc/devel/assumeutxo.md[m
+[33mdiff --git a/doc/benchmarking.md b/doc/devel/benchmarking.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/benchmarking.md[m
+[33mrename to doc/devel/benchmarking.md[m
+[33mdiff --git a/doc/developer-notes.md b/doc/devel/dev-notes.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/developer-notes.md[m
+[33mrename to doc/devel/dev-notes.md[m
+[33mdiff --git a/doc/dnsseed-policy.md b/doc/devel/dnsseed-policy.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/dnsseed-policy.md[m
+[33mrename to doc/devel/dnsseed-policy.md[m
+[33mdiff --git a/doc/fuzzing.md b/doc/devel/fuzzing.md[m
+[33msimilarity index 96%[m
+[33mrename from doc/fuzzing.md[m
+[33mrename to doc/devel/fuzzing.md[m
+[33mindex 73d04837f1..1abde75242 100644[m
+[33m--- a/doc/fuzzing.md[m
+[33m+++ b/doc/devel/fuzzing.md[m
+[36m@@ -10,7 +10,7 @@[m [m$ cd bitcoin/[m
+ $ ./autogen.sh[m
+ $ CC=clang CXX=clang++ ./configure --enable-fuzz --with-sanitizers=address,fuzzer,undefined[m
+ # macOS users: If you have problem with this step then make sure to read "macOS hints for[m
+[31m-# libFuzzer" on https://github.com/bitcoin/bitcoin/blob/master/doc/fuzzing.md#macos-hints-for-libfuzzer[m
+[32m+[m[32m# libFuzzer" in the #macos-hints-for-libfuzzer section below[m
+ $ make[m
+ $ FUZZ=process_message src/test/fuzz/fuzz[m
+ # abort fuzzing using ctrl-c[m
+[36m@@ -25,7 +25,7 @@[m [mThere is also a runner script to execute all fuzz targets. Refer to[m
+ [m
+ ## Fuzzing harnesses and output[m
+ [m
+[31m-[`process_message`](https://github.com/bitcoin/bitcoin/blob/master/src/test/fuzz/process_message.cpp) is a fuzzing harness for the [`ProcessMessage(...)` function (`net_processing`)](https://github.com/bitcoin/bitcoin/blob/master/src/net_processing.cpp). The available fuzzing harnesses are found in [`src/test/fuzz/`](https://github.com/bitcoin/bitcoin/tree/master/src/test/fuzz).[m
+[32m+[m[32m[`process_message`](/src/test/fuzz/process_message.cpp) is a fuzzing harness for the [`ProcessMessage(...)` function (`net_processing`)](/src/net_processing.cpp). The available fuzzing harnesses are found in [`src/test/fuzz/`](/src/test/fuzz).[m
+ [m
+ The fuzzer will output `NEW` every time it has created a test input that covers new areas of the code under test. For more information on how to interpret the fuzzer output, see the [libFuzzer documentation](https://llvm.org/docs/LibFuzzer.html).[m
+ [m
+[36m@@ -120,7 +120,7 @@[m [mexample using `brew install llvm`.[m
+ [m
+ Should you run into problems with the address sanitizer, it is possible you[m
+ may need to run `./configure` with `--disable-asm` to avoid errors[m
+[31m-with certain assembly code from Bitcoin Core's code. See [developer notes on sanitizers](https://github.com/bitcoin/bitcoin/blob/master/doc/developer-notes.md#sanitizers)[m
+[32m+[m[32mwith certain assembly code from Bitcoin Core's code. See [developer notes on sanitizers](/doc/devel/dev-notes.md#sanitizers)[m
+ for more information.[m
+ [m
+ You may also need to take care of giving the correct path for `clang` and[m
+[33mdiff --git a/doc/productivity.md b/doc/devel/productivity.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/productivity.md[m
+[33mrename to doc/devel/productivity.md[m
+[33mdiff --git a/doc/release-process.md b/doc/devel/release-process.md[m
+[33msimilarity index 98%[m
+[33mrename from doc/release-process.md[m
+[33mrename to doc/devel/release-process.md[m
+[33mindex f786b345b1..d09c3840dd 100644[m
+[33m--- a/doc/release-process.md[m
+[33m+++ b/doc/devel/release-process.md[m
+[36m@@ -5,8 +5,8 @@[m [mRelease Process[m
+ [m
+ ### Before every release candidate[m
+ [m
+[31m-* Update translations see [translation_process.md](https://github.com/bitcoin/bitcoin/blob/master/doc/translation_process.md#synchronising-translations).[m
+[31m-* Update manpages, see [gen-manpages.sh](https://github.com/bitcoin/bitcoin/blob/master/contrib/devtools/README.md#gen-manpagessh).[m
+[32m+[m[32m* Update translations see [translation_process.md](/doc/devel/translation_process.md#synchronising-translations).[m
+[32m+[m[32m* Update manpages, see [gen-manpages.sh](/contrib/devtools/README.md#gen-manpagessh).[m
+ * Update release candidate version in `configure.ac` (`CLIENT_VERSION_RC`).[m
+ [m
+ ### Before every major and minor release[m
+[33mdiff --git a/doc/translation_process.md b/doc/devel/translation_process.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/translation_process.md[m
+[33mrename to doc/devel/translation_process.md[m
+[33mdiff --git a/doc/translation_strings_policy.md b/doc/devel/translation_strings_policy.md[m
+[33msimilarity index 100%[m
+[33mrename from doc/translation_strings_policy.md[m
+[33mrename to doc/devel/translation_strings_policy.md[m
+[33mdiff --git a/doc/multiprocess.md b/doc/multiprocess.md[m
+[33mindex e3f389a6d3..60fa94b312 100644[m
+[33m--- a/doc/multiprocess.md[m
+[33m+++ b/doc/multiprocess.md[m
+[36m@@ -38,7 +38,7 @@[m [mAlternately, you can install [Cap'n Proto](https://capnproto.org/) and [libmulti[m
+ [m
+ Cross process Node, Wallet, and Chain interfaces are defined in[m
+ [`src/interfaces/`](../src/interfaces/). These are C++ classes which follow[m
+[31m-[conventions](developer-notes.md#internal-interface-guidelines), like passing[m
+[32m+[m[32m[conventions](devel/dev-notes.md#internal-interface-guidelines), like passing[m
+ serializable arguments so they can be called from different processes, and[m
+ making methods pure virtual so they can have proxy implementations that forward[m
+ calls between processes.[m
+[33mdiff --git a/doc/release-notes.md b/doc/release-notes.md[m
+[33mindex b460cd3eb2..fcce19e0a2 100644[m
+[33m--- a/doc/release-notes.md[m
+[33m+++ b/doc/release-notes.md[m
+[36m@@ -2,7 +2,7 @@[m
+ template to create the initial release notes draft.*[m
+ [m
+ *The release notes draft is a temporary file that can be added to by anyone. See[m
+[31m-[/doc/developer-notes.md#release-notes](/doc/developer-notes.md#release-notes)[m
+[32m+[m[32m[the developer notes](/doc/devel/dev-notes.md#release-notes)[m
+ for the process.*[m
+ [m
+ *Create the draft, named* "*version* Release Notes Draft"[m
+[33mdiff --git a/src/qt/README.md b/src/qt/README.md[m
+[33mindex 20c712c98d..0cfd76cef0 100644[m
+[33m--- a/src/qt/README.md[m
+[33m+++ b/src/qt/README.md[m
+[36m@@ -4,7 +4,7 @@[m [mThe current precise version for Qt 5 is specified in [qt.mk](/depends/packages/q[m
+ [m
+ ## Compile and run[m
+ [m
+[31m-See build instructions: [Unix](/doc/build-unix.md), [macOS](/doc/build-osx.md), [Windows](/doc/build-windows.md), [FreeBSD](/doc/build-freebsd.md), [NetBSD](/doc/build-netbsd.md), [OpenBSD](/doc/build-openbsd.md)[m
+[32m+[m[32mSee [build instructions](/doc/README.md#Building).[m
+ [m
+ When following your systems build instructions, make sure to install the `Qt` dependencies.[m
+ [m
+[36m@@ -22,7 +22,7 @@[m [mTo run:[m
+ [m
+ #### locale/[m
+ [m
+[31m-- Contains translations. They are periodically updated and an effort is made to support as many languages as possible. The process of contributing translations is described in [doc/translation_process.md](/doc/translation_process.md).[m
+[32m+[m[32m- Contains translations. They are periodically updated and an effort is made to support as many languages as possible. The process of contributing translations is described in [translation_process.md](/doc/devel/translation_process.md).[m
+ [m
+ #### res/[m
+ [m
+[36m@@ -72,7 +72,7 @@[m [mTo run:[m
+ [m
+ See [CONTRIBUTING.md](/CONTRIBUTING.md) for general guidelines.[m
+ [m
+[31m-**Note:** Do not change `local/bitcoin_en.ts`. It is updated [automatically](/doc/translation_process.md#writing-code-with-translations).[m
+[32m+[m[32m**Note:** Do not change `local/bitcoin_en.ts`. It is updated [automatically](/doc/devel/translation_process.md#writing-code-with-translations).[m
+ [m
+ ## Using Qt Creator as an IDE[m
+ [m
+[33mdiff --git a/test/README.md b/test/README.md[m
+[33mindex c9e15c4968..190b891192 100644[m
+[33m--- a/test/README.md[m
+[33m+++ b/test/README.md[m
+[36m@@ -22,7 +22,7 @@[m [mBefore tests can be run locally, Bitcoin Core must be built.  See the [building[m
+ [m
+ ## Fuzz tests[m
+ [m
+[31m-See [/doc/fuzzing.md](/doc/fuzzing.md)[m
+[32m+[m[32mSee [fuzzing.md](/doc/devel/fuzzing.md)[m
+ [m
+ ### Functional tests[m
+ [m
+[33mdiff --git a/test/lint/README.md b/test/lint/README.md[m
+[33mindex f4165f908e..a0ef24c61f 100644[m
+[33m--- a/test/lint/README.md[m
+[33m+++ b/test/lint/README.md[m
+[36m@@ -6,7 +6,7 @@[m [mCheck for missing documentation of command line options.[m
+ [m
+ commit-script-check.sh[m
+ ======================[m
+[31m-Verification of [scripted diffs](/doc/developer-notes.md#scripted-diffs).[m
+[32m+[m[32mVerification of [scripted diffs](/doc/devel/dev-notes.md#scripted-diffs).[m
+ Scripted diffs are only assumed to run on the latest LTS release of Ubuntu. Running them on other operating systems[m
+ might require installing GNU tools, such as GNU sed.[m
+ [m

@@ -1,0 +1,4 @@
+ACK 2e16054a66b0576ec93d4032d6b74f0930a44fef ([`jamesob/ackr/26999.1.sipa.a_few_follow_ups_to_1748`](https://github.com/jamesob/bitcoin/tree/ackr/26999.1.sipa.a_few_follow_ups_to_1748))
+
+Built, reviewed diff, ran tests locally.
+

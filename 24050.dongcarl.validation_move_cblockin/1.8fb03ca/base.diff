@@ -1,0 +1,318 @@
+[33mdiff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp[m
+[33mindex cbfdcb6f11..89ae05fde6 100644[m
+[33m--- a/src/node/blockstorage.cpp[m
+[33m+++ b/src/node/blockstorage.cpp[m
+[36m@@ -32,11 +32,11 @@[m [mstatic FILE* OpenUndoFile(const FlatFilePos& pos, bool fReadOnly = false);[m
+ static FlatFileSeq BlockFileSeq();[m
+ static FlatFileSeq UndoFileSeq();[m
+ [m
+[31m-CBlockIndex* BlockManager::LookupBlockIndex(const uint256& hash) const[m
+[32m+[m[32mCBlockIndex* BlockManager::LookupBlockIndex(const uint256& hash)[m
+ {[m
+     AssertLockHeld(cs_main);[m
+[31m-    BlockMap::const_iterator it = m_block_index.find(hash);[m
+[31m-    return it == m_block_index.end() ? nullptr : it->second;[m
+[32m+[m[32m    BlockMap::iterator it = m_block_index.find(hash);[m
+[32m+[m[32m    return it == m_block_index.end() ? nullptr : &it->second;[m
+ }[m
+ [m
+ CBlockIndex* BlockManager::AddToBlockIndex(const CBlockHeader& block)[m
+[36m@@ -47,20 +47,22 @@[m [mCBlockIndex* BlockManager::AddToBlockIndex(const CBlockHeader& block)[m
+     uint256 hash = block.GetHash();[m
+     BlockMap::iterator it = m_block_index.find(hash);[m
+     if (it != m_block_index.end()) {[m
+[31m-        return it->second;[m
+[32m+[m[32m        return &it->second;[m
+     }[m
+ [m
+     // Construct new block index object[m
+[31m-    CBlockIndex* pindexNew = new CBlockIndex(block);[m
+[32m+[m[32m    CBlockIndex new_index{block};[m
+     // We assign the sequence id to blocks only when the full data is available,[m
+     // to avoid miners withholding blocks but broadcasting headers, to get a[m
+     // competitive advantage.[m
+[31m-    pindexNew->nSequenceId = 0;[m
+[31m-    BlockMap::iterator mi = m_block_index.insert(std::make_pair(hash, pindexNew)).first;[m
+[32m+[m[32m    new_index.nSequenceId = 0;[m
+[32m+[m[32m    BlockMap::iterator mi = m_block_index.insert(std::make_pair(hash, std::move(new_index))).first;[m
+[32m+[m
+[32m+[m[32m    CBlockIndex* pindexNew = &(*mi).second;[m
+     pindexNew->phashBlock = &((*mi).first);[m
+     BlockMap::iterator miPrev = m_block_index.find(block.hashPrevBlock);[m
+     if (miPrev != m_block_index.end()) {[m
+[31m-        pindexNew->pprev = (*miPrev).second;[m
+[32m+[m[32m        pindexNew->pprev = &(*miPrev).second;[m
+         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;[m
+         pindexNew->BuildSkip();[m
+     }[m
+[36m@@ -80,8 +82,8 @@[m [mvoid BlockManager::PruneOneBlockFile(const int fileNumber)[m
+     AssertLockHeld(cs_main);[m
+     LOCK(cs_LastBlockFile);[m
+ [m
+[31m-    for (const auto& entry : m_block_index) {[m
+[31m-        CBlockIndex* pindex = entry.second;[m
+[32m+[m[32m    for (auto& entry : m_block_index) {[m
+[32m+[m[32m        CBlockIndex* pindex = &entry.second;[m
+         if (pindex->nFile == fileNumber) {[m
+             pindex->nStatus &= ~BLOCK_HAVE_DATA;[m
+             pindex->nStatus &= ~BLOCK_HAVE_UNDO;[m
+[36m@@ -199,18 +201,13 @@[m [mCBlockIndex* BlockManager::InsertBlockIndex(const uint256& hash)[m
+         return nullptr;[m
+     }[m
+ [m
+[31m-    // Return existing[m
+[31m-    BlockMap::iterator mi = m_block_index.find(hash);[m
+[31m-    if (mi != m_block_index.end()) {[m
+[31m-        return (*mi).second;[m
+[32m+[m[32m    // Return existing or create new[m
+[32m+[m[32m    auto [mi, inserted] = m_block_index.try_emplace(hash);[m
+[32m+[m[32m    CBlockIndex* pindex = &(*mi).second;[m
+[32m+[m[32m    if (inserted) {[m
+[32m+[m[32m        pindex->phashBlock = &((*mi).first);[m
+     }[m
+[31m-[m
+[31m-    // Create new[m
+[31m-    CBlockIndex* pindexNew = new CBlockIndex();[m
+[31m-    mi = m_block_index.insert(std::make_pair(hash, pindexNew)).first;[m
+[31m-    pindexNew->phashBlock = &((*mi).first);[m
+[31m-[m
+[31m-    return pindexNew;[m
+[32m+[m[32m    return pindex;[m
+ }[m
+ [m
+ bool BlockManager::LoadBlockIndex([m
+[36m@@ -224,8 +221,8 @@[m [mbool BlockManager::LoadBlockIndex([m
+     // Calculate nChainWork[m
+     std::vector<std::pair<int, CBlockIndex*>> vSortedByHeight;[m
+     vSortedByHeight.reserve(m_block_index.size());[m
+[31m-    for (const std::pair<const uint256, CBlockIndex*>& item : m_block_index) {[m
+[31m-        CBlockIndex* pindex = item.second;[m
+[32m+[m[32m    for (auto& [_, block] : m_block_index) {[m
+[32m+[m[32m        CBlockIndex* pindex = &block;[m
+         vSortedByHeight.push_back(std::make_pair(pindex->nHeight, pindex));[m
+     }[m
+     sort(vSortedByHeight.begin(), vSortedByHeight.end());[m
+[36m@@ -327,10 +324,6 @@[m [mvoid BlockManager::Unload()[m
+ {[m
+     m_blocks_unlinked.clear();[m
+ [m
+[31m-    for (const BlockMap::value_type& entry : m_block_index) {[m
+[31m-        delete entry.second;[m
+[31m-    }[m
+[31m-[m
+     m_block_index.clear();[m
+ [m
+     m_blockfile_info.clear();[m
+[36m@@ -386,8 +379,8 @@[m [mbool BlockManager::LoadBlockIndexDB(ChainstateManager& chainman)[m
+     // Check presence of blk files[m
+     LogPrintf("Checking all blk files are present...\n");[m
+     std::set<int> setBlkDataFiles;[m
+[31m-    for (const std::pair<const uint256, CBlockIndex*>& item : m_block_index) {[m
+[31m-        CBlockIndex* pindex = item.second;[m
+[32m+[m[32m    for (const auto& [_, block] : m_block_index) {[m
+[32m+[m[32m        const CBlockIndex* pindex = &block;[m
+         if (pindex->nStatus & BLOCK_HAVE_DATA) {[m
+             setBlkDataFiles.insert(pindex->nFile);[m
+         }[m
+[33mdiff --git a/src/node/blockstorage.h b/src/node/blockstorage.h[m
+[33mindex 78c9210892..e89a3264db 100644[m
+[33m--- a/src/node/blockstorage.h[m
+[33m+++ b/src/node/blockstorage.h[m
+[36m@@ -5,6 +5,7 @@[m
+ #ifndef BITCOIN_NODE_BLOCKSTORAGE_H[m
+ #define BITCOIN_NODE_BLOCKSTORAGE_H[m
+ [m
+[32m+[m[32m#include <chain.h>[m
+ #include <fs.h>[m
+ #include <protocol.h> // For CMessageHeader::MessageStartChars[m
+ #include <txdb.h>[m
+[36m@@ -49,7 +50,11 @@[m [mextern bool fPruneMode;[m
+ /** Number of MiB of block files that we're trying to stay below. */[m
+ extern uint64_t nPruneTarget;[m
+ [m
+[31m-typedef std::unordered_map<uint256, CBlockIndex*, BlockHasher> BlockMap;[m
+[32m+[m[32m// Because validation code takes pointers to the map's CBlockIndex objects, if[m
+[32m+[m[32m// we ever switch to another associative container, we need to either use a[m
+[32m+[m[32m// container that has stable addressing (true of all std associative[m
+[32m+[m[32m// containers), or make the key a `std::unique_ptr<CBlockIndex>`[m
+[32m+[m[32musing BlockMap = std::unordered_map<uint256, CBlockIndex, BlockHasher>;[m
+ [m
+ struct CBlockIndexWorkComparator {[m
+     bool operator()(const CBlockIndex* pa, const CBlockIndex* pb) const;[m
+[36m@@ -141,7 +146,7 @@[m [mpublic:[m
+     //! Mark one block file as pruned (modify associated database entries)[m
+     void PruneOneBlockFile(const int fileNumber) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[31m-    CBlockIndex* LookupBlockIndex(const uint256& hash) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[32m+[m[32m    CBlockIndex* LookupBlockIndex(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+     /** Get block file info entry for one block file */[m
+     CBlockFileInfo* GetBlockFileInfo(size_t n);[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex ccc859619d..b646b709f8 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -1667,10 +1667,10 @@[m [mstatic RPCHelpMan getchaintips()[m
+     std::set<const CBlockIndex*> setOrphans;[m
+     std::set<const CBlockIndex*> setPrevs;[m
+ [m
+[31m-    for (const std::pair<const uint256, CBlockIndex*>& item : chainman.BlockIndex()) {[m
+[31m-        if (!active_chain.Contains(item.second)) {[m
+[31m-            setOrphans.insert(item.second);[m
+[31m-            setPrevs.insert(item.second->pprev);[m
+[32m+[m[32m    for (const auto& [_, block] : chainman.BlockIndex()) {[m
+[32m+[m[32m        if (!active_chain.Contains(&block)) {[m
+[32m+[m[32m            setOrphans.insert(&block);[m
+[32m+[m[32m            setPrevs.insert(block.pprev);[m
+         }[m
+     }[m
+ [m
+[33mdiff --git a/src/test/validation_chainstate_tests.cpp b/src/test/validation_chainstate_tests.cpp[m
+[33mindex 1beef5cf04..b0d7389d39 100644[m
+[33m--- a/src/test/validation_chainstate_tests.cpp[m
+[33m+++ b/src/test/validation_chainstate_tests.cpp[m
+[36m@@ -72,9 +72,6 @@[m [mBOOST_AUTO_TEST_CASE(validation_chainstate_resize_caches)[m
+         // The view cache should be empty since we had to destruct to downsize.[m
+         BOOST_CHECK(!c1.CoinsTip().HaveCoinInCache(outpoint));[m
+     }[m
+[31m-[m
+[31m-    // Avoid triggering the address sanitizer.[m
+[31m-    WITH_LOCK(::cs_main, manager.Unload());[m
+ }[m
+ [m
+ //! Test UpdateTip behavior for both active and background chainstates.[m
+[33mdiff --git a/src/test/validation_chainstatemanager_tests.cpp b/src/test/validation_chainstatemanager_tests.cpp[m
+[33mindex f5742b65a1..4dbf5963d1 100644[m
+[33m--- a/src/test/validation_chainstatemanager_tests.cpp[m
+[33m+++ b/src/test/validation_chainstatemanager_tests.cpp[m
+[36m@@ -99,8 +99,6 @@[m [mBOOST_AUTO_TEST_CASE(chainstatemanager)[m
+ [m
+     // Let scheduler events finish running to avoid accessing memory that is going to be unloaded[m
+     SyncWithValidationInterfaceQueue();[m
+[31m-[m
+[31m-    WITH_LOCK(::cs_main, manager.Unload());[m
+ }[m
+ [m
+ //! Test rebalancing the caches associated with each chainstate.[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex 47b931a920..d10d1c396c 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -1919,7 +1919,7 @@[m [mbool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,[m
+         //  effectively caching the result of part of the verification.[m
+         BlockMap::const_iterator  it = m_blockman.m_block_index.find(hashAssumeValid);[m
+         if (it != m_blockman.m_block_index.end()) {[m
+[31m-            if (it->second->GetAncestor(pindex->nHeight) == pindex &&[m
+[32m+[m[32m            if (it->second.GetAncestor(pindex->nHeight) == pindex &&[m
+                 pindexBestHeader->GetAncestor(pindex->nHeight) == pindex &&[m
+                 pindexBestHeader->nChainWork >= nMinimumChainWork) {[m
+                 // This block is a member of the assumed verified chain and an ancestor of the best header.[m
+[36m@@ -2965,8 +2965,8 @@[m [mbool CChainState::InvalidateBlock(BlockValidationState& state, CBlockIndex* pind[m
+ [m
+     {[m
+         LOCK(cs_main);[m
+[31m-        for (const auto& entry : m_blockman.m_block_index) {[m
+[31m-            CBlockIndex *candidate = entry.second;[m
+[32m+[m[32m        for (auto& entry : m_blockman.m_block_index) {[m
+[32m+[m[32m            CBlockIndex* candidate = &entry.second;[m
+             // We don't need to put anything in our active chain into the[m
+             // multimap, because those candidates will be found and considered[m
+             // as we disconnect.[m
+[36m@@ -3065,8 +3065,8 @@[m [mbool CChainState::InvalidateBlock(BlockValidationState& state, CBlockIndex* pind[m
+         // to setBlockIndexCandidates.[m
+         BlockMap::iterator it = m_blockman.m_block_index.begin();[m
+         while (it != m_blockman.m_block_index.end()) {[m
+[31m-            if (it->second->IsValid(BLOCK_VALID_TRANSACTIONS) && it->second->HaveTxsDownloaded() && !setBlockIndexCandidates.value_comp()(it->second, m_chain.Tip())) {[m
+[31m-                setBlockIndexCandidates.insert(it->second);[m
+[32m+[m[32m            if (it->second.IsValid(BLOCK_VALID_TRANSACTIONS) && it->second.HaveTxsDownloaded() && !setBlockIndexCandidates.value_comp()(&it->second, m_chain.Tip())) {[m
+[32m+[m[32m                setBlockIndexCandidates.insert(&it->second);[m
+             }[m
+             it++;[m
+         }[m
+[36m@@ -3089,17 +3089,17 @@[m [mvoid CChainState::ResetBlockFailureFlags(CBlockIndex *pindex) {[m
+     // Remove the invalidity flag from this block and all its descendants.[m
+     BlockMap::iterator it = m_blockman.m_block_index.begin();[m
+     while (it != m_blockman.m_block_index.end()) {[m
+[31m-        if (!it->second->IsValid() && it->second->GetAncestor(nHeight) == pindex) {[m
+[31m-            it->second->nStatus &= ~BLOCK_FAILED_MASK;[m
+[31m-            m_blockman.m_dirty_blockindex.insert(it->second);[m
+[31m-            if (it->second->IsValid(BLOCK_VALID_TRANSACTIONS) && it->second->HaveTxsDownloaded() && setBlockIndexCandidates.value_comp()(m_chain.Tip(), it->second)) {[m
+[31m-                setBlockIndexCandidates.insert(it->second);[m
+[32m+[m[32m        if (!it->second.IsValid() && it->second.GetAncestor(nHeight) == pindex) {[m
+[32m+[m[32m            it->second.nStatus &= ~BLOCK_FAILED_MASK;[m
+[32m+[m[32m            m_blockman.m_dirty_blockindex.insert(&it->second);[m
+[32m+[m[32m            if (it->second.IsValid(BLOCK_VALID_TRANSACTIONS) && it->second.HaveTxsDownloaded() && setBlockIndexCandidates.value_comp()(m_chain.Tip(), &it->second)) {[m
+[32m+[m[32m                setBlockIndexCandidates.insert(&it->second);[m
+             }[m
+[31m-            if (it->second == m_chainman.m_best_invalid) {[m
+[32m+[m[32m            if (&it->second == m_chainman.m_best_invalid) {[m
+                 // Reset invalid block marker if it was pointing to one of those.[m
+                 m_chainman.m_best_invalid = nullptr;[m
+             }[m
+[31m-            m_chainman.m_failed_blocks.erase(it->second);[m
+[32m+[m[32m            m_chainman.m_failed_blocks.erase(&it->second);[m
+         }[m
+         it++;[m
+     }[m
+[36m@@ -3428,7 +3428,7 @@[m [mbool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValida[m
+     if (hash != chainparams.GetConsensus().hashGenesisBlock) {[m
+         if (miSelf != m_blockman.m_block_index.end()) {[m
+             // Block header is already known.[m
+[31m-            CBlockIndex* pindex = miSelf->second;[m
+[32m+[m[32m            CBlockIndex* pindex = &(miSelf->second);[m
+             if (ppindex)[m
+                 *ppindex = pindex;[m
+             if (pindex->nStatus & BLOCK_FAILED_MASK) {[m
+[36m@@ -3450,7 +3450,7 @@[m [mbool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValida[m
+             LogPrint(BCLog::VALIDATION, "%s: %s prev block not found\n", __func__, hash.ToString());[m
+             return state.Invalid(BlockValidationResult::BLOCK_MISSING_PREV, "prev-blk-not-found");[m
+         }[m
+[31m-        pindexPrev = (*mi).second;[m
+[32m+[m[32m        pindexPrev = &((*mi).second);[m
+         if (pindexPrev->nStatus & BLOCK_FAILED_MASK) {[m
+             LogPrint(BCLog::VALIDATION, "%s: %s prev block invalid\n", __func__, hash.ToString());[m
+             return state.Invalid(BlockValidationResult::BLOCK_INVALID_PREV, "bad-prevblk");[m
+[36m@@ -3911,13 +3911,13 @@[m [mbool CChainState::ReplayBlocks()[m
+     if (m_blockman.m_block_index.count(hashHeads[0]) == 0) {[m
+         return error("ReplayBlocks(): reorganization to unknown block requested");[m
+     }[m
+[31m-    pindexNew = m_blockman.m_block_index[hashHeads[0]];[m
+[32m+[m[32m    pindexNew = &(m_blockman.m_block_index[hashHeads[0]]);[m
+ [m
+     if (!hashHeads[1].IsNull()) { // The old tip is allowed to be 0, indicating it's the first flush.[m
+         if (m_blockman.m_block_index.count(hashHeads[1]) == 0) {[m
+             return error("ReplayBlocks(): reorganization from unknown block requested");[m
+         }[m
+[31m-        pindexOld = m_blockman.m_block_index[hashHeads[1]];[m
+[32m+[m[32m        pindexOld = &(m_blockman.m_block_index[hashHeads[1]]);[m
+         pindexFork = LastCommonAncestor(pindexOld, pindexNew);[m
+         assert(pindexFork != nullptr);[m
+     }[m
+[36m@@ -4181,8 +4181,8 @@[m [mvoid CChainState::CheckBlockIndex()[m
+ [m
+     // Build forward-pointing map of the entire block tree.[m
+     std::multimap<CBlockIndex*,CBlockIndex*> forward;[m
+[31m-    for (const std::pair<const uint256, CBlockIndex*>& entry : m_blockman.m_block_index) {[m
+[31m-        forward.insert(std::make_pair(entry.second->pprev, entry.second));[m
+[32m+[m[32m    for (auto& [_, block] : m_blockman.m_block_index) {[m
+[32m+[m[32m        forward.emplace(block.pprev, &block);[m
+     }[m
+ [m
+     assert(forward.size() == m_blockman.m_block_index.size());[m
+[33mdiff --git a/src/wallet/test/wallet_tests.cpp b/src/wallet/test/wallet_tests.cpp[m
+[33mindex bb6021b857..3cda00ba53 100644[m
+[33m--- a/src/wallet/test/wallet_tests.cpp[m
+[33m+++ b/src/wallet/test/wallet_tests.cpp[m
+[36m@@ -362,10 +362,10 @@[m [mstatic int64_t AddTx(ChainstateManager& chainman, CWallet& wallet, uint32_t lock[m
+     CBlockIndex* block = nullptr;[m
+     if (blockTime > 0) {[m
+         LOCK(cs_main);[m
+[31m-        auto inserted = chainman.BlockIndex().emplace(GetRandHash(), new CBlockIndex);[m
+[32m+[m[32m        auto inserted = chainman.BlockIndex().emplace(std::piecewise_construct, std::make_tuple(GetRandHash()), std::make_tuple());[m
+         assert(inserted.second);[m
+         const uint256& hash = inserted.first->first;[m
+[31m-        block = inserted.first->second;[m
+[32m+[m[32m        block = &inserted.first->second;[m
+         block->nTime = blockTime;[m
+         block->phashBlock = &hash;[m
+         state = TxStateConfirmed{hash, block->nHeight, /*position_in_block=*/0};[m

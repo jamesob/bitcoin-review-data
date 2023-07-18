@@ -1,0 +1,7 @@
+ACK 6bf6e9fd9dece67878595a5f3361851c25833c49 ([`jamesob/ackr/21879.2.vasild.wrap_accept_and_extend_u`](https://github.com/jamesob/bitcoin/tree/ackr/21879.2.vasild.wrap_accept_and_extend_u))
+
+Examined interdiff and built/tested locally with a pre-populated datadir.
+
+Changes since last review include rebasing on master (CJDNS changes, vNodes -> m_nodes), some
+&& sock function sig changes, `write_len` rephrasing, and catching exceptions during unique_ptr
+construction in Sock::Accept.

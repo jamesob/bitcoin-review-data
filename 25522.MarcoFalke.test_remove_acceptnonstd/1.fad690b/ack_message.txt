@@ -1,0 +1,5 @@
+ACK fad690ba0a62dfd97ef22711b2344909fcd1fb73 ([`jamesob/ackr/25522.1.MarcoFalke.test_remove_acceptnonstd`](https://github.com/jamesob/bitcoin/tree/ackr/25522.1.MarcoFalke.test_remove_acceptnonstd))
+
+Good change - significantly simplifies the RBF tests and allows us to avoid
+uncharacteristic use of nonstandard transactions.
+

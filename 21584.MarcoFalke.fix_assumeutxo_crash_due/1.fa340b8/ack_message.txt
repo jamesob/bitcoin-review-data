@@ -1,0 +1,5 @@
+ACK fa340b87944764ea4e8e04038fe7471fd452bc23 ([`jamesob/ackr/21584.1.MarcoFalke.fix_assumeutxo_crash_due`](https://github.com/jamesob/bitcoin/tree/ackr/21584.1.MarcoFalke.fix_assumeutxo_crash_due))
+
+Built, ran tests locally. Change looks good; not only fixes the crash
+bug, but removes special-case interpretation of `0000...` as null
+blockhash value.

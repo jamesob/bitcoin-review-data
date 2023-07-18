@@ -1,0 +1,11 @@
+ACK 4a699011048e88099545a612075b5483ff55f533 ([`jamesob/ackr/27746.1.sdaftuar.rework_validation_logic`](https://github.com/jamesob/bitcoin/tree/ackr/27746.1.sdaftuar.rework_validation_logic))
+
+Reviewed locally and built each commit.
+
+This change is a nice tightening up of the block index management code;
+the CheckBlockIndex() clarifications are welcome, not to mention fixing the
+buggy setBlockIndexCandidates initialization.
+
+The latent bugs I introduced in the original code here say a lot to me about the
+wisdom (or lack thereof) of introducing unused code littered over a number of
+years and PRs. I also wish I was smarter.

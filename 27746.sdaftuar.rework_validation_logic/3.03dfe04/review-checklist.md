@@ -1,0 +1,12 @@
+- [ ] ad8b21dfe3 Explicitly track maximum block height stored in undo files
+- [ ] a53f029cea Remove CChain dependency in node/blockstorage
+- [ ] 0dbc5805ca Move block-arrival information / preciousblock counters to ChainstateManager
+- [ ] 58081cadfa Add wrapper for adding entries to a chainstate's block index candidates
+- [ ] e99c71ef04 Update CheckBlockIndex invariants for chains based on an assumeutxo snapshot
+- [ ] e8168cd56c test: Clear block index flags when testing snapshots
+- [ ] 034f920d17 Move block-storage-related logic to ChainstateManager
+- [ ] f18ab9ee7d Tighten requirements for adding elements to setBlockIndexCandidates
+- [ ] 4a9f0dae7f Fix initialization of setBlockIndexCandidates when working with multiple chainstates
+- [ ] 72a18bd684 Documentation improvements for assumeutxo
+- [ ] fb9c405506 Move CheckBlockIndex() from Chainstate to ChainstateManager
+- [ ] 03dfe04075 Cache block index entry corresponding to assumeutxo snapshot base blockhash

@@ -1,0 +1,5 @@
+ACK cccc1e70b8a14430cc94143da97936a60d6c83d3 ([`jamesob/ackr/23536.1.MarcoFalke.enforce_taproot_script_f`](https://github.com/jamesob/bitcoin/tree/ackr/23536.1.MarcoFalke.enforce_taproot_script_f))
+
+Built and reviewed each commit locally. I haven't done testing that's as material as @Sjors and @ajtowns (nice work guys), but I have convinced myself that the code works as intended. `script_flag_exceptions` is a big improvement on the previous `BIP16Exception`-style approach.
+
+The test changes are a bit more opaque to me as I haven't read through the taproot functional tests before.

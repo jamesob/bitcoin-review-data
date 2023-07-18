@@ -1,0 +1,994 @@
+[33mdiff --git a/ci/test/06_script_b.sh b/ci/test/06_script_b.sh[m
+[33mindex e1032ba6bd..77358f93d9 100755[m
+[33m--- a/ci/test/06_script_b.sh[m
+[33m+++ b/ci/test/06_script_b.sh[m
+[36m@@ -41,6 +41,7 @@[m [mif [ "${RUN_TIDY}" = "true" ]; then[m
+   CI_EXEC "python3 ${DIR_IWYU}/include-what-you-use/iwyu_tool.py"\[m
+           " src/compat"\[m
+           " src/init"\[m
+[32m+[m[32m          " src/kernel/mempool_persist.cpp"\[m
+           " src/policy/feerate.cpp"\[m
+           " src/policy/packages.cpp"\[m
+           " src/policy/settings.cpp"\[m
+[33mdiff --git a/contrib/devtools/iwyu/bitcoin.core.imp b/contrib/devtools/iwyu/bitcoin.core.imp[m
+[33mindex ce7786f58c..919ffab102 100644[m
+[33m--- a/contrib/devtools/iwyu/bitcoin.core.imp[m
+[33m+++ b/contrib/devtools/iwyu/bitcoin.core.imp[m
+[36m@@ -3,4 +3,5 @@[m
+   { include: [ "<bits/termios-c_lflag.h>", private, "<termios.h>", public ] },[m
+   { include: [ "<bits/termios-struct.h>", private, "<termios.h>", public ] },[m
+   { include: [ "<bits/termios-tcflow.h>", private, "<termios.h>", public ] },[m
+[32m+[m[32m  { include: [ "<bits/chrono.h>", private, "<chrono>", public ] },[m
+ ][m
+[33mdiff --git a/src/Makefile.am b/src/Makefile.am[m
+[33mindex a9e9db0a7d..c2148936af 100644[m
+[33m--- a/src/Makefile.am[m
+[33m+++ b/src/Makefile.am[m
+[36m@@ -177,6 +177,7 @@[m [mBITCOIN_CORE_H = \[m
+   kernel/context.h \[m
+   kernel/mempool_limits.h \[m
+   kernel/mempool_options.h \[m
+[32m+[m[32m  kernel/mempool_persist.h \[m
+   key.h \[m
+   key_io.h \[m
+   logging.h \[m
+[36m@@ -198,6 +199,7 @@[m [mBITCOIN_CORE_H = \[m
+   node/chainstate.h \[m
+   node/coin.h \[m
+   node/context.h \[m
+[32m+[m[32m  node/mempool_persist_args.h \[m
+   node/miner.h \[m
+   node/minisketchwrapper.h \[m
+   node/psbt.h \[m
+[36m@@ -367,6 +369,7 @@[m [mlibbitcoin_node_a_SOURCES = \[m
+   kernel/checks.cpp \[m
+   kernel/coinstats.cpp \[m
+   kernel/context.cpp \[m
+[32m+[m[32m  kernel/mempool_persist.cpp \[m
+   mapport.cpp \[m
+   mempool_args.cpp \[m
+   net.cpp \[m
+[36m@@ -380,6 +383,7 @@[m [mlibbitcoin_node_a_SOURCES = \[m
+   node/context.cpp \[m
+   node/eviction.cpp \[m
+   node/interfaces.cpp \[m
+[32m+[m[32m  node/mempool_persist_args.cpp \[m
+   node/miner.cpp \[m
+   node/minisketchwrapper.cpp \[m
+   node/psbt.cpp \[m
+[36m@@ -882,6 +886,7 @@[m [mlibbitcoinkernel_la_SOURCES = \[m
+   kernel/checks.cpp \[m
+   kernel/coinstats.cpp \[m
+   kernel/context.cpp \[m
+[32m+[m[32m  kernel/mempool_persist.cpp \[m
+   key.cpp \[m
+   logging.cpp \[m
+   node/blockstorage.cpp \[m
+[33mdiff --git a/src/Makefile.test_fuzz.include b/src/Makefile.test_fuzz.include[m
+[33mindex 8922dda3ad..b43816636f 100644[m
+[33m--- a/src/Makefile.test_fuzz.include[m
+[33m+++ b/src/Makefile.test_fuzz.include[m
+[36m@@ -10,6 +10,7 @@[m [mEXTRA_LIBRARIES += \[m
+ TEST_FUZZ_H = \[m
+     test/fuzz/fuzz.h \[m
+     test/fuzz/FuzzedDataProvider.h \[m
+[32m+[m[32m    test/fuzz/mempool_utils.h \[m
+     test/fuzz/util.h[m
+ [m
+ libtest_fuzz_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(MINIUPNPC_CPPFLAGS) $(NATPMP_CPPFLAGS) $(EVENT_CFLAGS) $(EVENT_PTHREADS_CFLAGS)[m
+[33mdiff --git a/src/fs.h b/src/fs.h[m
+[33mindex cc55793b95..e8b34319bb 100644[m
+[33m--- a/src/fs.h[m
+[33m+++ b/src/fs.h[m
+[36m@@ -9,6 +9,7 @@[m
+ [m
+ #include <cstdio>[m
+ #include <filesystem>[m
+[32m+[m[32m#include <functional>[m
+ #include <iomanip>[m
+ #include <ios>[m
+ #include <ostream>[m
+[36m@@ -199,6 +200,7 @@[m [mbool create_directories(const std::filesystem::path& p, std::error_code& ec) = d[m
+ [m
+ /** Bridge operations to C stdio */[m
+ namespace fsbridge {[m
+[32m+[m[32m    using FopenFn = std::function<FILE*(const fs::path&, const char*)>;[m
+     FILE *fopen(const fs::path& p, const char *mode);[m
+ [m
+     /**[m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex eff37e1a83..40ce9f546a 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -10,6 +10,7 @@[m
+ #include <init.h>[m
+ [m
+ #include <kernel/checks.h>[m
+[32m+[m[32m#include <kernel/mempool_persist.h>[m
+ [m
+ #include <addrman.h>[m
+ #include <banman.h>[m
+[36m@@ -41,6 +42,7 @@[m
+ #include <node/chainstate.h>[m
+ #include <node/context.h>[m
+ #include <node/interface_ui.h>[m
+[32m+[m[32m#include <node/mempool_persist_args.h>[m
+ #include <node/miner.h>[m
+ #include <policy/feerate.h>[m
+ #include <policy/fees.h>[m
+[36m@@ -103,14 +105,19 @@[m
+ #include <zmq/zmqrpc.h>[m
+ #endif[m
+ [m
+[32m+[m[32musing kernel::DumpMempool;[m
+[32m+[m
+ using node::CacheSizes;[m
+ using node::CalculateCacheSizes;[m
+ using node::ChainstateLoadVerifyError;[m
+ using node::ChainstateLoadingError;[m
+ using node::CleanupBlockRevFiles;[m
+[32m+[m[32musing node::DEFAULT_PERSIST_MEMPOOL;[m
+ using node::DEFAULT_PRINTPRIORITY;[m
+ using node::DEFAULT_STOPAFTERBLOCKIMPORT;[m
+ using node::LoadChainstate;[m
+[32m+[m[32musing node::MempoolPath;[m
+[32m+[m[32musing node::MempoolPersist;[m
+ using node::NodeContext;[m
+ using node::ThreadImport;[m
+ using node::VerifyLoadedChainstate;[m
+[36m@@ -246,8 +253,8 @@[m [mvoid Shutdown(NodeContext& node)[m
+     node.addrman.reset();[m
+     node.netgroupman.reset();[m
+ [m
+[31m-    if (node.mempool && node.mempool->IsLoaded() && node.args->GetBoolArg("-persistmempool", DEFAULT_PERSIST_MEMPOOL)) {[m
+[31m-        DumpMempool(*node.mempool);[m
+[32m+[m[32m    if (node.mempool && node.mempool->GetLoadTried() && MempoolPersist(*node.args)) {[m
+[32m+[m[32m        DumpMempool(*node.mempool, MempoolPath(*node.args));[m
+     }[m
+ [m
+     // Drop transactions we were still watching, and record fee estimations.[m
+[36m@@ -1670,7 +1677,7 @@[m [mbool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)[m
+     }[m
+ [m
+     chainman.m_load_block = std::thread(&util::TraceThread, "loadblk", [=, &chainman, &args] {[m
+[31m-        ThreadImport(chainman, vImportFiles, args);[m
+[32m+[m[32m        ThreadImport(chainman, vImportFiles, args, MempoolPersist(args) ? MempoolPath(args) : fs::path{});[m
+     });[m
+ [m
+     // Wait for genesis block to be processed[m
+[33mdiff --git a/src/kernel/mempool_persist.cpp b/src/kernel/mempool_persist.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..9576691dca[m
+[33m--- /dev/null[m
+[33m+++ b/src/kernel/mempool_persist.cpp[m
+[36m@@ -0,0 +1,191 @@[m
+[32m+[m[32m// Copyright (c) 2022 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <kernel/mempool_persist.h>[m
+[32m+[m
+[32m+[m[32m#include <clientversion.h>[m
+[32m+[m[32m#include <consensus/amount.h>[m
+[32m+[m[32m#include <fs.h>[m
+[32m+[m[32m#include <logging.h>[m
+[32m+[m[32m#include <primitives/transaction.h>[m
+[32m+[m[32m#include <serialize.h>[m
+[32m+[m[32m#include <shutdown.h>[m
+[32m+[m[32m#include <streams.h>[m
+[32m+[m[32m#include <sync.h>[m
+[32m+[m[32m#include <txmempool.h>[m
+[32m+[m[32m#include <uint256.h>[m
+[32m+[m[32m#include <util/system.h>[m
+[32m+[m[32m#include <util/time.h>[m
+[32m+[m[32m#include <validation.h>[m
+[32m+[m
+[32m+[m[32m#include <chrono>[m
+[32m+[m[32m#include <cstdint>[m
+[32m+[m[32m#include <cstdio>[m
+[32m+[m[32m#include <exception>[m
+[32m+[m[32m#include <functional>[m
+[32m+[m[32m#include <map>[m
+[32m+[m[32m#include <memory>[m
+[32m+[m[32m#include <set>[m
+[32m+[m[32m#include <stdexcept>[m
+[32m+[m[32m#include <utility>[m
+[32m+[m[32m#include <vector>[m
+[32m+[m
+[32m+[m[32musing fsbridge::FopenFn;[m
+[32m+[m
+[32m+[m[32mnamespace kernel {[m
+[32m+[m
+[2m+[m[2mstatic const uint64_t MEMPOOL_DUMP_VERSION = 1;[m
+[2m+[m
+[32m+[m[32mbool LoadMempool(CTxMemPool& pool, const fs::path& load_path, CChainState& active_chainstate, FopenFn mockable_fopen_function)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (load_path.empty()) return false;[m
+[32m+[m
+[32m+[m[32m    FILE* filestr{mockable_fopen_function(load_path, "rb")};[m
+[2m+[m[2m    CAutoFile file(filestr, SER_DISK, CLIENT_VERSION);[m
+[2m+[m[2m    if (file.IsNull()) {[m
+[2m+[m[2m        LogPrintf("Failed to open mempool file from disk. Continuing anyway.\n");[m
+[2m+[m[2m        return false;[m
+[2m+[m[2m    }[m
+[2m+[m
+[2m+[m[2m    int64_t count = 0;[m
+[2m+[m[2m    int64_t expired = 0;[m
+[2m+[m[2m    int64_t failed = 0;[m
+[2m+[m[2m    int64_t already_there = 0;[m
+[2m+[m[2m    int64_t unbroadcast = 0;[m
+[32m+[m[32m    auto now = NodeClock::now();[m
+[2m+[m
+[2m+[m[2m    try {[m
+[2m+[m[2m        uint64_t version;[m
+[2m+[m[2m        file >> version;[m
+[2m+[m[2m        if (version != MEMPOOL_DUMP_VERSION) {[m
+[2m+[m[2m            return false;[m
+[2m+[m[2m        }[m
+[2m+[m[2m        uint64_t num;[m
+[2m+[m[2m        file >> num;[m
+[2m+[m[2m        while (num) {[m
+[2m+[m[2m            --num;[m
+[2m+[m[2m            CTransactionRef tx;[m
+[2m+[m[2m            int64_t nTime;[m
+[2m+[m[2m            int64_t nFeeDelta;[m
+[2m+[m[2m            file >> tx;[m
+[2m+[m[2m            file >> nTime;[m
+[2m+[m[2m            file >> nFeeDelta;[m
+[2m+[m
+[2m+[m[2m            CAmount amountdelta = nFeeDelta;[m
+[2m+[m[2m            if (amountdelta) {[m
+[2m+[m[2m                pool.PrioritiseTransaction(tx->GetHash(), amountdelta);[m
+[2m+[m[2m            }[m
+[32m+[m[32m            if (nTime > TicksSinceEpoch<std::chrono::seconds>(now - pool.m_expiry)) {[m
+[2m+[m[2m                LOCK(cs_main);[m
+[2m+[m[2m                const auto& accepted = AcceptToMemoryPool(active_chainstate, tx, nTime, /*bypass_limits=*/false, /*test_accept=*/false);[m
+[2m+[m[2m                if (accepted.m_result_type == MempoolAcceptResult::ResultType::VALID) {[m
+[2m+[m[2m                    ++count;[m
+[2m+[m[2m                } else {[m
+[2m+[m[2m                    // mempool may contain the transaction already, e.g. from[m
+[2m+[m[2m                    // wallet(s) having loaded it while we were processing[m
+[2m+[m[2m                    // mempool transactions; consider these as valid, instead of[m
+[2m+[m[2m                    // failed, but mark them as 'already there'[m
+[2m+[m[2m                    if (pool.exists(GenTxid::Txid(tx->GetHash()))) {[m
+[2m+[m[2m                        ++already_there;[m
+[2m+[m[2m                    } else {[m
+[2m+[m[2m                        ++failed;[m
+[2m+[m[2m                    }[m
+[2m+[m[2m                }[m
+[2m+[m[2m            } else {[m
+[2m+[m[2m                ++expired;[m
+[2m+[m[2m            }[m
+[2m+[m[2m            if (ShutdownRequested())[m
+[2m+[m[2m                return false;[m
+[2m+[m[2m        }[m
+[2m+[m[2m        std::map<uint256, CAmount> mapDeltas;[m
+[2m+[m[2m        file >> mapDeltas;[m
+[2m+[m
+[2m+[m[2m        for (const auto& i : mapDeltas) {[m
+[2m+[m[2m            pool.PrioritiseTransaction(i.first, i.second);[m
+[2m+[m[2m        }[m
+[2m+[m
+[2m+[m[2m        std::set<uint256> unbroadcast_txids;[m
+[2m+[m[2m        file >> unbroadcast_txids;[m
+[2m+[m[2m        unbroadcast = unbroadcast_txids.size();[m
+[2m+[m[2m        for (const auto& txid : unbroadcast_txids) {[m
+[2m+[m[2m            // Ensure transactions were accepted to mempool then add to[m
+[2m+[m[2m            // unbroadcast set.[m
+[2m+[m[2m            if (pool.get(txid) != nullptr) pool.AddUnbroadcastTx(txid);[m
+[2m+[m[2m        }[m
+[2m+[m[2m    } catch (const std::exception& e) {[m
+[2m+[m[2m        LogPrintf("Failed to deserialize mempool data on disk: %s. Continuing anyway.\n", e.what());[m
+[2m+[m[2m        return false;[m
+[2m+[m[2m    }[m
+[2m+[m
+[2m+[m[2m    LogPrintf("Imported mempool transactions from disk: %i succeeded, %i failed, %i expired, %i already there, %i waiting for initial broadcast\n", count, failed, expired, already_there, unbroadcast);[m
+[2m+[m[2m    return true;[m
+[2m+[m[2m}[m
+[2m+[m
+[32m+[m[32mbool DumpMempool(const CTxMemPool& pool, const fs::path& dump_path, FopenFn mockable_fopen_function, bool skip_file_commit)[m
+[32m+[m[32m{[m
+[32m+[m[32m    using SteadyClock = std::chrono::steady_clock;[m
+[32m+[m
+[32m+[m[32m    auto start = SteadyClock::now();[m
+[2m+[m
+[2m+[m[2m    std::map<uint256, CAmount> mapDeltas;[m
+[2m+[m[2m    std::vector<TxMempoolInfo> vinfo;[m
+[2m+[m[2m    std::set<uint256> unbroadcast_txids;[m
+[2m+[m
+[2m+[m[2m    static Mutex dump_mutex;[m
+[2m+[m[2m    LOCK(dump_mutex);[m
+[2m+[m
+[2m+[m[2m    {[m
+[2m+[m[2m        LOCK(pool.cs);[m
+[2m+[m[2m        for (const auto &i : pool.mapDeltas) {[m
+[2m+[m[2m            mapDeltas[i.first] = i.second;[m
+[2m+[m[2m        }[m
+[2m+[m[2m        vinfo = pool.infoAll();[m
+[2m+[m[2m        unbroadcast_txids = pool.GetUnbroadcastTxs();[m
+[2m+[m[2m    }[m
+[2m+[m
+[32m+[m[32m    auto mid = SteadyClock::now();[m
+[32m+[m
+[32m+[m[32m    try {[m
+[32m+[m[32m        FILE* filestr{mockable_fopen_function(dump_path + ".new", "wb")};[m
+[2m+[m[2m        if (!filestr) {[m
+[2m+[m[2m            return false;[m
+[2m+[m[2m        }[m
+[2m+[m
+[2m+[m[2m        CAutoFile file(filestr, SER_DISK, CLIENT_VERSION);[m
+[2m+[m
+[2m+[m[2m        uint64_t version = MEMPOOL_DUMP_VERSION;[m
+[2m+[m[2m        file << version;[m
+[2m+[m
+[2m+[m[2m        file << (uint64_t)vinfo.size();[m
+[2m+[m[2m        for (const auto& i : vinfo) {[m
+[2m+[m[2m            file << *(i.tx);[m
+[2m+[m[2m            file << int64_t{count_seconds(i.m_time)};[m
+[2m+[m[2m            file << int64_t{i.nFeeDelta};[m
+[2m+[m[2m            mapDeltas.erase(i.tx->GetHash());[m
+[2m+[m[2m        }[m
+[2m+[m
+[2m+[m[2m        file << mapDeltas;[m
+[2m+[m
+[2m+[m[2m        LogPrintf("Writing %d unbroadcast transactions to disk.\n", unbroadcast_txids.size());[m
+[2m+[m[2m        file << unbroadcast_txids;[m
+[2m+[m
+[2m+[m[2m        if (!skip_file_commit && !FileCommit(file.Get()))[m
+[2m+[m[2m            throw std::runtime_error("FileCommit failed");[m
+[2m+[m[2m        file.fclose();[m
+[32m+[m[32m        if (!RenameOver(dump_path + ".new", dump_path)) {[m
+[2m+[m[2m            throw std::runtime_error("Rename failed");[m
+[2m+[m[2m        }[m
+[32m+[m[32m        auto last = SteadyClock::now();[m
+[32m+[m
+[32m+[m[32m        LogPrintf("Dumped mempool: %gs to copy, %gs to dump\n",[m
+[32m+[m[32m                  Ticks<SecondsDouble>(mid - start),[m
+[32m+[m[32m                  Ticks<SecondsDouble>(last - mid));[m
+[2m+[m[2m    } catch (const std::exception& e) {[m
+[2m+[m[2m        LogPrintf("Failed to dump mempool: %s. Continuing anyway.\n", e.what());[m
+[2m+[m[2m        return false;[m
+[2m+[m[2m    }[m
+[2m+[m[2m    return true;[m
+[2m+[m[2m}[m
+[2m+[m
+[32m+[m[32m} // namespace kernel[m
+[33mdiff --git a/src/kernel/mempool_persist.h b/src/kernel/mempool_persist.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..9a15ec6dca[m
+[33m--- /dev/null[m
+[33m+++ b/src/kernel/mempool_persist.h[m
+[36m@@ -0,0 +1,28 @@[m
+[32m+[m[32m// Copyright (c) 2022 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_KERNEL_MEMPOOL_PERSIST_H[m
+[32m+[m[32m#define BITCOIN_KERNEL_MEMPOOL_PERSIST_H[m
+[32m+[m
+[32m+[m[32m#include <fs.h>[m
+[32m+[m
+[32m+[m[32mclass CChainState;[m
+[32m+[m[32mclass CTxMemPool;[m
+[32m+[m
+[32m+[m[32mnamespace kernel {[m
+[2m+[m
+[2m+[m[2m/** Dump the mempool to disk. */[m
+[32m+[m[32mbool DumpMempool(const CTxMemPool& pool, const fs::path& dump_path,[m
+[32m+[m[32m                 fsbridge::FopenFn mockable_fopen_function = fsbridge::fopen,[m
+[32m+[m[32m                 bool skip_file_commit = false);[m
+[2m+[m
+[2m+[m[2m/** Load the mempool from disk. */[m
+[32m+[m[32mbool LoadMempool(CTxMemPool& pool, const fs::path& load_path,[m
+[32m+[m[32m                 CChainState& active_chainstate,[m
+[32m+[m[32m                 fsbridge::FopenFn mockable_fopen_function = fsbridge::fopen);[m
+[32m+[m
+[32m+[m[32m} // namespace kernel[m
+[32m+[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_KERNEL_MEMPOOL_PERSIST_H[m
+[33mdiff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp[m
+[33mindex cadafcaa8d..b5632871af 100644[m
+[33m--- a/src/node/blockstorage.cpp[m
+[33m+++ b/src/node/blockstorage.cpp[m
+[36m@@ -11,6 +11,7 @@[m
+ #include <flatfile.h>[m
+ #include <fs.h>[m
+ #include <hash.h>[m
+[32m+[m[32m#include <node/mempool_persist_args.h>[m
+ #include <pow.h>[m
+ #include <reverse_iterator.h>[m
+ #include <shutdown.h>[m
+[36m@@ -823,7 +824,7 @@[m [mstruct CImportingNow {[m
+     }[m
+ };[m
+ [m
+[31m-void ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFiles, const ArgsManager& args)[m
+[32m+[m[32mvoid ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFiles, const ArgsManager& args, const fs::path& mempool_path)[m
+ {[m
+     SetSyscallSandboxPolicy(SyscallSandboxPolicy::INITIALIZATION_LOAD_BLOCKS);[m
+     ScheduleBatchPriority();[m
+[36m@@ -893,6 +894,6 @@[m [mvoid ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFile[m
+             return;[m
+         }[m
+     } // End scope of CImportingNow[m
+[31m-    chainman.ActiveChainstate().LoadMempool(args);[m
+[32m+[m[32m    chainman.ActiveChainstate().LoadMempool(mempool_path);[m
+ }[m
+ } // namespace node[m
+[33mdiff --git a/src/node/blockstorage.h b/src/node/blockstorage.h[m
+[33mindex e017f3f427..9b76371aae 100644[m
+[33m--- a/src/node/blockstorage.h[m
+[33m+++ b/src/node/blockstorage.h[m
+[36m@@ -211,7 +211,7 @@[m [mbool ReadRawBlockFromDisk(std::vector<uint8_t>& block, const FlatFilePos& pos, c[m
+ [m
+ bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex* pindex);[m
+ [m
+[31m-void ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFiles, const ArgsManager& args);[m
+[32m+[m[32mvoid ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFiles, const ArgsManager& args, const fs::path& mempool_path);[m
+ } // namespace node[m
+ [m
+ #endif // BITCOIN_NODE_BLOCKSTORAGE_H[m
+[33mdiff --git a/src/node/mempool_persist_args.cpp b/src/node/mempool_persist_args.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..1c99034cd7[m
+[33m--- /dev/null[m
+[33m+++ b/src/node/mempool_persist_args.cpp[m
+[36m@@ -0,0 +1,23 @@[m
+[32m+[m[32m// Copyright (c) 2022 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#include <node/mempool_persist_args.h>[m
+[32m+[m
+[32m+[m[32m#include <fs.h>[m
+[32m+[m[32m#include <util/system.h>[m
+[32m+[m[32m#include <validation.h>[m
+[32m+[m
+[32m+[m[32mnamespace node {[m
+[32m+[m
+[32m+[m[32mbool MempoolPersist(const ArgsManager& argsman)[m
+[32m+[m[32m{[m
+[32m+[m[32m    return argsman.GetBoolArg("-persistmempool", DEFAULT_PERSIST_MEMPOOL);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfs::path MempoolPath(const ArgsManager& argsman)[m
+[32m+[m[32m{[m
+[32m+[m[32m    return argsman.GetDataDirNet() / "mempool.dat";[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m} // namespace node[m
+[33mdiff --git a/src/node/mempool_persist_args.h b/src/node/mempool_persist_args.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..9c939c60c9[m
+[33m--- /dev/null[m
+[33m+++ b/src/node/mempool_persist_args.h[m
+[36m@@ -0,0 +1,22 @@[m
+[32m+[m[32m// Copyright (c) 2022 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_NODE_MEMPOOL_PERSIST_ARGS_H[m
+[32m+[m[32m#define BITCOIN_NODE_MEMPOOL_PERSIST_ARGS_H[m
+[32m+[m
+[32m+[m[32m#include <fs.h>[m
+[32m+[m
+[32m+[m[32mclass ArgsManager;[m
+[32m+[m
+[32m+[m[32mnamespace node {[m
+[32m+[m
+[2m+[m[2m/** Default for -persistmempool */[m
+[32m+[m[32mstatic constexpr bool DEFAULT_PERSIST_MEMPOOL{true};[m
+[32m+[m
+[32m+[m[32mbool MempoolPersist(const ArgsManager& argsman);[m
+[32m+[m[32mfs::path MempoolPath(const ArgsManager& argsman);[m
+[32m+[m
+[32m+[m[32m} // namespace node[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_NODE_MEMPOOL_PERSIST_ARGS_H[m
+[33mdiff --git a/src/rpc/mempool.cpp b/src/rpc/mempool.cpp[m
+[33mindex 84d43e7818..6bef8437b2 100644[m
+[33m--- a/src/rpc/mempool.cpp[m
+[33m+++ b/src/rpc/mempool.cpp[m
+[36m@@ -5,9 +5,12 @@[m
+ [m
+ #include <rpc/blockchain.h>[m
+ [m
+[32m+[m[32m#include <kernel/mempool_persist.h>[m
+[32m+[m
+ #include <chainparams.h>[m
+ #include <core_io.h>[m
+ #include <fs.h>[m
+[32m+[m[32m#include <node/mempool_persist_args.h>[m
+ #include <policy/rbf.h>[m
+ #include <policy/settings.h>[m
+ #include <primitives/transaction.h>[m
+[36m@@ -18,7 +21,11 @@[m
+ #include <univalue.h>[m
+ #include <util/moneystr.h>[m
+ [m
+[32m+[m[32musing kernel::DumpMempool;[m
+[32m+[m
+ using node::DEFAULT_MAX_RAW_TX_FEE_RATE;[m
+[32m+[m[32musing node::MempoolPath;[m
+[32m+[m[32musing node::MempoolPersist;[m
+ using node::NodeContext;[m
+ [m
+ static RPCHelpMan sendrawtransaction()[m
+[36m@@ -653,7 +660,7 @@[m [mUniValue MempoolInfoToJSON(const CTxMemPool& pool)[m
+     // Make sure this call is atomic in the pool.[m
+     LOCK(pool.cs);[m
+     UniValue ret(UniValue::VOBJ);[m
+[31m-    ret.pushKV("loaded", pool.IsLoaded());[m
+[32m+[m[32m    ret.pushKV("loaded", pool.GetLoadTried());[m
+     ret.pushKV("size", (int64_t)pool.size());[m
+     ret.pushKV("bytes", (int64_t)pool.GetTotalTxSize());[m
+     ret.pushKV("usage", (int64_t)pool.DynamicMemoryUsage());[m
+[36m@@ -717,16 +724,18 @@[m [mstatic RPCHelpMan savemempool()[m
+     const ArgsManager& args{EnsureAnyArgsman(request.context)};[m
+     const CTxMemPool& mempool = EnsureAnyMemPool(request.context);[m
+ [m
+[31m-    if (!mempool.IsLoaded()) {[m
+[32m+[m[32m    if (!mempool.GetLoadTried()) {[m
+         throw JSONRPCError(RPC_MISC_ERROR, "The mempool was not loaded yet");[m
+     }[m
+ [m
+[31m-    if (!DumpMempool(mempool)) {[m
+[32m+[m[32m    const fs::path& dump_path = MempoolPath(args);[m
+[32m+[m
+[32m+[m[32m    if (!DumpMempool(mempool, dump_path)) {[m
+         throw JSONRPCError(RPC_MISC_ERROR, "Unable to dump mempool to disk");[m
+     }[m
+ [m
+     UniValue ret(UniValue::VOBJ);[m
+[31m-    ret.pushKV("filename", fs::path((args.GetDataDirNet() / "mempool.dat")).u8string());[m
+[32m+[m[32m    ret.pushKV("filename", dump_path.u8string());[m
+ [m
+     return ret;[m
+ },[m
+[33mdiff --git a/src/test/fuzz/mempool_utils.h b/src/test/fuzz/mempool_utils.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..bfe12e30ba[m
+[33m--- /dev/null[m
+[33m+++ b/src/test/fuzz/mempool_utils.h[m
+[36m@@ -0,0 +1,19 @@[m
+[32m+[m[32m// Copyright (c) 2022 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_TEST_FUZZ_MEMPOOL_UTILS_H[m
+[32m+[m[32m#define BITCOIN_TEST_FUZZ_MEMPOOL_UTILS_H[m
+[32m+[m
+[32m+[m[32m#include <validation.h>[m
+[32m+[m
+[2m+[m[2mclass DummyChainState final : public CChainState[m
+[2m+[m[2m{[m
+[2m+[m[2mpublic:[m
+[2m+[m[2m    void SetMempool(CTxMemPool* mempool)[m
+[2m+[m[2m    {[m
+[2m+[m[2m        m_mempool = mempool;[m
+[2m+[m[2m    }[m
+[2m+[m[2m};[m
+[2m+[m
+[32m+[m[32m#endif // BITCOIN_TEST_FUZZ_MEMPOOL_UTILS_H[m
+[33mdiff --git a/src/test/fuzz/tx_pool.cpp b/src/test/fuzz/tx_pool.cpp[m
+[33mindex 2d88ee295b..63fbf0516a 100644[m
+[33m--- a/src/test/fuzz/tx_pool.cpp[m
+[33m+++ b/src/test/fuzz/tx_pool.cpp[m
+[36m@@ -8,6 +8,7 @@[m
+ #include <node/miner.h>[m
+ #include <test/fuzz/FuzzedDataProvider.h>[m
+ #include <test/fuzz/fuzz.h>[m
+[32m+[m[32m#include <test/fuzz/mempool_utils.h>[m
+ #include <test/fuzz/util.h>[m
+ #include <test/util/mining.h>[m
+ #include <test/util/script.h>[m
+[36m@@ -34,15 +35,6 @@[m [mstruct MockedTxPool : public CTxMemPool {[m
+     }[m
+ };[m
+ [m
+[2m-class DummyChainState final : public CChainState[m
+[2m-{[m
+[2m-public:[m
+[2m-    void SetMempool(CTxMemPool* mempool)[m
+[2m-    {[m
+[2m-        m_mempool = mempool;[m
+[2m-    }[m
+[2m-};[m
+[2m-[m
+ void initialize_tx_pool()[m
+ {[m
+     static const auto testing_setup = MakeNoLogFileContext<const TestingSetup>();[m
+[33mdiff --git a/src/test/fuzz/validation_load_mempool.cpp b/src/test/fuzz/validation_load_mempool.cpp[m
+[33mindex 9532610f8d..90c1a71d9f 100644[m
+[33m--- a/src/test/fuzz/validation_load_mempool.cpp[m
+[33m+++ b/src/test/fuzz/validation_load_mempool.cpp[m
+[36m@@ -2,10 +2,14 @@[m
+ // Distributed under the MIT software license, see the accompanying[m
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+ [m
+[32m+[m[32m#include <kernel/mempool_persist.h>[m
+[32m+[m
+ #include <chainparamsbase.h>[m
+ #include <mempool_args.h>[m
+[32m+[m[32m#include <node/mempool_persist_args.h>[m
+ #include <test/fuzz/FuzzedDataProvider.h>[m
+ #include <test/fuzz/fuzz.h>[m
+[32m+[m[32m#include <test/fuzz/mempool_utils.h>[m
+ #include <test/fuzz/util.h>[m
+ #include <test/util/setup_common.h>[m
+ #include <txmempool.h>[m
+[36m@@ -15,6 +19,10 @@[m
+ #include <cstdint>[m
+ #include <vector>[m
+ [m
+[32m+[m[32musing kernel::DumpMempool;[m
+[32m+[m
+[32m+[m[32musing node::MempoolPath;[m
+[32m+[m
+ namespace {[m
+ const TestingSetup* g_setup;[m
+ } // namespace[m
+[36m@@ -33,9 +41,12 @@[m [mFUZZ_TARGET_INIT(validation_load_mempool, initialize_validation_load_mempool)[m
+ [m
+     CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node)};[m
+ [m
+[32m+[m[32m    auto& chainstate{static_cast<DummyChainState&>(g_setup->m_node.chainman->ActiveChainstate())};[m
+[32m+[m[32m    chainstate.SetMempool(&pool);[m
+[32m+[m
+     auto fuzzed_fopen = [&](const fs::path&, const char*) {[m
+         return fuzzed_file_provider.open();[m
+     };[m
+[31m-    (void)LoadMempool(pool, g_setup->m_node.chainman->ActiveChainstate(), fuzzed_fopen);[m
+[31m-    (void)DumpMempool(pool, fuzzed_fopen, true);[m
+[32m+[m[32m    (void)chainstate.LoadMempool(MempoolPath(g_setup->m_args), fuzzed_fopen);[m
+[32m+[m[32m    (void)DumpMempool(pool, MempoolPath(g_setup->m_args), fuzzed_fopen, true);[m
+ }[m
+[33mdiff --git a/src/txmempool.cpp b/src/txmempool.cpp[m
+[33mindex aeaa10034e..00e3068946 100644[m
+[33m--- a/src/txmempool.cpp[m
+[33m+++ b/src/txmempool.cpp[m
+[36m@@ -1210,14 +1210,14 @@[m [mvoid CTxMemPool::GetTransactionAncestry(const uint256& txid, size_t& ancestors,[m
+     }[m
+ }[m
+ [m
+[31m-bool CTxMemPool::IsLoaded() const[m
+[32m+[m[32mbool CTxMemPool::GetLoadTried() const[m
+ {[m
+     LOCK(cs);[m
+[31m-    return m_is_loaded;[m
+[32m+[m[32m    return m_load_tried;[m
+ }[m
+ [m
+[31m-void CTxMemPool::SetIsLoaded(bool loaded)[m
+[32m+[m[32mvoid CTxMemPool::SetLoadTried(bool loaded)[m
+ {[m
+     LOCK(cs);[m
+[31m-    m_is_loaded = loaded;[m
+[32m+[m[32m    m_load_tried = loaded;[m
+ }[m
+[33mdiff --git a/src/txmempool.h b/src/txmempool.h[m
+[33mindex 6e37f59f2e..1abf641ed2 100644[m
+[33m--- a/src/txmempool.h[m
+[33m+++ b/src/txmempool.h[m
+[36m@@ -451,7 +451,7 @@[m [mprotected:[m
+ [m
+     void trackPackageRemoved(const CFeeRate& rate) EXCLUSIVE_LOCKS_REQUIRED(cs);[m
+ [m
+[31m-    bool m_is_loaded GUARDED_BY(cs){false};[m
+[32m+[m[32m    bool m_load_tried GUARDED_BY(cs){false};[m
+ [m
+     CFeeRate GetMinFee(size_t sizelimit) const;[m
+ [m
+[36m@@ -729,10 +729,10 @@[m [mpublic:[m
+     void GetTransactionAncestry(const uint256& txid, size_t& ancestors, size_t& descendants, size_t* ancestorsize = nullptr, CAmount* ancestorfees = nullptr) const;[m
+ [m
+     /** @returns true if the mempool is fully loaded */[m
+[31m-    bool IsLoaded() const;[m
+[32m+[m[32m    bool GetLoadTried() const;[m
+ [m
+     /** Sets the current loaded state */[m
+[31m-    void SetIsLoaded(bool loaded);[m
+[32m+[m[32m    void SetLoadTried(bool loaded);[m
+ [m
+     unsigned long size() const[m
+     {[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex 4c694a2c21..6840753cd4 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -5,6 +5,9 @@[m
+ [m
+ #include <validation.h>[m
+ [m
+[2m+[m[2m#include <kernel/coinstats.h>[m
+[32m+[m[32m#include <kernel/mempool_persist.h>[m
+[32m+[m
+ #include <arith_uint256.h>[m
+ #include <chain.h>[m
+ #include <chainparams.h>[m
+[36m@@ -17,8 +20,8 @@[m
+ #include <consensus/validation.h>[m
+ #include <cuckoocache.h>[m
+ #include <flatfile.h>[m
+[32m+[m[32m#include <fs.h>[m
+ #include <hash.h>[m
+[2m-#include <kernel/coinstats.h>[m
+ #include <logging.h>[m
+ #include <logging/timer.h>[m
+ #include <node/blockstorage.h>[m
+[36m@@ -47,12 +50,14 @@[m
+ #include <util/rbf.h>[m
+ #include <util/strencodings.h>[m
+ #include <util/system.h>[m
+[32m+[m[32m#include <util/time.h>[m
+ #include <util/trace.h>[m
+ #include <util/translation.h>[m
+ #include <validationinterface.h>[m
+ #include <warnings.h>[m
+ [m
+ #include <algorithm>[m
+[32m+[m[32m#include <chrono>[m
+ #include <deque>[m
+ #include <numeric>[m
+ #include <optional>[m
+[36m@@ -61,7 +66,9 @@[m
+ using kernel::CCoinsStats;[m
+ using kernel::CoinStatsHashType;[m
+ using kernel::ComputeUTXOStats;[m
+[32m+[m[32musing kernel::LoadMempool;[m
+ [m
+[32m+[m[32musing fsbridge::FopenFn;[m
+ using node::BLOCKFILE_CHUNK_SIZE;[m
+ using node::BlockManager;[m
+ using node::BlockMap;[m
+[36m@@ -3861,13 +3868,11 @@[m [mvoid PruneBlockFilesManual(CChainState& active_chainstate, int nManualPruneHeigh[m
+     }[m
+ }[m
+ [m
+[31m-void CChainState::LoadMempool(const ArgsManager& args)[m
+[32m+[m[32mvoid CChainState::LoadMempool(const fs::path& load_path, FopenFn mockable_fopen_function)[m
+ {[m
+     if (!m_mempool) return;[m
+[31m-    if (args.GetBoolArg("-persistmempool", DEFAULT_PERSIST_MEMPOOL)) {[m
+[31m-        ::LoadMempool(*m_mempool, *this);[m
+[31m-    }[m
+[31m-    m_mempool->SetIsLoaded(!ShutdownRequested());[m
+[32m+[m[32m    ::LoadMempool(*m_mempool, load_path, *this, mockable_fopen_function);[m
+[32m+[m[32m    m_mempool->SetLoadTried(!ShutdownRequested());[m
+ }[m
+ [m
+ bool CChainState::LoadChainTip()[m
+[36m@@ -4638,153 +4643,6 @@[m [mbool CChainState::ResizeCoinsCaches(size_t coinstip_size, size_t coinsdb_size)[m
+     return ret;[m
+ }[m
+ [m
+[2m-static const uint64_t MEMPOOL_DUMP_VERSION = 1;[m
+[2m-[m
+[31m-bool LoadMempool(CTxMemPool& pool, CChainState& active_chainstate, FopenFn mockable_fopen_function)[m
+[31m-{[m
+[31m-    int64_t nExpiryTimeout = std::chrono::seconds{pool.m_expiry}.count();[m
+[31m-    FILE* filestr{mockable_fopen_function(gArgs.GetDataDirNet() / "mempool.dat", "rb")};[m
+[2m-    CAutoFile file(filestr, SER_DISK, CLIENT_VERSION);[m
+[2m-    if (file.IsNull()) {[m
+[2m-        LogPrintf("Failed to open mempool file from disk. Continuing anyway.\n");[m
+[2m-        return false;[m
+[2m-    }[m
+[2m-[m
+[2m-    int64_t count = 0;[m
+[2m-    int64_t expired = 0;[m
+[2m-    int64_t failed = 0;[m
+[2m-    int64_t already_there = 0;[m
+[2m-    int64_t unbroadcast = 0;[m
+[31m-    int64_t nNow = GetTime();[m
+[2m-[m
+[2m-    try {[m
+[2m-        uint64_t version;[m
+[2m-        file >> version;[m
+[2m-        if (version != MEMPOOL_DUMP_VERSION) {[m
+[2m-            return false;[m
+[2m-        }[m
+[2m-        uint64_t num;[m
+[2m-        file >> num;[m
+[2m-        while (num) {[m
+[2m-            --num;[m
+[2m-            CTransactionRef tx;[m
+[2m-            int64_t nTime;[m
+[2m-            int64_t nFeeDelta;[m
+[2m-            file >> tx;[m
+[2m-            file >> nTime;[m
+[2m-            file >> nFeeDelta;[m
+[2m-[m
+[2m-            CAmount amountdelta = nFeeDelta;[m
+[2m-            if (amountdelta) {[m
+[2m-                pool.PrioritiseTransaction(tx->GetHash(), amountdelta);[m
+[2m-            }[m
+[31m-            if (nTime > nNow - nExpiryTimeout) {[m
+[2m-                LOCK(cs_main);[m
+[2m-                const auto& accepted = AcceptToMemoryPool(active_chainstate, tx, nTime, /*bypass_limits=*/false, /*test_accept=*/false);[m
+[2m-                if (accepted.m_result_type == MempoolAcceptResult::ResultType::VALID) {[m
+[2m-                    ++count;[m
+[2m-                } else {[m
+[2m-                    // mempool may contain the transaction already, e.g. from[m
+[2m-                    // wallet(s) having loaded it while we were processing[m
+[2m-                    // mempool transactions; consider these as valid, instead of[m
+[2m-                    // failed, but mark them as 'already there'[m
+[2m-                    if (pool.exists(GenTxid::Txid(tx->GetHash()))) {[m
+[2m-                        ++already_there;[m
+[2m-                    } else {[m
+[2m-                        ++failed;[m
+[2m-                    }[m
+[2m-                }[m
+[2m-            } else {[m
+[2m-                ++expired;[m
+[2m-            }[m
+[2m-            if (ShutdownRequested())[m
+[2m-                return false;[m
+[2m-        }[m
+[2m-        std::map<uint256, CAmount> mapDeltas;[m
+[2m-        file >> mapDeltas;[m
+[2m-[m
+[2m-        for (const auto& i : mapDeltas) {[m
+[2m-            pool.PrioritiseTransaction(i.first, i.second);[m
+[2m-        }[m
+[2m-[m
+[2m-        std::set<uint256> unbroadcast_txids;[m
+[2m-        file >> unbroadcast_txids;[m
+[2m-        unbroadcast = unbroadcast_txids.size();[m
+[2m-        for (const auto& txid : unbroadcast_txids) {[m
+[2m-            // Ensure transactions were accepted to mempool then add to[m
+[2m-            // unbroadcast set.[m
+[2m-            if (pool.get(txid) != nullptr) pool.AddUnbroadcastTx(txid);[m
+[2m-        }[m
+[2m-    } catch (const std::exception& e) {[m
+[2m-        LogPrintf("Failed to deserialize mempool data on disk: %s. Continuing anyway.\n", e.what());[m
+[2m-        return false;[m
+[2m-    }[m
+[2m-[m
+[2m-    LogPrintf("Imported mempool transactions from disk: %i succeeded, %i failed, %i expired, %i already there, %i waiting for initial broadcast\n", count, failed, expired, already_there, unbroadcast);[m
+[2m-    return true;[m
+[2m-}[m
+[2m-[m
+[31m-bool DumpMempool(const CTxMemPool& pool, FopenFn mockable_fopen_function, bool skip_file_commit)[m
+[31m-{[m
+[31m-    int64_t start = GetTimeMicros();[m
+[2m-[m
+[2m-    std::map<uint256, CAmount> mapDeltas;[m
+[2m-    std::vector<TxMempoolInfo> vinfo;[m
+[2m-    std::set<uint256> unbroadcast_txids;[m
+[2m-[m
+[2m-    static Mutex dump_mutex;[m
+[2m-    LOCK(dump_mutex);[m
+[2m-[m
+[2m-    {[m
+[2m-        LOCK(pool.cs);[m
+[2m-        for (const auto &i : pool.mapDeltas) {[m
+[2m-            mapDeltas[i.first] = i.second;[m
+[2m-        }[m
+[2m-        vinfo = pool.infoAll();[m
+[2m-        unbroadcast_txids = pool.GetUnbroadcastTxs();[m
+[2m-    }[m
+[2m-[m
+[31m-    int64_t mid = GetTimeMicros();[m
+[31m-[m
+[31m-    try {[m
+[31m-        FILE* filestr{mockable_fopen_function(gArgs.GetDataDirNet() / "mempool.dat.new", "wb")};[m
+[2m-        if (!filestr) {[m
+[2m-            return false;[m
+[2m-        }[m
+[2m-[m
+[2m-        CAutoFile file(filestr, SER_DISK, CLIENT_VERSION);[m
+[2m-[m
+[2m-        uint64_t version = MEMPOOL_DUMP_VERSION;[m
+[2m-        file << version;[m
+[2m-[m
+[2m-        file << (uint64_t)vinfo.size();[m
+[2m-        for (const auto& i : vinfo) {[m
+[2m-            file << *(i.tx);[m
+[2m-            file << int64_t{count_seconds(i.m_time)};[m
+[2m-            file << int64_t{i.nFeeDelta};[m
+[2m-            mapDeltas.erase(i.tx->GetHash());[m
+[2m-        }[m
+[2m-[m
+[2m-        file << mapDeltas;[m
+[2m-[m
+[2m-        LogPrintf("Writing %d unbroadcast transactions to disk.\n", unbroadcast_txids.size());[m
+[2m-        file << unbroadcast_txids;[m
+[2m-[m
+[2m-        if (!skip_file_commit && !FileCommit(file.Get()))[m
+[2m-            throw std::runtime_error("FileCommit failed");[m
+[2m-        file.fclose();[m
+[31m-        if (!RenameOver(gArgs.GetDataDirNet() / "mempool.dat.new", gArgs.GetDataDirNet() / "mempool.dat")) {[m
+[2m-            throw std::runtime_error("Rename failed");[m
+[2m-        }[m
+[31m-        int64_t last = GetTimeMicros();[m
+[31m-        LogPrintf("Dumped mempool: %gs to copy, %gs to dump\n", (mid-start)*MICRO, (last-mid)*MICRO);[m
+[2m-    } catch (const std::exception& e) {[m
+[2m-        LogPrintf("Failed to dump mempool: %s. Continuing anyway.\n", e.what());[m
+[2m-        return false;[m
+[2m-    }[m
+[2m-    return true;[m
+[2m-}[m
+[2m-[m
+ //! Guess how far we are in the verification process at the given block index[m
+ //! require cs_main if pindex has not been validated yet (because nChainTx might be unset)[m
+ double GuessVerificationProgress(const ChainTxData& data, const CBlockIndex *pindex) {[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex 0e27e117fa..f89d42e310 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -68,8 +68,6 @@[m [mstatic const bool DEFAULT_CHECKPOINTS_ENABLED = true;[m
+ static const bool DEFAULT_TXINDEX = false;[m
+ static constexpr bool DEFAULT_COINSTATSINDEX{false};[m
+ static const char* const DEFAULT_BLOCKFILTERINDEX = "0";[m
+[2m-/** Default for -persistmempool */[m
+[31m-static const bool DEFAULT_PERSIST_MEMPOOL = true;[m
+ /** Default for -stopatheight */[m
+ static const int DEFAULT_STOPATHEIGHT = 0;[m
+ /** Block files containing a block-height within MIN_BLOCKS_TO_KEEP of ActiveChain().Tip() will not be pruned. */[m
+[36m@@ -679,7 +677,7 @@[m [mpublic:[m
+     void CheckBlockIndex();[m
+ [m
+     /** Load the persisted mempool from disk */[m
+[31m-    void LoadMempool(const ArgsManager& args);[m
+[32m+[m[32m    void LoadMempool(const fs::path& load_path, fsbridge::FopenFn mockable_fopen_function = fsbridge::fopen);[m
+ [m
+     /** Update the chain tip based on database information, i.e. CoinsTip()'s best block. */[m
+     bool LoadChainTip() EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[36m@@ -1014,14 +1012,6 @@[m [mbool DeploymentEnabled(const ChainstateManager& chainman, DEP dep)[m
+     return DeploymentEnabled(chainman.GetConsensus(), dep);[m
+ }[m
+ [m
+[31m-using FopenFn = std::function<FILE*(const fs::path&, const char*)>;[m
+[2m-[m
+[2m-/** Dump the mempool to disk. */[m
+[31m-bool DumpMempool(const CTxMemPool& pool, FopenFn mockable_fopen_function = fsbridge::fopen, bool skip_file_commit = false);[m
+[2m-[m
+[2m-/** Load the mempool from disk. */[m
+[31m-bool LoadMempool(CTxMemPool& pool, CChainState& active_chainstate, FopenFn mockable_fopen_function = fsbridge::fopen);[m
+[31m-[m
+ /**[m
+  * Return the expected assumeutxo value for a given height, if one exists.[m
+  *[m
+[33mdiff --git a/test/functional/mempool_persist.py b/test/functional/mempool_persist.py[m
+[33mindex 58f4c91343..b6fa7fbd91 100755[m
+[33m--- a/test/functional/mempool_persist.py[m
+[33m+++ b/test/functional/mempool_persist.py[m
+[36m@@ -141,6 +141,16 @@[m [mclass MempoolPersistTest(BitcoinTestFramework):[m
+             self.nodes[2].syncwithvalidationinterfacequeue()  # Flush mempool to wallet[m
+             assert_equal(node2_balance, wallet_watch.getbalance())[m
+ [m
+[2m+[m[2m        mempooldat0 = os.path.join(self.nodes[0].datadir, self.chain, 'mempool.dat')[m
+[2m+[m[2m        mempooldat1 = os.path.join(self.nodes[1].datadir, self.chain, 'mempool.dat')[m
+[32m+[m
+[32m+[m[32m        self.log.debug("Force -persistmempool=0 node1 to savemempool to disk via RPC")[m
+[32m+[m[32m        assert not os.path.exists(mempooldat1)[m
+[32m+[m[32m        result1 = self.nodes[1].savemempool()[m
+[32m+[m[32m        assert os.path.isfile(mempooldat1)[m
+[32m+[m[32m        assert_equal(result1['filename'], mempooldat1)[m
+[32m+[m[32m        os.remove(mempooldat1)[m
+[32m+[m
+         self.log.debug("Stop-start node0 with -persistmempool=0. Verify that it doesn't load its mempool.dat file.")[m
+         self.stop_nodes()[m
+         self.start_node(0, extra_args=["-persistmempool=0"])[m
+[36m@@ -153,8 +163,6 @@[m [mclass MempoolPersistTest(BitcoinTestFramework):[m
+         assert self.nodes[0].getmempoolinfo()["loaded"][m
+         assert_equal(len(self.nodes[0].getrawmempool()), 7)[m
+ [m
+[2m-        mempooldat0 = os.path.join(self.nodes[0].datadir, self.chain, 'mempool.dat')[m
+[2m-        mempooldat1 = os.path.join(self.nodes[1].datadir, self.chain, 'mempool.dat')[m
+         self.log.debug("Remove the mempool.dat file. Verify that savemempool to disk via RPC re-creates it")[m
+         os.remove(mempooldat0)[m
+         result0 = self.nodes[0].savemempool()[m
+[33mdiff --git a/test/lint/lint-circular-dependencies.py b/test/lint/lint-circular-dependencies.py[m
+[33mindex 5d157eb4b1..f44ed8f7c7 100755[m
+[33m--- a/test/lint/lint-circular-dependencies.py[m
+[33m+++ b/test/lint/lint-circular-dependencies.py[m
+[36m@@ -22,6 +22,7 @@[m [mEXPECTED_CIRCULAR_DEPENDENCIES = ([m
+     "wallet/fees -> wallet/wallet -> wallet/fees",[m
+     "wallet/wallet -> wallet/walletdb -> wallet/wallet",[m
+     "kernel/coinstats -> validation -> kernel/coinstats",[m
+[32m+[m[32m    "kernel/mempool_persist -> validation -> kernel/mempool_persist",[m
+ )[m
+ [m
+ CODE_DIR = "src"[m

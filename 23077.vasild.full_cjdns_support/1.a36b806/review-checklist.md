@@ -1,0 +1,13 @@
+- [ ] cdc1b71f25 net: make it possible to connect to CJDNS addresses
+- [ ] 6dc9405cbd net: use -proxy for connecting to the CJDNS network
+- [ ] 4ac1547719 net: recognize CJDNS from ParseNetwork()
+- [ ] 4700498b57 net: introduce a new config option to enable CJDNS
+- [ ] 3518cbe3c7 net: don't skip CJDNS from GetNetworksInfo()
+- [ ] 18b612149b net: recognize CJDNS addresses as such
+- [ ] 744341a04f test: remove default argument of feature_proxy.py:node_test()
+- [ ] bdd4677612 test: extend feature_proxy.py to test CJDNS
+- [ ] 5bca1de5d0 net: take CJDNS into account in CNetAddr::GetReachabilityFrom()
+- [ ] 9201007566 net: don't skip CJDNS from GetNetworkNames()
+- [ ] 6082170f73 net: relay CJDNS addresses even if we are not connected to CJDNS
+- [ ] aa9ca9bf17 net: take the first 4 random bits from CJDNS addresses in GetGroup()
+- [ ] a36b806169 contrib: recognize CJDNS seeds as such

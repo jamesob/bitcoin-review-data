@@ -1,0 +1,10 @@
+ACK a36b806169f1706053800fcecaab9b678258f39e ([`jamesob/ackr/23077.1.vasild.full_cjdns_support`](https://github.com/jamesob/bitcoin/tree/ackr/23077.1.vasild.full_cjdns_support))
+
+Looks like I code-reviewed an older version of this branch, but I verified that the range-diff is empty (`git range-diff master..96083eb8c8 master..HEAD`).
+
+I booted a cjdnsroute instance (`fcb3:dc50:e1ae:7998:7dc0:7fa6:4582:8e46`) and started bitcoind with `./src/bitcoind -cjdnsreachable -onlynet=cjdns -debug=net`. I had to manually `bitcoin-cli addnode ...` a few of the IPs listed in the PR description to get P2P traffic going, but once I did that I was getting the usual P2P chatter. Verified the reception of a new block and a bunch of txn data.
+
+I don't seem to be connecting to other cjdns-network nodes automatically (seems I need to `addnode` them each manually), but I'm not sure if that's part of the expected feature set here, though I thought it was.
+
+In any case, the complexity of this change is low since it's essentially just stamping out diffs along the lines of I2P and Tor. Maintenance burden seems negligible and the changes all look pretty well tested. Thanks, @vasild!
+

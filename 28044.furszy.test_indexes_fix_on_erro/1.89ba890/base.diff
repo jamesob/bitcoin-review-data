@@ -1,0 +1,23 @@
+[33mdiff --git a/src/test/util/index.cpp b/src/test/util/index.cpp[m
+[33mindex 89bc35b731..e653d5dbf0 100644[m
+[33m--- a/src/test/util/index.cpp[m
+[33m+++ b/src/test/util/index.cpp[m
+[36m@@ -5,11 +5,18 @@[m
+ #include <test/util/index.h>[m
+ [m
+ #include <index/base.h>[m
+[32m+[m[32m#include <shutdown.h>[m
+[32m+[m[32m#include <util/check.h>[m
+ #include <util/time.h>[m
+ [m
+ void IndexWaitSynced(const BaseIndex& index)[m
+ {[m
+     while (!index.BlockUntilSyncedToCurrentChain()) {[m
+[32m+[m[32m        // Assert shutdown was not requested to abort the test, instead of looping forever, in case[m
+[32m+[m[32m        // there was an unexpected error in the index that caused it to stop syncing and request a shutdown.[m
+[32m+[m[32m        Assert(!ShutdownRequested());[m
+[32m+[m
+         UninterruptibleSleep(100ms);[m
+     }[m
+[32m+[m[32m    assert(index.GetSummary().synced);[m
+ }[m

@@ -1,0 +1,8 @@
+ACK e022eaf87c65e8d7d27d8f5fa4cadc359c843e8a ([`jamesob/ackr/25308.1.ryanofsky.refactor_reduce_number_o`](https://github.com/jamesob/bitcoin/tree/ackr/25308.1.ryanofsky.refactor_reduce_number_o))
+
+The line count reduction speaks for itself! Nice refactor. Initially I was a little
+sad to lose the error value enums for the chainstate initialization functions,
+but if we aren't testing on them or really using them for anything aside from
+mapping to error strings, I agree that it's fine to forego them.
+
+Read through commits locally and built each one.

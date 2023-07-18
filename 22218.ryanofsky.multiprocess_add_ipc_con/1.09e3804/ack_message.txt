@@ -1,0 +1,3 @@
+ACK 09e3804d8fa1498264b6031f1332d5f83a99ff43 ([`jamesob/ackr/22218.1.ryanofsky.multiprocess_add_ipc_con`](https://github.com/jamesob/bitcoin/tree/ackr/22218.1.ryanofsky.multiprocess_add_ipc_con))
+
+Built and ran unittests locally. This looks like some benign plumbing for capnpnp IPC. I tried looking ahead at the parent PR (https://github.com/bitcoin/bitcoin/pull/10102/files#diff-ab470dae240c184802de8bbc39f63116f54c11e2dff50ef90421aecc50b04284) but I have to admit I can't totally tell where this is being used. Maybe some additional details from @ryanofsky would help here. But there's nothing obviously wrong with (or even complicated about) this changeset.

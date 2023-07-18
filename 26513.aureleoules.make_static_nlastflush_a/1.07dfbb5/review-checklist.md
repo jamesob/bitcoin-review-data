@@ -1,0 +1,1 @@
+- [ ] 07dfbb5bb8 Make static nLastFlush and nLastWrite Chainstate members

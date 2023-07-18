@@ -1,0 +1,3 @@
+ACK 983a3552f22678d4466e0faa8e784f25b145a76b ([`jamesob/ackr/21726.1.fjahr.improve_indices_on_prune`](https://github.com/jamesob/bitcoin/tree/ackr/21726.1.fjahr.improve_indices_on_prune))
+
+This change has two immediate benefits: (i) it removes an existing cicular depdendency between indexing code and validation, and (ii) allows use of coinstatsindex alongside pruning configuration. This inteface is also a nice way to decouple pruning itself from various consumers of blockdata that limit it.

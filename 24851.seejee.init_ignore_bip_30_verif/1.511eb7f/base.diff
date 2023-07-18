@@ -1,0 +1,29 @@
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex f4b316f67a..6d87ab88b3 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -1837,6 +1837,15 @@[m [mDisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI[m
+         return DISCONNECT_FAILED;[m
+     }[m
+ [m
+[32m+[m[32m    // Ignore blocks that contain transactions which are 'overwritten' by later transactions,[m
+[32m+[m[32m    // unless those are already completely spent.[m
+[32m+[m[32m    // See https://github.com/bitcoin/bitcoin/issues/22596 for additional information.[m
+[32m+[m[32m    // Note: the blocks specified here are different than the ones used in ConnectBlock because DisconnectBlock[m
+[32m+[m[32m    // unwinds the blocks in reverse. As a result, the inconsistency is not discovered until the earlier[m
+[32m+[m[32m    // blocks with the duplicate coinbase transactions are disconnected.[m
+[32m+[m[32m    bool fEnforceBIP30 = !((pindex->nHeight==91722 && pindex->GetBlockHash() == uint256S("0x00000000000271a2dc26e7667f8419f2e15416dc6955e5a6c6cdf3f2574dd08e")) ||[m
+[32m+[m[32m                           (pindex->nHeight==91812 && pindex->GetBlockHash() == uint256S("0x00000000000af0aed4792b1acee3d966af36cf5def14935db8de83d6f9306f2f")));[m
+[32m+[m
+     // undo transactions in reverse order[m
+     for (int i = block.vtx.size() - 1; i >= 0; i--) {[m
+         const CTransaction &tx = *(block.vtx[i]);[m
+[36m@@ -1850,7 +1859,7 @@[m [mDisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI[m
+                 COutPoint out(hash, o);[m
+                 Coin coin;[m
+                 bool is_spent = view.SpendCoin(out, &coin);[m
+[31m-                if (!is_spent || tx.vout[o] != coin.out || pindex->nHeight != coin.nHeight || is_coinbase != coin.fCoinBase) {[m
+[32m+[m[32m                if (fEnforceBIP30 && (!is_spent || tx.vout[o] != coin.out || pindex->nHeight != coin.nHeight || is_coinbase != coin.fCoinBase)) {[m
+                     fClean = false; // transaction output mismatch[m
+                 }[m
+             }[m

@@ -1,0 +1,279 @@
+[33mdiff --git a/doc/JSON-RPC-interface.md b/doc/JSON-RPC-interface.md[m
+[33mindex 12807bfb86..ab5db58cdd 100644[m
+[33m--- a/doc/JSON-RPC-interface.md[m
+[33m+++ b/doc/JSON-RPC-interface.md[m
+[36m@@ -5,6 +5,28 @@[m [mThe headless daemon `bitcoind` has the JSON-RPC API enabled by default, the GUI[m
+ option. In the GUI it is possible to execute RPC methods in the Debug Console[m
+ Dialog.[m
+ [m
+[32m+[m[32m## Parameter passing[m
+[32m+[m
+[32m+[m[32mThe JSON-RPC server supports both _by-position_ and _by-name_ [parameter[m
+[32m+[m[32mstructures](https://www.jsonrpc.org/specification#parameter_structures)[m
+[32m+[m[32mdescribed in the JSON-RPC specification. For extra convenience, to avoid the[m
+[32m+[m[32mneed to name every parameter value, all RPC methods accept a named parameter[m
+[32m+[m[32mcalled `args`, which can be set to an array of initial positional values that[m
+[32m+[m[32mare combined with named values.[m
+[32m+[m
+[32m+[m[32mExamples:[m
+[32m+[m
+[32m+[m[32m```sh[m
+[32m+[m[32m# "params": ["mywallet", false, false, "", false, false, true][m
+[32m+[m[32mbitcoin-cli createwallet mywallet false false "" false false true[m
+[32m+[m
+[32m+[m[32m# "params": {"wallet_name": "mywallet", "load_on_startup": true}[m
+[32m+[m[32mbitcoin-cli -named createwallet wallet_name=mywallet load_on_startup=true[m
+[32m+[m
+[32m+[m[32m# "params": {"args": ["mywallet"], "load_on_startup": true}[m
+[32m+[m[32mbitcoin-cli -named createwallet mywallet load_on_startup=true[m
+[32m+[m[32m```[m
+[32m+[m
+ ## Versioning[m
+ [m
+ The RPC interface might change from one major version of Bitcoin Core to the[m
+[33mdiff --git a/doc/release-notes-19762.md b/doc/release-notes-19762.md[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..4dc45fb2c8[m
+[33m--- /dev/null[m
+[33m+++ b/doc/release-notes-19762.md[m
+[36m@@ -0,0 +1,19 @@[m
+[32m+[m[32mJSON-RPC[m
+[32m+[m[32m---[m
+[32m+[m
+[32m+[m[32mAll JSON-RPC methods accept a new [named[m
+[32m+[m[32mparameter](JSON-RPC-interface.md#parameter-passing) called `args` that can[m
+[32m+[m[32mcontain positional parameter values. This is a convenience to allow some[m
+[32m+[m[32mparameter values to be passed by name without having to name every value. The[m
+[32m+[m[32mpython test framework and `bitcoin-cli` tool both take advantage of this, so[m
+[32m+[m[32mfor example:[m
+[32m+[m
+[32m+[m[32m```sh[m
+[32m+[m[32mbitcoin-cli -named createwallet wallet_name=mywallet load_on_startup=1[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mCan now be shortened to:[m
+[32m+[m
+[32m+[m[32m```sh[m
+[32m+[m[32mbitcoin-cli -named createwallet mywallet load_on_startup=1[m
+[32m+[m[32m```[m
+[33mdiff --git a/src/rpc/client.cpp b/src/rpc/client.cpp[m
+[33mindex 8688263ef5..b3434b80c7 100644[m
+[33m--- a/src/rpc/client.cpp[m
+[33m+++ b/src/rpc/client.cpp[m
+[36m@@ -277,11 +277,13 @@[m [mUniValue RPCConvertValues(const std::string &strMethod, const std::vector<std::s[m
+ UniValue RPCConvertNamedValues(const std::string &strMethod, const std::vector<std::string> &strParams)[m
+ {[m
+     UniValue params(UniValue::VOBJ);[m
+[32m+[m[32m    UniValue positional_args{UniValue::VARR};[m
+ [m
+     for (const std::string &s: strParams) {[m
+         size_t pos = s.find('=');[m
+         if (pos == std::string::npos) {[m
+[31m-            throw(std::runtime_error("No '=' in named argument '"+s+"', this needs to be present for every argument (even if it is empty)"));[m
+[32m+[m[32m            positional_args.push_back(rpcCvtTable.convert(strMethod, positional_args.size()) ? ParseNonRFCJSONValue(s) : s);[m
+[32m+[m[32m            continue;[m
+         }[m
+ [m
+         std::string name = s.substr(0, pos);[m
+[36m@@ -296,5 +298,9 @@[m [mUniValue RPCConvertNamedValues(const std::string &strMethod, const std::vector<s[m
+         }[m
+     }[m
+ [m
+[32m+[m[32m    if (!positional_args.empty()) {[m
+[32m+[m[32m        params.pushKV("args", positional_args);[m
+[32m+[m[32m    }[m
+[32m+[m
+     return params;[m
+ }[m
+[33mdiff --git a/src/rpc/server.cpp b/src/rpc/server.cpp[m
+[33mindex 1d7bd2eb94..f57133f75b 100644[m
+[33m--- a/src/rpc/server.cpp[m
+[33m+++ b/src/rpc/server.cpp[m
+[36m@@ -401,8 +401,16 @@[m [mstatic inline JSONRPCRequest transformNamedArguments(const JSONRPCRequest& in, c[m
+     for (size_t i=0; i<keys.size(); ++i) {[m
+         argsIn[keys[i]] = &values[i];[m
+     }[m
+[31m-    // Process expected parameters.[m
+[32m+[m[32m    // Process expected parameters. If any parameters were left unspecified in[m
+[32m+[m[32m    // the request before a parameter that was specified, null values need to be[m
+[32m+[m[32m    // inserted at the unspecifed parameter positions, and the "hole" variable[m
+[32m+[m[32m    // below tracks the number of null values that need to be inserted.[m
+[32m+[m[32m    // The "initial_hole_size" variable stores the size of the initial hole,[m
+[32m+[m[32m    // i.e. how many initial positional arguments were left unspecified. This is[m
+[32m+[m[32m    // used after the for-loop to add initial positional arguments from the[m
+[32m+[m[32m    // "args" parameter, if present.[m
+     int hole = 0;[m
+[32m+[m[32m    int initial_hole_size = 0;[m
+     for (const std::string &argNamePattern: argNames) {[m
+         std::vector<std::string> vargNames = SplitString(argNamePattern, '|');[m
+         auto fr = argsIn.end();[m
+[36m@@ -424,6 +432,24 @@[m [mstatic inline JSONRPCRequest transformNamedArguments(const JSONRPCRequest& in, c[m
+             argsIn.erase(fr);[m
+         } else {[m
+             hole += 1;[m
+[32m+[m[32m            if (out.params.empty()) initial_hole_size = hole;[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m    // If leftover "args" param was found, use it as a source of positional[m
+[32m+[m[32m    // arguments and add named arguments after. This is a convenience for[m
+[32m+[m[32m    // clients that want to pass a combination of named and positional[m
+[32m+[m[32m    // arguments as described in doc/JSON-RPC-interface.md#parameter-passing[m
+[32m+[m[32m    auto positional_args{argsIn.extract("args")};[m
+[32m+[m[32m    if (positional_args && positional_args.mapped()->isArray()) {[m
+[32m+[m[32m        const bool has_named_arguments{initial_hole_size < (int)argNames.size()};[m
+[32m+[m[32m        if (initial_hole_size < (int)positional_args.mapped()->size() && has_named_arguments) {[m
+[32m+[m[32m            throw JSONRPCError(RPC_INVALID_PARAMETER, "Parameter " + argNames[initial_hole_size] + " specified twice both as positional and named argument");[m
+[32m+[m[32m        }[m
+[32m+[m[32m        // Assign positional_args to out.params and append named_args after.[m
+[32m+[m[32m        UniValue named_args{std::move(out.params)};[m
+[32m+[m[32m        out.params = *positional_args.mapped();[m
+[32m+[m[32m        for (size_t i{out.params.size()}; i < named_args.size(); ++i) {[m
+[32m+[m[32m            out.params.push_back(named_args[i]);[m
+         }[m
+     }[m
+     // If there are still arguments in the argsIn map, this is an error.[m
+[33mdiff --git a/src/test/rpc_tests.cpp b/src/test/rpc_tests.cpp[m
+[33mindex a52530e179..21ccbe9648 100644[m
+[33m--- a/src/test/rpc_tests.cpp[m
+[33m+++ b/src/test/rpc_tests.cpp[m
+[36m@@ -17,12 +17,49 @@[m
+ [m
+ #include <boost/test/unit_test.hpp>[m
+ [m
+[32m+[m[32mstatic UniValue JSON(std::string_view json)[m
+[32m+[m[32m{[m
+[32m+[m[32m    UniValue value;[m
+[32m+[m[32m    BOOST_CHECK(value.read(json.data(), json.size()));[m
+[32m+[m[32m    return value;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mclass HasJSON[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    explicit HasJSON(std::string json) : m_json(std::move(json)) {}[m
+[32m+[m[32m    bool operator()(const UniValue& value) const[m
+[32m+[m[32m    {[m
+[32m+[m[32m        std::string json{value.write()};[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(json, m_json);[m
+[32m+[m[32m        return json == m_json;[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32mprivate:[m
+[32m+[m[32m    const std::string m_json;[m
+[32m+[m[32m};[m
+[32m+[m
+ class RPCTestingSetup : public TestingSetup[m
+ {[m
+ public:[m
+[32m+[m[32m    UniValue TransformParams(const UniValue& params, std::vector<std::string> arg_names) const;[m
+     UniValue CallRPC(std::string args);[m
+ };[m
+ [m
+[32m+[m[32mUniValue RPCTestingSetup::TransformParams(const UniValue& params, std::vector<std::string> arg_names) const[m
+[32m+[m[32m{[m
+[32m+[m[32m    UniValue transformed_params;[m
+[32m+[m[32m    CRPCTable table;[m
+[32m+[m[32m    CRPCCommand command{"category", "method", [&](const JSONRPCRequest& request, UniValue&, bool) -> bool { transformed_params = request.params; return true; }, arg_names, /*unique_id=*/0};[m
+[32m+[m[32m    table.appendCommand("method", &command);[m
+[32m+[m[32m    JSONRPCRequest request;[m
+[32m+[m[32m    request.strMethod = "method";[m
+[32m+[m[32m    request.params = params;[m
+[32m+[m[32m    if (RPCIsInWarmup(nullptr)) SetRPCWarmupFinished();[m
+[32m+[m[32m    table.execute(request);[m
+[32m+[m[32m    return transformed_params;[m
+[32m+[m[32m}[m
+[32m+[m
+ UniValue RPCTestingSetup::CallRPC(std::string args)[m
+ {[m
+     std::vector<std::string> vArgs{SplitString(args, ' ')};[m
+[36m@@ -45,6 +82,29 @@[m [mUniValue RPCTestingSetup::CallRPC(std::string args)[m
+ [m
+ BOOST_FIXTURE_TEST_SUITE(rpc_tests, RPCTestingSetup)[m
+ [m
+[32m+[m[32mBOOST_AUTO_TEST_CASE(rpc_namedparams)[m
+[32m+[m[32m{[m
+[32m+[m[32m    const std::vector<std::string> arg_names{{"arg1", "arg2", "arg3", "arg4", "arg5"}};[m
+[32m+[m
+[32m+[m[32m    // Make sure named arguments are transformed into positional arguments in correct places separated by nulls[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(TransformParams(JSON(R"({"arg2": 2, "arg4": 4})"), arg_names).write(), "[null,2,null,4]");[m
+[32m+[m
+[32m+[m[32m    // Make sure named and positional arguments can be combined.[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(TransformParams(JSON(R"({"arg5": 5, "args": [1, 2], "arg4": 4})"), arg_names).write(), "[1,2,null,4,5]");[m
+[32m+[m
+[32m+[m[32m    // Make sure a unknown named argument raises an exception[m
+[32m+[m[32m    BOOST_CHECK_EXCEPTION(TransformParams(JSON(R"({"arg2": 2, "unknown": 6})"), arg_names), UniValue,[m
+[32m+[m[32m                          HasJSON(R"({"code":-8,"message":"Unknown named parameter unknown"})"));[m
+[32m+[m
+[32m+[m[32m    // Make sure an overlap between a named argument and positional argument raises an exception[m
+[32m+[m[32m    BOOST_CHECK_EXCEPTION(TransformParams(JSON(R"({"args": [1,2,3], "arg4": 4, "arg2": 2})"), arg_names), UniValue,[m
+[32m+[m[32m                          HasJSON(R"({"code":-8,"message":"Parameter arg2 specified twice both as positional and named argument"})"));[m
+[32m+[m
+[32m+[m[32m    // Make sure extra positional arguments can be passed through to the method implemenation, as long as they don't overlap with named arguments.[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(TransformParams(JSON(R"({"args": [1,2,3,4,5,6,7,8,9,10]})"), arg_names).write(), "[1,2,3,4,5,6,7,8,9,10]");[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(TransformParams(JSON(R"([1,2,3,4,5,6,7,8,9,10])"), arg_names).write(), "[1,2,3,4,5,6,7,8,9,10]");[m
+[32m+[m[32m}[m
+[32m+[m
+ BOOST_AUTO_TEST_CASE(rpc_rawparams)[m
+ {[m
+     // Test raw transaction API argument handling[m
+[33mdiff --git a/test/functional/interface_bitcoin_cli.py b/test/functional/interface_bitcoin_cli.py[m
+[33mindex db5564ac50..9a6366b083 100755[m
+[33m--- a/test/functional/interface_bitcoin_cli.py[m
+[33m+++ b/test/functional/interface_bitcoin_cli.py[m
+[36m@@ -84,6 +84,11 @@[m [mclass TestBitcoinCli(BitcoinTestFramework):[m
+         rpc_response = self.nodes[0].getblockchaininfo()[m
+         assert_equal(cli_response, rpc_response)[m
+ [m
+[32m+[m[32m        self.log.info("Test named arguments")[m
+[32m+[m[32m        assert_equal(self.nodes[0].cli.echo(0, 1, arg3=3, arg5=5), ['0', '1', None, '3', None, '5'])[m
+[32m+[m[32m        assert_raises_rpc_error(-8, "Parameter arg1 specified twice both as positional and named argument", self.nodes[0].cli.echo, 0, 1, arg1=1)[m
+[32m+[m[32m        assert_raises_rpc_error(-8, "Parameter arg1 specified twice both as positional and named argument", self.nodes[0].cli.echo, 0, None, 2, arg1=1)[m
+[32m+[m
+         user, password = get_auth_cookie(self.nodes[0].datadir, self.chain)[m
+ [m
+         self.log.info("Test -stdinrpcpass option")[m
+[33mdiff --git a/test/functional/rpc_named_arguments.py b/test/functional/rpc_named_arguments.py[m
+[33mindex 41b9312969..cc3ee9efd5 100755[m
+[33m--- a/test/functional/rpc_named_arguments.py[m
+[33m+++ b/test/functional/rpc_named_arguments.py[m
+[36m@@ -30,6 +30,9 @@[m [mclass NamedArgumentTest(BitcoinTestFramework):[m
+         assert_equal(node.echo(arg1=1), [None, 1])[m
+         assert_equal(node.echo(arg9=None), [None]*10)[m
+         assert_equal(node.echo(arg0=0,arg3=3,arg9=9), [0] + [None]*2 + [3] + [None]*5 + [9])[m
+[32m+[m[32m        assert_equal(node.echo(0, 1, arg3=3, arg5=5), [0, 1, None, 3, None, 5])[m
+[32m+[m[32m        assert_raises_rpc_error(-8, "Parameter arg1 specified twice both as positional and named argument", node.echo, 0, 1, arg1=1)[m
+[32m+[m[32m        assert_raises_rpc_error(-8, "Parameter arg1 specified twice both as positional and named argument", node.echo, 0, None, 2, arg1=1)[m
+ [m
+ if __name__ == '__main__':[m
+     NamedArgumentTest().main()[m
+[33mdiff --git a/test/functional/test_framework/authproxy.py b/test/functional/test_framework/authproxy.py[m
+[33mindex c4ffd1fbf6..dd20b28550 100644[m
+[33m--- a/test/functional/test_framework/authproxy.py[m
+[33m+++ b/test/functional/test_framework/authproxy.py[m
+[36m@@ -131,10 +131,12 @@[m [mclass AuthServiceProxy():[m
+             json.dumps(args or argsn, default=EncodeDecimal, ensure_ascii=self.ensure_ascii),[m
+         ))[m
+         if args and argsn:[m
+[31m-            raise ValueError('Cannot handle both named and positional arguments')[m
+[32m+[m[32m            params = dict(args=args, **argsn)[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            params = args or argsn[m
+         return {'version': '1.1',[m
+                 'method': self._service_name,[m
+[31m-                'params': args or argsn,[m
+[32m+[m[32m                'params': params,[m
+                 'id': AuthServiceProxy.__id_count}[m
+ [m
+     def __call__(self, *args, **argsn):[m
+[33mdiff --git a/test/functional/test_framework/test_node.py b/test/functional/test_framework/test_node.py[m
+[33mindex 0075fa0996..04f46a44e0 100755[m
+[33m--- a/test/functional/test_framework/test_node.py[m
+[33m+++ b/test/functional/test_framework/test_node.py[m
+[36m@@ -719,7 +719,6 @@[m [mclass TestNodeCLI():[m
+         """Run bitcoin-cli command. Deserializes returned string as python object."""[m
+         pos_args = [arg_to_cli(arg) for arg in args][m
+         named_args = [str(key) + "=" + arg_to_cli(value) for (key, value) in kwargs.items()][m
+[31m-        assert not (pos_args and named_args), "Cannot use positional arguments and named arguments in the same bitcoin-cli call"[m
+         p_args = [self.binary, "-datadir=" + self.datadir] + self.options[m
+         if named_args:[m
+             p_args += ["-named"][m

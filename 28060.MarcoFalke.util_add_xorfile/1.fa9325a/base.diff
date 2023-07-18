@@ -1,0 +1,369 @@
+[33mdiff --git a/src/Makefile.am b/src/Makefile.am[m
+[33mindex 4e9c161c57..cdf2df4f2e 100644[m
+[33m--- a/src/Makefile.am[m
+[33m+++ b/src/Makefile.am[m
+[36m@@ -715,6 +715,7 @@[m [mlibbitcoin_util_a_SOURCES = \[m
+   logging.cpp \[m
+   random.cpp \[m
+   randomenv.cpp \[m
+[32m+[m[32m  streams.cpp \[m
+   support/cleanse.cpp \[m
+   sync.cpp \[m
+   util/asmap.cpp \[m
+[36m@@ -958,6 +959,7 @@[m [mlibbitcoinkernel_la_SOURCES = \[m
+   script/standard.cpp \[m
+   shutdown.cpp \[m
+   signet.cpp \[m
+[32m+[m[32m  streams.cpp \[m
+   support/cleanse.cpp \[m
+   support/lockedpool.cpp \[m
+   sync.cpp \[m
+[33mdiff --git a/src/Makefile.bench.include b/src/Makefile.bench.include[m
+[33mindex 10c8389c80..51bfb1e459 100644[m
+[33m--- a/src/Makefile.bench.include[m
+[33m+++ b/src/Makefile.bench.include[m
+[36m@@ -52,7 +52,8 @@[m [mbench_bench_bitcoin_SOURCES = \[m
+   bench/streams_findbyte.cpp \[m
+   bench/strencodings.cpp \[m
+   bench/util_time.cpp \[m
+[31m-  bench/verify_script.cpp[m
+[32m+[m[32m  bench/verify_script.cpp \[m
+[32m+[m[32m  bench/xor.cpp[m
+ [m
+ nodist_bench_bench_bitcoin_SOURCES = $(GENERATED_BENCH_FILES)[m
+ [m
+[33mdiff --git a/src/bench/xor.cpp b/src/bench/xor.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..44b67251bd[m
+[33m--- /dev/null[m
+[33m+++ b/src/bench/xor.cpp[m
+[36m@@ -0,0 +1,23 @@[m
+[32m+[m[32m// Copyright (c) The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or https://opensource.org/license/mit/.[m
+[32m+[m
+[32m+[m[32m#include <bench/bench.h>[m
+[32m+[m
+[32m+[m[32m#include <random.h>[m
+[32m+[m[32m#include <streams.h>[m
+[32m+[m
+[32m+[m[32m#include <vector>[m
+[32m+[m
+[32m+[m[32mstatic void Xor(benchmark::Bench& bench)[m
+[32m+[m[32m{[m
+[32m+[m[32m    FastRandomContext frc{/*fDeterministic=*/true};[m
+[32m+[m[32m    auto data{frc.randbytes<std::byte>(1024)};[m
+[32m+[m[32m    auto key{frc.randbytes<std::byte>(31)};[m
+[32m+[m
+[32m+[m[32m    bench.batch(data.size()).unit("byte").run([&] {[m
+[32m+[m[32m        util::Xor(data, key);[m
+[32m+[m[32m    });[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mBENCHMARK(Xor, benchmark::PriorityLevel::HIGH);[m
+[33mdiff --git a/src/streams.cpp b/src/streams.cpp[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..e971d3f2ee[m
+[33m--- /dev/null[m
+[33m+++ b/src/streams.cpp[m
+[36m@@ -0,0 +1,60 @@[m
+[32m+[m[32m// Copyright (c) 2009-present The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or https://opensource.org/license/mit/.[m
+[32m+[m
+[32m+[m[32m#include <span.h>[m
+[32m+[m[32m#include <streams.h>[m
+[32m+[m
+[32m+[m[32m#include <array>[m
+[32m+[m
+[32m+[m[32mstd::size_t XorFile::detail_fread(Span<std::byte> dst)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (!m_file) throw std::ios_base::failure("XorFile::read: file handle is nullptr");[m
+[32m+[m[32m    const auto init_pos{std::ftell(m_file)};[m
+[32m+[m[32m    if (init_pos < 0) return 0;[m
+[32m+[m[32m    std::size_t ret{std::fread(dst.data(), 1, dst.size(), m_file)};[m
+[32m+[m[32m    util::Xor(dst.subspan(0, ret), m_xor, init_pos);[m
+[32m+[m[32m    return ret;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid XorFile::read(Span<std::byte> dst)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (detail_fread(dst) != dst.size()) {[m
+[32m+[m[32m        throw std::ios_base::failure{feof() ? "XorFile::read: end of file" : "XorFile::read: failed"};[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid XorFile::ignore(size_t num_bytes)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (!m_file) throw std::ios_base::failure("XorFile::ignore: file handle is nullptr");[m
+[32m+[m[32m    std::array<std::byte, 4096> buf;[m
+[32m+[m[32m    while (num_bytes > 0) {[m
+[32m+[m[32m        auto buf_now{Span{buf}.first(std::min<size_t>(num_bytes, buf.size()))};[m
+[32m+[m[32m        if (std::fread(buf_now.data(), 1, buf_now.size(), m_file) != buf_now.size()) {[m
+[32m+[m[32m            throw std::ios_base::failure{feof() ? "XorFile::ignore: end of file" : "XorFile::ignore: failed"};[m
+[32m+[m[32m        }[m
+[32m+[m[32m        num_bytes -= buf_now.size();[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mvoid XorFile::write(Span<const std::byte> src)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (!m_file) throw std::ios_base::failure("XorFile::write: file handle is nullptr");[m
+[32m+[m[32m    std::array<std::byte, 4096> buf;[m
+[32m+[m[32m    while (src.size() > 0) {[m
+[32m+[m[32m        auto buf_now{Span{buf}.first(std::min<size_t>(src.size(), buf.size()))};[m
+[32m+[m[32m        std::copy(src.begin(), src.begin() + buf_now.size(), buf_now.begin());[m
+[32m+[m[32m        const auto current_pos{std::ftell(m_file)};[m
+[32m+[m[32m        util::Xor(buf_now, m_xor, current_pos);[m
+[32m+[m[32m        if (current_pos < 0 || std::fwrite(buf_now.data(), 1, buf_now.size(), m_file) != buf_now.size()) {[m
+[32m+[m[32m            throw std::ios_base::failure{"XorFile::write: failed"};[m
+[32m+[m[32m        }[m
+[32m+[m[32m        src = src.subspan(buf_now.size());[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mstd::size_t AutoFile::detail_fread(Span<std::byte> dst)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (!file) throw std::ios_base::failure("AutoFile::read: file handle is nullptr");[m
+[32m+[m[32m    return std::fread(dst.data(), 1, dst.size(), file);[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/streams.h b/src/streams.h[m
+[33mindex 03df20b5db..c0ea6fc0e7 100644[m
+[33m--- a/src/streams.h[m
+[33m+++ b/src/streams.h[m
+[36m@@ -12,17 +12,38 @@[m
+ #include <util/overflow.h>[m
+ [m
+ #include <algorithm>[m
+[31m-#include <assert.h>[m
+[32m+[m[32m#include <cassert>[m
+[32m+[m[32m#include <cstdint>[m
+ #include <cstdio>[m
+[32m+[m[32m#include <cstring>[m
+ #include <ios>[m
+ #include <limits>[m
+ #include <optional>[m
+[31m-#include <stdint.h>[m
+[31m-#include <string.h>[m
+ #include <string>[m
+ #include <utility>[m
+ #include <vector>[m
+ [m
+[32m+[m[32mnamespace util {[m
+[32m+[m[32minline void Xor(Span<std::byte> write, Span<const std::byte> key, size_t key_offset = 0)[m
+[32m+[m[32m{[m
+[32m+[m[32m    if (key.size() == 0) {[m
+[32m+[m[32m        return;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    key_offset %= key.size();[m
+[32m+[m
+[32m+[m[32m    for (size_t i = 0, j = key_offset; i != write.size(); i++) {[m
+[32m+[m[32m        write[i] ^= key[j++];[m
+[32m+[m
+[32m+[m[32m        // This potentially acts on very many bytes of data, so it's[m
+[32m+[m[32m        // important that we calculate `j`, i.e. the `key` index in this[m
+[32m+[m[32m        // way instead of doing a %, which would effectively be a division[m
+[32m+[m[32m        // for each byte Xor'd -- much slower than need be.[m
+[32m+[m[32m        if (j == key.size())[m
+[32m+[m[32m            j = 0;[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m[32m} // namespace util[m
+[32m+[m
+ template<typename Stream>[m
+ class OverrideStream[m
+ {[m
+[36m@@ -316,20 +337,7 @@[m [mpublic:[m
+      */[m
+     void Xor(const std::vector<unsigned char>& key)[m
+     {[m
+[31m-        if (key.size() == 0) {[m
+[31m-            return;[m
+[31m-        }[m
+[31m-[m
+[31m-        for (size_type i = 0, j = 0; i != size(); i++) {[m
+[31m-            vch[i] ^= std::byte{key[j++]};[m
+[31m-[m
+[31m-            // This potentially acts on very many bytes of data, so it's[m
+[31m-            // important that we calculate `j`, i.e. the `key` index in this[m
+[31m-            // way instead of doing a %, which would effectively be a division[m
+[31m-            // for each byte Xor'd -- much slower than need be.[m
+[31m-            if (j == key.size())[m
+[31m-                j = 0;[m
+[31m-        }[m
+[32m+[m[32m        util::Xor(MakeWritableByteSpan(*this), MakeByteSpan(key));[m
+     }[m
+ };[m
+ [m
+[36m@@ -469,6 +477,65 @@[m [mpublic:[m
+     }[m
+ };[m
+ [m
+[32m+[m[32m/**[m
+[32m+[m[32m * Like an AutoFile whose data is XOR'd.[m
+[32m+[m[32m */[m
+[32m+[m[32mclass XorFile[m
+[32m+[m[32m{[m
+[32m+[m[32mprivate:[m
+[32m+[m[32m    std::FILE* m_file;[m
+[32m+[m[32m    const int m_version;[m
+[32m+[m[32m    const std::vector<std::byte> m_xor;[m
+[32m+[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // AutoFile subset[m
+[32m+[m[32m    //[m
+[32m+[m[32m    explicit XorFile(std::FILE* file, int ver, std::vector<std::byte> data_xor)[m
+[32m+[m[32m        : m_file{file},[m
+[32m+[m[32m          m_version{ver},[m
+[32m+[m[32m          m_xor{std::move(data_xor)} {}[m
+[32m+[m[32m    ~XorFile() { fclose(); }[m
+[32m+[m[32m    XorFile(const XorFile&) = delete;[m
+[32m+[m[32m    XorFile& operator=(const XorFile&) = delete;[m
+[32m+[m[32m    int GetVersion() const { return m_version; }[m
+[32m+[m[32m    bool feof() const { return std::feof(m_file); }[m
+[32m+[m[32m    int fclose()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (std::FILE * file{release()}) return std::fclose(file);[m
+[32m+[m[32m        return 0;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::FILE* release()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        std::FILE* ret = m_file;[m
+[32m+[m[32m        m_file = nullptr;[m
+[32m+[m[32m        return ret;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::FILE* Get() const { return m_file; }[m
+[32m+[m[32m    bool IsNull() const { return m_file == nullptr; }[m
+[32m+[m[32m    std::size_t detail_fread(Span<std::byte> dst);[m
+[32m+[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // Stream subset[m
+[32m+[m[32m    //[m
+[32m+[m[32m    void read(Span<std::byte> dst);[m
+[32m+[m[32m    void ignore(size_t num_bytes);[m
+[32m+[m[32m    void write(Span<const std::byte> src);[m
+[32m+[m
+[32m+[m[32m    template <typename T>[m
+[32m+[m[32m    XorFile& operator<<(const T& obj)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        ::Serialize(*this, obj);[m
+[32m+[m[32m        return *this;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    template <typename T>[m
+[32m+[m[32m    XorFile& operator>>(T&& obj)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        ::Unserialize(*this, obj);[m
+[32m+[m[32m        return *this;[m
+[32m+[m[32m    }[m
+[32m+[m[32m};[m
+ [m
+ /** Non-refcounted RAII wrapper for FILE*[m
+  *[m
+[36m@@ -493,6 +560,8 @@[m [mpublic:[m
+     AutoFile(const AutoFile&) = delete;[m
+     AutoFile& operator=(const AutoFile&) = delete;[m
+ [m
+[32m+[m[32m    bool feof() const { return std::feof(file); }[m
+[32m+[m
+     int fclose()[m
+     {[m
+         int retval{0};[m
+[36m@@ -519,14 +588,16 @@[m [mpublic:[m
+      */[m
+     bool IsNull() const         { return (file == nullptr); }[m
+ [m
+[32m+[m[32m    /** Implementation detail, only used internally. */[m
+[32m+[m[32m    std::size_t detail_fread(Span<std::byte> dst);[m
+[32m+[m
+     //[m
+     // Stream subset[m
+     //[m
+     void read(Span<std::byte> dst)[m
+     {[m
+[31m-        if (!file) throw std::ios_base::failure("AutoFile::read: file handle is nullptr");[m
+[31m-        if (fread(dst.data(), 1, dst.size(), file) != dst.size()) {[m
+[31m-            throw std::ios_base::failure(feof(file) ? "AutoFile::read: end of file" : "AutoFile::read: fread failed");[m
+[32m+[m[32m        if (detail_fread(dst) != dst.size()) {[m
+[32m+[m[32m            throw std::ios_base::failure(feof() ? "AutoFile::read: end of file" : "AutoFile::read: fread failed");[m
+         }[m
+     }[m
+ [m
+[36m@@ -537,7 +608,7 @@[m [mpublic:[m
+         while (nSize > 0) {[m
+             size_t nNow = std::min<size_t>(nSize, sizeof(data));[m
+             if (fread(data, 1, nNow, file) != nNow)[m
+[31m-                throw std::ios_base::failure(feof(file) ? "AutoFile::ignore: end of file" : "AutoFile::read: fread failed");[m
+[32m+[m[32m                throw std::ios_base::failure(feof() ? "AutoFile::ignore: end of file" : "AutoFile::read: fread failed");[m
+             nSize -= nNow;[m
+         }[m
+     }[m
+[33mdiff --git a/src/test/streams_tests.cpp b/src/test/streams_tests.cpp[m
+[33mindex 55e4f200b1..145c34544c 100644[m
+[33m--- a/src/test/streams_tests.cpp[m
+[33m+++ b/src/test/streams_tests.cpp[m
+[36m@@ -6,6 +6,7 @@[m
+ #include <test/util/random.h>[m
+ #include <test/util/setup_common.h>[m
+ #include <util/fs.h>[m
+[32m+[m[32m#include <util/strencodings.h>[m
+ [m
+ #include <boost/test/unit_test.hpp>[m
+ [m
+[36m@@ -13,6 +14,55 @@[m [musing namespace std::string_literals;[m
+ [m
+ BOOST_FIXTURE_TEST_SUITE(streams_tests, BasicTestingSetup)[m
+ [m
+[32m+[m[32mBOOST_AUTO_TEST_CASE(xor_file)[m
+[32m+[m[32m{[m
+[32m+[m[32m    fs::path xor_path{m_args.GetDataDirBase() / "test_xor.bin"};[m
+[32m+[m[32m    auto raw_file{[&](const auto& mode) { return fsbridge::fopen(xor_path, mode); }};[m
+[32m+[m[32m    const std::vector<uint8_t> test1{1, 2, 3};[m
+[32m+[m[32m    const std::vector<uint8_t> test2{4, 5};[m
+[32m+[m[32m    const std::vector<std::byte> xor_pat{std::byte{0xff}, std::byte{0x00}};[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // Check errors for missing file[m
+[32m+[m[32m        XorFile xor_file{raw_file("rb"), {}, xor_pat};[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(xor_file << std::byte{}, std::ios_base::failure, HasReason{"XorFile::write: file handle is nullpt"});[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(xor_file >> std::byte{}, std::ios_base::failure, HasReason{"XorFile::read: file handle is nullpt"});[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(xor_file.ignore(1), std::ios_base::failure, HasReason{"XorFile::ignore: file handle is nullpt"});[m
+[32m+[m[32m    }[m
+[32m+[m[32m    {[m
+[32m+[m[32m        XorFile xor_file{raw_file("wbx"), {}, xor_pat};[m
+[32m+[m[32m        xor_file << test1 << test2;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // Read raw from disk[m
+[32m+[m[32m        AutoFile non_xor_file{raw_file("rb")};[m
+[32m+[m[32m        std::vector<std::byte> raw(7);[m
+[32m+[m[32m        non_xor_file >> Span{raw};[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(HexStr(raw), "fc01fd03fd04fa");[m
+[32m+[m[32m        // Check that no padding exists[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(non_xor_file.ignore(1), std::ios_base::failure, HasReason{"AutoFile::ignore: end of file"});[m
+[32m+[m[32m    }[m
+[32m+[m[32m    {[m
+[32m+[m[32m        XorFile xor_file{raw_file("rb"), {}, xor_pat};[m
+[32m+[m[32m        std::vector<std::byte> read1, read2;[m
+[32m+[m[32m        xor_file >> read1 >> read2;[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(HexStr(read1), HexStr(test1));[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(HexStr(read2), HexStr(test2));[m
+[32m+[m[32m        // Check that eof was reached[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(xor_file >> std::byte{}, std::ios_base::failure, HasReason{"XorFile::read: end of file"});[m
+[32m+[m[32m    }[m
+[32m+[m[32m    {[m
+[32m+[m[32m        XorFile xor_file{raw_file("rb"), {}, xor_pat};[m
+[32m+[m[32m        std::vector<std::byte> read2;[m
+[32m+[m[32m        // Check that ignore works[m
+[32m+[m[32m        xor_file.ignore(4);[m
+[32m+[m[32m        xor_file >> read2;[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(HexStr(read2), HexStr(test2));[m
+[32m+[m[32m        // Check that ignore and read fail now[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(xor_file.ignore(1), std::ios_base::failure, HasReason{"XorFile::ignore: end of file"});[m
+[32m+[m[32m        BOOST_CHECK_EXCEPTION(xor_file >> std::byte{}, std::ios_base::failure, HasReason{"XorFile::read: end of file"});[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+ BOOST_AUTO_TEST_CASE(streams_vector_writer)[m
+ {[m
+     unsigned char a(1);[m

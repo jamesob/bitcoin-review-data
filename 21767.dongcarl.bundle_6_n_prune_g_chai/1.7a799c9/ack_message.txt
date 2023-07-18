@@ -1,0 +1,2 @@
+ACK 7a799c9c2b8652e780d1fd5e1bf7d05b026c1c1a ([`jamesob/ackr/21767.1.dongcarl.bundle_6_n_prune_g_chai`](https://github.com/jamesob/bitcoin/tree/ackr/21767.1.dongcarl.bundle_6_n_prune_g_chai))
+

@@ -1,0 +1,239 @@
+[33mdiff --git a/src/chain.h b/src/chain.h[m
+[33mindex 15ca8f8750..8eafc5d588 100644[m
+[33m--- a/src/chain.h[m
+[33m+++ b/src/chain.h[m
+[36m@@ -59,37 +59,40 @@[m [mpublic:[m
+         READWRITE(VARINT(obj.nTimeLast));[m
+     }[m
+ [m
+[31m-     void SetNull() {[m
+[31m-         nBlocks = 0;[m
+[31m-         nSize = 0;[m
+[31m-         nUndoSize = 0;[m
+[31m-         nHeightFirst = 0;[m
+[31m-         nHeightLast = 0;[m
+[31m-         nTimeFirst = 0;[m
+[31m-         nTimeLast = 0;[m
+[31m-     }[m
+[31m-[m
+[31m-     CBlockFileInfo() {[m
+[31m-         SetNull();[m
+[31m-     }[m
+[31m-[m
+[31m-     std::string ToString() const;[m
+[31m-[m
+[31m-     /** update statistics (does not update nSize) */[m
+[31m-     void AddBlock(unsigned int nHeightIn, uint64_t nTimeIn) {[m
+[31m-         if (nBlocks==0 || nHeightFirst > nHeightIn)[m
+[31m-             nHeightFirst = nHeightIn;[m
+[31m-         if (nBlocks==0 || nTimeFirst > nTimeIn)[m
+[31m-             nTimeFirst = nTimeIn;[m
+[31m-         nBlocks++;[m
+[31m-         if (nHeightIn > nHeightLast)[m
+[31m-             nHeightLast = nHeightIn;[m
+[31m-         if (nTimeIn > nTimeLast)[m
+[31m-             nTimeLast = nTimeIn;[m
+[31m-     }[m
+[32m+[m[32m    void SetNull()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        nBlocks = 0;[m
+[32m+[m[32m        nSize = 0;[m
+[32m+[m[32m        nUndoSize = 0;[m
+[32m+[m[32m        nHeightFirst = 0;[m
+[32m+[m[32m        nHeightLast = 0;[m
+[32m+[m[32m        nTimeFirst = 0;[m
+[32m+[m[32m        nTimeLast = 0;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    CBlockFileInfo()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        SetNull();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    std::string ToString() const;[m
+[32m+[m
+[32m+[m[32m    /** update statistics (does not update nSize) */[m
+[32m+[m[32m    void AddBlock(unsigned int nHeightIn, uint64_t nTimeIn)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (nBlocks == 0 || nHeightFirst > nHeightIn)[m
+[32m+[m[32m            nHeightFirst = nHeightIn;[m
+[32m+[m[32m        if (nBlocks == 0 || nTimeFirst > nTimeIn)[m
+[32m+[m[32m            nTimeFirst = nTimeIn;[m
+[32m+[m[32m        nBlocks++;[m
+[32m+[m[32m        if (nHeightIn > nHeightLast)[m
+[32m+[m[32m            nHeightLast = nHeightIn;[m
+[32m+[m[32m        if (nTimeIn > nTimeLast)[m
+[32m+[m[32m            nTimeLast = nTimeIn;[m
+[32m+[m[32m    }[m
+ };[m
+ [m
+[31m-enum BlockStatus: uint32_t {[m
+[32m+[m[32menum BlockStatus : uint32_t {[m
+     //! Unused.[m
+     BLOCK_VALID_UNKNOWN      =    0,[m
+ [m
+[36m@@ -220,20 +223,22 @@[m [mpublic:[m
+     {[m
+     }[m
+ [m
+[31m-    FlatFilePos GetBlockPos() const {[m
+[32m+[m[32m    FlatFilePos GetBlockPos() const[m
+[32m+[m[32m    {[m
+         FlatFilePos ret;[m
+         if (nStatus & BLOCK_HAVE_DATA) {[m
+             ret.nFile = nFile;[m
+[31m-            ret.nPos  = nDataPos;[m
+[32m+[m[32m            ret.nPos = nDataPos;[m
+         }[m
+         return ret;[m
+     }[m
+ [m
+[31m-    FlatFilePos GetUndoPos() const {[m
+[32m+[m[32m    FlatFilePos GetUndoPos() const[m
+[32m+[m[32m    {[m
+         FlatFilePos ret;[m
+         if (nStatus & BLOCK_HAVE_UNDO) {[m
+             ret.nFile = nFile;[m
+[31m-            ret.nPos  = nUndoPos;[m
+[32m+[m[32m            ret.nPos = nUndoPos;[m
+         }[m
+         return ret;[m
+     }[m
+[36m@@ -241,13 +246,13 @@[m [mpublic:[m
+     CBlockHeader GetBlockHeader() const[m
+     {[m
+         CBlockHeader block;[m
+[31m-        block.nVersion       = nVersion;[m
+[32m+[m[32m        block.nVersion = nVersion;[m
+         if (pprev)[m
+             block.hashPrevBlock = pprev->GetBlockHash();[m
+         block.hashMerkleRoot = hashMerkleRoot;[m
+[31m-        block.nTime          = nTime;[m
+[31m-        block.nBits          = nBits;[m
+[31m-        block.nNonce         = nNonce;[m
+[32m+[m[32m        block.nTime = nTime;[m
+[32m+[m[32m        block.nBits = nBits;[m
+[32m+[m[32m        block.nNonce = nNonce;[m
+         return block;[m
+     }[m
+ [m
+[36m@@ -288,7 +293,7 @@[m [mpublic:[m
+             *(--pbegin) = pindex->GetBlockTime();[m
+ [m
+         std::sort(pbegin, pend);[m
+[31m-        return pbegin[(pend - pbegin)/2];[m
+[32m+[m[32m        return pbegin[(pend - pbegin) / 2];[m
+     }[m
+ [m
+     std::string ToString() const[m
+[36m@@ -353,11 +358,13 @@[m [mclass CDiskBlockIndex : public CBlockIndex[m
+ public:[m
+     uint256 hashPrev;[m
+ [m
+[31m-    CDiskBlockIndex() {[m
+[32m+[m[32m    CDiskBlockIndex()[m
+[32m+[m[32m    {[m
+         hashPrev = uint256();[m
+     }[m
+ [m
+[31m-    explicit CDiskBlockIndex(const CBlockIndex* pindex) : CBlockIndex(*pindex) {[m
+[32m+[m[32m    explicit CDiskBlockIndex(const CBlockIndex* pindex) : CBlockIndex(*pindex)[m
+[32m+[m[32m    {[m
+         hashPrev = (pprev ? pprev->GetBlockHash() : uint256());[m
+     }[m
+ [m
+[36m@@ -385,12 +392,12 @@[m [mpublic:[m
+     uint256 GetBlockHash() const[m
+     {[m
+         CBlockHeader block;[m
+[31m-        block.nVersion        = nVersion;[m
+[31m-        block.hashPrevBlock   = hashPrev;[m
+[31m-        block.hashMerkleRoot  = hashMerkleRoot;[m
+[31m-        block.nTime           = nTime;[m
+[31m-        block.nBits           = nBits;[m
+[31m-        block.nNonce          = nNonce;[m
+[32m+[m[32m        block.nVersion = nVersion;[m
+[32m+[m[32m        block.hashPrevBlock = hashPrev;[m
+[32m+[m[32m        block.hashMerkleRoot = hashMerkleRoot;[m
+[32m+[m[32m        block.nTime = nTime;[m
+[32m+[m[32m        block.nBits = nBits;[m
+[32m+[m[32m        block.nNonce = nNonce;[m
+         return block.GetHash();[m
+     }[m
+ [m
+[36m@@ -407,35 +414,45 @@[m [mpublic:[m
+ };[m
+ [m
+ /** An in-memory indexed chain of blocks. */[m
+[31m-class CChain {[m
+[32m+[m[32mclass CChain[m
+[32m+[m[32m{[m
+ private:[m
+     std::vector<CBlockIndex*> vChain;[m
+ [m
+ public:[m
+[32m+[m[32m    CChain() = default;[m
+[32m+[m[32m    CChain(const CChain&) = delete;[m
+[32m+[m[32m    CChain& operator=(const CChain&) = delete;[m
+[32m+[m
+     /** Returns the index entry for the genesis block of this chain, or nullptr if none. */[m
+[31m-    CBlockIndex *Genesis() const {[m
+[32m+[m[32m    CBlockIndex* Genesis() const[m
+[32m+[m[32m    {[m
+         return vChain.size() > 0 ? vChain[0] : nullptr;[m
+     }[m
+ [m
+     /** Returns the index entry for the tip of this chain, or nullptr if none. */[m
+[31m-    CBlockIndex *Tip() const {[m
+[32m+[m[32m    CBlockIndex* Tip() const[m
+[32m+[m[32m    {[m
+         return vChain.size() > 0 ? vChain[vChain.size() - 1] : nullptr;[m
+     }[m
+ [m
+     /** Returns the index entry at a particular height in this chain, or nullptr if no such height exists. */[m
+[31m-    CBlockIndex *operator[](int nHeight) const {[m
+[32m+[m[32m    CBlockIndex* operator[](int nHeight) const[m
+[32m+[m[32m    {[m
+         if (nHeight < 0 || nHeight >= (int)vChain.size())[m
+             return nullptr;[m
+         return vChain[nHeight];[m
+     }[m
+ [m
+     /** Efficiently check whether a block is present in this chain. */[m
+[31m-    bool Contains(const CBlockIndex *pindex) const {[m
+[32m+[m[32m    bool Contains(const CBlockIndex* pindex) const[m
+[32m+[m[32m    {[m
+         return (*this)[pindex->nHeight] == pindex;[m
+     }[m
+ [m
+     /** Find the successor of a block in this chain, or nullptr if the given index is not found or is the tip. */[m
+[31m-    CBlockIndex *Next(const CBlockIndex *pindex) const {[m
+[32m+[m[32m    CBlockIndex* Next(const CBlockIndex* pindex) const[m
+[32m+[m[32m    {[m
+         if (Contains(pindex))[m
+             return (*this)[pindex->nHeight + 1];[m
+         else[m
+[36m@@ -443,18 +460,19 @@[m [mpublic:[m
+     }[m
+ [m
+     /** Return the maximal height in the chain. Is equal to chain.Tip() ? chain.Tip()->nHeight : -1. */[m
+[31m-    int Height() const {[m
+[32m+[m[32m    int Height() const[m
+[32m+[m[32m    {[m
+         return vChain.size() - 1;[m
+     }[m
+ [m
+     /** Set/initialize a chain with a given tip. */[m
+[31m-    void SetTip(CBlockIndex *pindex);[m
+[32m+[m[32m    void SetTip(CBlockIndex* pindex);[m
+ [m
+     /** Return a CBlockLocator that refers to a block in this chain (by default the tip). */[m
+[31m-    CBlockLocator GetLocator(const CBlockIndex *pindex = nullptr) const;[m
+[32m+[m[32m    CBlockLocator GetLocator(const CBlockIndex* pindex = nullptr) const;[m
+ [m
+     /** Find the last common block between this chain and a block index entry. */[m
+[31m-    const CBlockIndex *FindFork(const CBlockIndex *pindex) const;[m
+[32m+[m[32m    const CBlockIndex* FindFork(const CBlockIndex* pindex) const;[m
+ [m
+     /** Find the earliest block with timestamp equal or greater than the given time and height equal or greater than the given height. */[m
+     CBlockIndex* FindEarliestAtLeast(int64_t nTime, int height) const;[m

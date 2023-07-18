@@ -1,0 +1,12 @@
+- [ ] 464c313e3 init: Use existing chainman
+- [ ] f0dd5e6bb test/util: Use existing chainman in ::PrepareBlock
+- [ ] 4d99b6101 test/miner_tests: Pass in chain tip to CreateBlockIndex
+- [ ] e19707621 test: Pass in CoinsTip to ValidateCheckInputsForAllFlags
+- [ ] 0d61634c0 scripted-diff: test: Use existing chainman in unit tests
+- [ ] ee0ab1e95 fuzz: Initialize a TestingSetup for test_one_input
+- [ ] 6c15de129 scripted-diff: wallet/test: Use existing chainman
+- [ ] f323248ab qt/test: Use existing chainman in ::TestGUI (can be scripted-diff)
+- [ ] 3e82abb8d tree-wide: Remove stray review-only assertion
+- [ ] 6c3b5dc0c scripted-diff: tree-wide: Remove all review-only assertions
+- [ ] 972c5166e qt/test: Reset chainman in ~ChainstateManager instead
+- [ ] 6f994882d validation: Farewell, global Chainstate!

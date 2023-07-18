@@ -1,0 +1,958 @@
+[33mdiff --git a/src/chainparams.cpp b/src/chainparams.cpp[m
+[33mindex 16efffa6f..0656b099a 100644[m
+[33m--- a/src/chainparams.cpp[m
+[33m+++ b/src/chainparams.cpp[m
+[36m@@ -78,16 +78,18 @@[m [mpublic:[m
+         consensus.nPowTargetSpacing = 10 * 60;[m
+         consensus.fPowAllowMinDifficultyBlocks = false;[m
+         consensus.fPowNoRetargeting = false;[m
+[31m-        consensus.nRuleChangeActivationThreshold = 1916; // 95% of 2016[m
+[32m+[m[32m        consensus.nRuleChangeActivationThreshold = 1815; // 90% of 2016[m
+         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 1199145601; // January 1, 2008[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay[m
+ [m
+         // Deployment of Taproot (BIPs 340-342)[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1199145601; // January 1, 2008[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = 1230767999; // December 31, 2008[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay[m
+ [m
+         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000001533efd8d716a517fe2c5008");[m
+         consensus.defaultAssumeValid = uint256S("0x0000000000000000000b9d2ec5a352ecba0592946514a92f14319dc2b367fc72"); // 654683[m
+[36m@@ -198,13 +200,15 @@[m [mpublic:[m
+         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains[m
+         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 1199145601; // January 1, 2008[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay[m
+ [m
+         // Deployment of Taproot (BIPs 340-342)[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1199145601; // January 1, 2008[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = 1230767999; // December 31, 2008[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay[m
+ [m
+         consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000000001db6ec4ac88cf2272c6");[m
+         consensus.defaultAssumeValid = uint256S("0x000000000000006433d1efec504c53ca332b64963c425395515b01977bd7b3b0"); // 1864000[m
+[36m@@ -328,18 +332,20 @@[m [mpublic:[m
+         consensus.nPowTargetSpacing = 10 * 60;[m
+         consensus.fPowAllowMinDifficultyBlocks = false;[m
+         consensus.fPowNoRetargeting = false;[m
+[31m-        consensus.nRuleChangeActivationThreshold = 1916; // 95% of 2016[m
+[32m+[m[32m        consensus.nRuleChangeActivationThreshold = 1815; // 90% of 2016[m
+         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing[m
+         consensus.MinBIP9WarningHeight = 0;[m
+         consensus.powLimit = uint256S("00000377ae000000000000000000000000000000000000000000000000000000");[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 1199145601; // January 1, 2008[m
+[31m-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay[m
+ [m
+         // Activation of Taproot (BIPs 340-342)[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay[m
+ [m
+         // message start is defined as the first 4 bytes of the sha256d of the block script[m
+         CHashWriter h(SER_DISK, 0);[m
+[36m@@ -397,12 +403,16 @@[m [mpublic:[m
+         consensus.fPowNoRetargeting = true;[m
+         consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains[m
+         consensus.nMinerConfirmationWindow = 144; // Faster than normal for regtest (144 instead of 2016)[m
+[32m+[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 0;[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay[m
+[32m+[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;[m
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+[32m+[m[32m        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay[m
+ [m
+         consensus.nMinimumChainWork = uint256{};[m
+         consensus.defaultAssumeValid = uint256{};[m
+[36m@@ -466,10 +476,11 @@[m [mpublic:[m
+     /**[m
+      * Allows modifying the Version Bits regtest parameters.[m
+      */[m
+[31m-    void UpdateVersionBitsParameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout)[m
+[32m+[m[32m    void UpdateVersionBitsParameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout, int min_activation_height)[m
+     {[m
+         consensus.vDeployments[d].nStartTime = nStartTime;[m
+         consensus.vDeployments[d].nTimeout = nTimeout;[m
+[32m+[m[32m        consensus.vDeployments[d].min_activation_height = min_activation_height;[m
+     }[m
+     void UpdateActivationParametersFromArgs(const ArgsManager& args);[m
+ };[m
+[36m@@ -492,22 +503,26 @@[m [mvoid CRegTestParams::UpdateActivationParametersFromArgs(const ArgsManager& args)[m
+     for (const std::string& strDeployment : args.GetArgs("-vbparams")) {[m
+         std::vector<std::string> vDeploymentParams;[m
+         boost::split(vDeploymentParams, strDeployment, boost::is_any_of(":"));[m
+[31m-        if (vDeploymentParams.size() != 3) {[m
+[31m-            throw std::runtime_error("Version bits parameters malformed, expecting deployment:start:end");[m
+[32m+[m[32m        if (vDeploymentParams.size() < 3 || 4 < vDeploymentParams.size()) {[m
+[32m+[m[32m            throw std::runtime_error("Version bits parameters malformed, expecting deployment:start:end[:min_activation_height]");[m
+         }[m
+         int64_t nStartTime, nTimeout;[m
+[32m+[m[32m        int min_activation_height = 0;[m
+         if (!ParseInt64(vDeploymentParams[1], &nStartTime)) {[m
+             throw std::runtime_error(strprintf("Invalid nStartTime (%s)", vDeploymentParams[1]));[m
+         }[m
+         if (!ParseInt64(vDeploymentParams[2], &nTimeout)) {[m
+             throw std::runtime_error(strprintf("Invalid nTimeout (%s)", vDeploymentParams[2]));[m
+         }[m
+[32m+[m[32m        if (vDeploymentParams.size() >= 4 && !ParseInt32(vDeploymentParams[3], &min_activation_height)) {[m
+[32m+[m[32m            throw std::runtime_error(strprintf("Invalid min_activation_height (%s)", vDeploymentParams[3]));[m
+[32m+[m[32m        }[m
+         bool found = false;[m
+         for (int j=0; j < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; ++j) {[m
+             if (vDeploymentParams[0] == VersionBitsDeploymentInfo[j].name) {[m
+[31m-                UpdateVersionBitsParameters(Consensus::DeploymentPos(j), nStartTime, nTimeout);[m
+[32m+[m[32m                UpdateVersionBitsParameters(Consensus::DeploymentPos(j), nStartTime, nTimeout, min_activation_height);[m
+                 found = true;[m
+[31m-                LogPrintf("Setting version bits activation parameters for %s to start=%ld, timeout=%ld\n", vDeploymentParams[0], nStartTime, nTimeout);[m
+[32m+[m[32m                LogPrintf("Setting version bits activation parameters for %s to start=%ld, timeout=%ld, min_activation_height=%d\n", vDeploymentParams[0], nStartTime, nTimeout, min_activation_height);[m
+                 break;[m
+             }[m
+         }[m
+[33mdiff --git a/src/chainparamsbase.cpp b/src/chainparamsbase.cpp[m
+[33mindex 163117647..e71b4bc85 100644[m
+[33m--- a/src/chainparamsbase.cpp[m
+[33m+++ b/src/chainparamsbase.cpp[m
+[36m@@ -22,7 +22,7 @@[m [mvoid SetupChainParamsBaseOptions(ArgsManager& argsman)[m
+                  "This is intended for regression testing tools and app development. Equivalent to -chain=regtest.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);[m
+     argsman.AddArg("-segwitheight=<n>", "Set the activation height of segwit. -1 to disable. (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);[m
+     argsman.AddArg("-testnet", "Use the test chain. Equivalent to -chain=test.", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);[m
+[31m-    argsman.AddArg("-vbparams=deployment:start:end", "Use given start/end times for specified version bits deployment (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);[m
+[32m+[m[32m    argsman.AddArg("-vbparams=deployment:start:end[:min_activation_height]", "Use given start/end times and min_activation_height for specified version bits deployment (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);[m
+     argsman.AddArg("-signet", "Use the signet chain. Equivalent to -chain=signet. Note that the network is defined by the -signetchallenge parameter", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);[m
+     argsman.AddArg("-signetchallenge", "Blocks must satisfy the given script to be considered valid (only for signet networks; defaults to the global default signet test network challenge)", ArgsManager::ALLOW_STRING, OptionsCategory::CHAINPARAMS);[m
+     argsman.AddArg("-signetseednode", "Specify a seed node for the signet network, in the hostname[:port] format, e.g. sig.net:1234 (may be used multiple times to specify multiple seed nodes; defaults to the global default signet test network seed node(s))", ArgsManager::ALLOW_STRING, OptionsCategory::CHAINPARAMS);[m
+[33mdiff --git a/src/consensus/params.h b/src/consensus/params.h[m
+[33mindex 217cb019e..28c95e088 100644[m
+[33m--- a/src/consensus/params.h[m
+[33m+++ b/src/consensus/params.h[m
+[36m@@ -29,6 +29,11 @@[m [mstruct BIP9Deployment {[m
+     int64_t nStartTime;[m
+     /** Timeout/expiry MedianTime for the deployment attempt. */[m
+     int64_t nTimeout;[m
+[32m+[m[32m    /** If lock in occurs, delay activation until at least this block[m
+[32m+[m[32m     *  height.  Note that activation will only occur on a retarget[m
+[32m+[m[32m     *  boundary.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    int min_activation_height{0};[m
+ [m
+     /** Constant for nTimeout very far in the future. */[m
+     static constexpr int64_t NO_TIMEOUT = std::numeric_limits<int64_t>::max();[m
+[36m@@ -38,6 +43,11 @@[m [mstruct BIP9Deployment {[m
+      *  process (which takes at least 3 BIP9 intervals). Only tests that specifically test the[m
+      *  behaviour during activation cannot use this. */[m
+     static constexpr int64_t ALWAYS_ACTIVE = -1;[m
+[32m+[m
+[32m+[m[32m    /** Special value for nStartTime indicating that the deployment is never active.[m
+[32m+[m[32m     *  This is useful for integrating the code changes for a new feature[m
+[32m+[m[32m     *  prior to deploying it on some or all networks. */[m
+[32m+[m[32m    static constexpr int64_t NEVER_ACTIVE = -2;[m
+ };[m
+ [m
+ /**[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex 3ba2fa46a..1130a384e 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -1225,10 +1225,8 @@[m [mstatic void BuriedForkDescPushBack(UniValue& softforks, const std::string &name,[m
+ static void BIP9SoftForkDescPushBack(UniValue& softforks, const std::string &name, const Consensus::Params& consensusParams, Consensus::DeploymentPos id) EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+ {[m
+     // For BIP9 deployments.[m
+[31m-    // Deployments (e.g. testdummy) with timeout value before Jan 1, 2009 are hidden.[m
+[31m-    // A timeout value of 0 guarantees a softfork will never be activated.[m
+[31m-    // This is used when merging logic to implement a proposed softfork without a specified deployment schedule.[m
+[31m-    if (consensusParams.vDeployments[id].nTimeout <= 1230768000) return;[m
+[32m+[m[32m    // Deployments that are never active are hidden.[m
+[32m+[m[32m    if (consensusParams.vDeployments[id].nStartTime == Consensus::BIP9Deployment::NEVER_ACTIVE) return;[m
+ [m
+     UniValue bip9(UniValue::VOBJ);[m
+     const ThresholdState thresholdState = VersionBitsState(::ChainActive().Tip(), consensusParams, id, versionbitscache);[m
+[36m@@ -1258,6 +1256,7 @@[m [mstatic void BIP9SoftForkDescPushBack(UniValue& softforks, const std::string &nam[m
+         statsUV.pushKV("possible", statsStruct.possible);[m
+         bip9.pushKV("statistics", statsUV);[m
+     }[m
+[32m+[m[32m    bip9.pushKV("min_activation_height", consensusParams.vDeployments[id].min_activation_height);[m
+ [m
+     UniValue rv(UniValue::VOBJ);[m
+     rv.pushKV("type", "bip9");[m
+[36m@@ -1304,6 +1303,7 @@[m [mRPCHelpMan getblockchaininfo()[m
+                                     {RPCResult::Type::NUM_TIME, "start_time", "the minimum median time past of a block at which the bit gains its meaning"},[m
+                                     {RPCResult::Type::NUM_TIME, "timeout", "the median time past of a block at which the deployment is considered failed if not yet locked in"},[m
+                                     {RPCResult::Type::NUM, "since", "height of the first block to which the status applies"},[m
+[32m+[m[32m                                    {RPCResult::Type::NUM, "min_activation_height", "minimum height of blocks for which the rules may be enforced"},[m
+                                     {RPCResult::Type::OBJ, "statistics", "numeric statistics about BIP9 signalling for a softfork (only for \"started\" status)",[m
+                                     {[m
+                                         {RPCResult::Type::NUM, "period", "the length in blocks of the BIP9 signalling period"},[m
+[33mdiff --git a/src/test/fuzz/versionbits.cpp b/src/test/fuzz/versionbits.cpp[m
+[33mindex 88c1a1a9c..918682183 100644[m
+[33m--- a/src/test/fuzz/versionbits.cpp[m
+[33m+++ b/src/test/fuzz/versionbits.cpp[m
+[36m@@ -29,14 +29,16 @@[m [mpublic:[m
+     const int64_t m_end;[m
+     const int m_period;[m
+     const int m_threshold;[m
+[32m+[m[32m    const int m_min_activation_height;[m
+     const int m_bit;[m
+ [m
+[31m-    TestConditionChecker(int64_t begin, int64_t end, int period, int threshold, int bit)[m
+[31m-        : m_begin{begin}, m_end{end}, m_period{period}, m_threshold{threshold}, m_bit{bit}[m
+[32m+[m[32m    TestConditionChecker(int64_t begin, int64_t end, int period, int threshold, int min_activation_height, int bit)[m
+[32m+[m[32m        : m_begin{begin}, m_end{end}, m_period{period}, m_threshold{threshold}, m_min_activation_height{min_activation_height}, m_bit{bit}[m
+     {[m
+         assert(m_period > 0);[m
+         assert(0 <= m_threshold && m_threshold <= m_period);[m
+         assert(0 <= m_bit && m_bit < 32 && m_bit < VERSIONBITS_NUM_BITS);[m
+[32m+[m[32m        assert(0 <= m_min_activation_height);[m
+     }[m
+ [m
+     bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const override { return Condition(pindex->nVersion); }[m
+[36m@@ -44,6 +46,7 @@[m [mpublic:[m
+     int64_t EndTime(const Consensus::Params& params) const override { return m_end; }[m
+     int Period(const Consensus::Params& params) const override { return m_period; }[m
+     int Threshold(const Consensus::Params& params) const override { return m_threshold; }[m
+[32m+[m[32m    int MinActivationHeight(const Consensus::Params& params) const override { return m_min_activation_height; }[m
+ [m
+     ThresholdState GetStateFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateFor(pindexPrev, dummy_params, m_cache); }[m
+     int GetStateSinceHeightFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateSinceHeightFor(pindexPrev, dummy_params, m_cache); }[m
+[36m@@ -144,32 +147,27 @@[m [mFUZZ_TARGET_INIT(versionbits, initialize)[m
+         // pick the timestamp to switch based on a block[m
+         // note states will change *after* these blocks because mediantime lags[m
+         int start_block = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, period * (max_periods - 3));[m
+[31m-        int end_block = fuzzed_data_provider.ConsumeIntegralInRange<int>(start_block, period * (max_periods - 3));[m
+[32m+[m[32m        int end_block = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, period * (max_periods - 3));[m
+ [m
+         start_time = block_start_time + start_block * interval;[m
+         timeout = block_start_time + end_block * interval;[m
+ [m
+[31m-        assert(start_time <= timeout);[m
+[31m-[m
+         // allow for times to not exactly match a block[m
+         if (fuzzed_data_provider.ConsumeBool()) start_time += interval / 2;[m
+         if (fuzzed_data_provider.ConsumeBool()) timeout += interval / 2;[m
+[31m-[m
+[31m-        // this may make timeout too early; if so, don't run the test[m
+[31m-        if (start_time > timeout) return;[m
+     } else {[m
+         if (fuzzed_data_provider.ConsumeBool()) {[m
+             start_time = Consensus::BIP9Deployment::ALWAYS_ACTIVE;[m
+[31m-            timeout = Consensus::BIP9Deployment::NO_TIMEOUT;[m
+             always_active_test = true;[m
+         } else {[m
+[31m-            start_time = 1199145601; // January 1, 2008[m
+[31m-            timeout = 1230767999;    // December 31, 2008[m
+[32m+[m[32m            start_time = Consensus::BIP9Deployment::NEVER_ACTIVE;[m
+             never_active_test = true;[m
+         }[m
+[32m+[m[32m        timeout = fuzzed_data_provider.ConsumeBool() ? Consensus::BIP9Deployment::NO_TIMEOUT : fuzzed_data_provider.ConsumeIntegral<int64_t>();[m
+     }[m
+[32m+[m[32m    int min_activation = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, period * max_periods);[m
+ [m
+[31m-    TestConditionChecker checker(start_time, timeout, period, threshold, bit);[m
+[32m+[m[32m    TestConditionChecker checker(start_time, timeout, period, threshold, min_activation, bit);[m
+ [m
+     // Early exit if the versions don't signal sensibly for the deployment[m
+     if (!checker.Condition(ver_signal)) return;[m
+[36m@@ -294,28 +292,35 @@[m [mFUZZ_TARGET_INIT(versionbits, initialize)[m
+         assert(since == 0);[m
+         assert(exp_state == ThresholdState::DEFINED);[m
+         assert(current_block->GetMedianTimePast() < checker.m_begin);[m
+[31m-        assert(current_block->GetMedianTimePast() < checker.m_end);[m
+         break;[m
+     case ThresholdState::STARTED:[m
+         assert(current_block->GetMedianTimePast() >= checker.m_begin);[m
+[31m-        assert(current_block->GetMedianTimePast() < checker.m_end);[m
+         if (exp_state == ThresholdState::STARTED) {[m
+             assert(blocks_sig < threshold);[m
+[32m+[m[32m            assert(current_block->GetMedianTimePast() < checker.m_end);[m
+         } else {[m
+             assert(exp_state == ThresholdState::DEFINED);[m
+         }[m
+         break;[m
+     case ThresholdState::LOCKED_IN:[m
+[31m-        assert(exp_state == ThresholdState::STARTED);[m
+[31m-        assert(current_block->GetMedianTimePast() < checker.m_end);[m
+[31m-        assert(blocks_sig >= threshold);[m
+[32m+[m[32m        if (exp_state == ThresholdState::LOCKED_IN) {[m
+[32m+[m[32m            assert(current_block->nHeight + 1 < min_activation);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            assert(exp_state == ThresholdState::STARTED);[m
+[32m+[m[32m            assert(blocks_sig >= threshold);[m
+[32m+[m[32m        }[m
+         break;[m
+     case ThresholdState::ACTIVE:[m
+[32m+[m[32m        assert(always_active_test || min_activation <= current_block->nHeight + 1);[m
+         assert(exp_state == ThresholdState::ACTIVE || exp_state == ThresholdState::LOCKED_IN);[m
+         break;[m
+     case ThresholdState::FAILED:[m
+[31m-        assert(current_block->GetMedianTimePast() >= checker.m_end);[m
+[31m-        assert(exp_state != ThresholdState::LOCKED_IN && exp_state != ThresholdState::ACTIVE);[m
+[32m+[m[32m        assert(never_active_test || current_block->GetMedianTimePast() >= checker.m_end);[m
+[32m+[m[32m        if (exp_state == ThresholdState::STARTED) {[m
+[32m+[m[32m            assert(blocks_sig < threshold);[m
+[2m+[m[2m        } else {[m
+[2m+[m[2m            assert(exp_state == ThresholdState::FAILED);[m
+[2m+[m[2m        }[m
+         break;[m
+     default:[m
+         assert(false);[m
+[36m@@ -326,26 +331,20 @@[m [mFUZZ_TARGET_INIT(versionbits, initialize)[m
+         assert(state == ThresholdState::ACTIVE || state == ThresholdState::FAILED);[m
+     }[m
+ [m
+[31m-    // "always active" has additional restrictions[m
+     if (always_active_test) {[m
+[32m+[m[32m        // "always active" has additional restrictions[m
+         assert(state == ThresholdState::ACTIVE);[m
+         assert(exp_state == ThresholdState::ACTIVE);[m
+         assert(since == 0);[m
+[32m+[m[32m    } else if (never_active_test) {[m
+[32m+[m[32m        // "never active" does too[m
+[2m+[m[2m        assert(state == ThresholdState::FAILED);[m
+[32m+[m[32m        assert(exp_state == ThresholdState::FAILED);[m
+[32m+[m[32m        assert(since == 0);[m
+     } else {[m
+[31m-        // except for always active, the initial state is always DEFINED[m
+[32m+[m[32m        // for signalled deployments, the initial state is always DEFINED[m
+         assert(since > 0 || state == ThresholdState::DEFINED);[m
+         assert(exp_since > 0 || exp_state == ThresholdState::DEFINED);[m
+     }[m
+[31m-[m
+[31m-    // "never active" does too[m
+[31m-    if (never_active_test) {[m
+[2;3m-        assert(state == ThresholdState::FAILED);[m
+[31m-        assert(since == period);[m
+[31m-        if (exp_since == 0) {[m
+[31m-            assert(exp_state == ThresholdState::DEFINED);[m
+[2m-        } else {[m
+[2m-            assert(exp_state == ThresholdState::FAILED);[m
+[2m-        }[m
+[31m-    }[m
+ }[m
+ } // namespace[m
+[33mdiff --git a/src/test/versionbits_tests.cpp b/src/test/versionbits_tests.cpp[m
+[33mindex 8841a540f..05838ec19 100644[m
+[33m--- a/src/test/versionbits_tests.cpp[m
+[33m+++ b/src/test/versionbits_tests.cpp[m
+[36m@@ -44,6 +44,12 @@[m [mpublic:[m
+     int GetStateSinceHeightFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateSinceHeightFor(pindexPrev, paramsDummy, cache); }[m
+ };[m
+ [m
+[32m+[m[32mclass TestDelayedActivationConditionChecker : public TestConditionChecker[m
+[32m+[m[32m{[m
+[32m+[m[32mpublic:[m
+[32m+[m[32m    int MinActivationHeight(const Consensus::Params& params) const override { return 15000; }[m
+[32m+[m[32m};[m
+[32m+[m
+ class TestAlwaysActiveConditionChecker : public TestConditionChecker[m
+ {[m
+ public:[m
+[36m@@ -53,8 +59,7 @@[m [mpublic:[m
+ class TestNeverActiveConditionChecker : public TestConditionChecker[m
+ {[m
+ public:[m
+[31m-    int64_t BeginTime(const Consensus::Params& params) const override { return 0; }[m
+[31m-    int64_t EndTime(const Consensus::Params& params) const override { return 1230768000; }[m
+[32m+[m[32m    int64_t BeginTime(const Consensus::Params& params) const override { return Consensus::BIP9Deployment::NEVER_ACTIVE; }[m
+ };[m
+ [m
+ #define CHECKERS 6[m
+[36m@@ -68,6 +73,8 @@[m [mclass VersionBitsTester[m
+     // The first one performs all checks, the second only 50%, the third only 25%, etc...[m
+     // This is to test whether lack of cached information leads to the same results.[m
+     TestConditionChecker checker[CHECKERS];[m
+[32m+[m[32m    // Another 6 that assume delayed activation[m
+[32m+[m[32m    TestDelayedActivationConditionChecker checker_delayed[CHECKERS];[m
+     // Another 6 that assume always active activation[m
+     TestAlwaysActiveConditionChecker checker_always[CHECKERS];[m
+     // Another 6 that assume never active activation[m
+[36m@@ -77,14 +84,18 @@[m [mclass VersionBitsTester[m
+     int num;[m
+ [m
+ public:[m
+[31m-    VersionBitsTester() : num(0) {}[m
+[32m+[m[32m    VersionBitsTester() : num(1000) {}[m
+ [m
+     VersionBitsTester& Reset() {[m
+[32m+[m[32m        // Have each group of tests be counted by the 1000s part, starting at 1000[m
+[32m+[m[32m        num = num - (num % 1000) + 1000;[m
+[32m+[m
+         for (unsigned int i = 0; i < vpblock.size(); i++) {[m
+             delete vpblock[i];[m
+         }[m
+         for (unsigned int  i = 0; i < CHECKERS; i++) {[m
+             checker[i] = TestConditionChecker();[m
+[32m+[m[32m            checker_delayed[i] = TestDelayedActivationConditionChecker();[m
+             checker_always[i] = TestAlwaysActiveConditionChecker();[m
+             checker_never[i] = TestNeverActiveConditionChecker();[m
+         }[m
+[36m@@ -100,7 +111,7 @@[m [mpublic:[m
+         while (vpblock.size() < height) {[m
+             CBlockIndex* pindex = new CBlockIndex();[m
+             pindex->nHeight = vpblock.size();[m
+[31m-            pindex->pprev = vpblock.size() > 0 ? vpblock.back() : nullptr;[m
+[32m+[m[32m            pindex->pprev = Tip();[m
+             pindex->nTime = nTime;[m
+             pindex->nVersion = nVersion;[m
+             pindex->BuildSkip();[m
+[36m@@ -109,34 +120,53 @@[m [mpublic:[m
+         return *this;[m
+     }[m
+ [m
+[31m-    VersionBitsTester& TestStateSinceHeight(int height) {[m
+[32m+[m[32m    VersionBitsTester& TestStateSinceHeight(int height)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return TestStateSinceHeight(height, height);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    VersionBitsTester& TestStateSinceHeight(int height, int height_delayed)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        const CBlockIndex* tip = Tip();[m
+         for (int i = 0; i < CHECKERS; i++) {[m
+             if (InsecureRandBits(i) == 0) {[m
+[31m-                BOOST_CHECK_MESSAGE(checker[i].GetStateSinceHeightFor(vpblock.empty() ? nullptr : vpblock.back()) == height, strprintf("Test %i for StateSinceHeight", num));[m
+[31m-                BOOST_CHECK_MESSAGE(checker_always[i].GetStateSinceHeightFor(vpblock.empty() ? nullptr : vpblock.back()) == 0, strprintf("Test %i for StateSinceHeight (always active)", num));[m
+[31m-[m
+[31m-                // never active may go from DEFINED -> FAILED at the first period[m
+[31m-                const auto never_height = checker_never[i].GetStateSinceHeightFor(vpblock.empty() ? nullptr : vpblock.back());[m
+[31m-                BOOST_CHECK_MESSAGE(never_height == 0 || never_height == checker_never[i].Period(paramsDummy), strprintf("Test %i for StateSinceHeight (never active)", num));[m
+[32m+[m[32m                BOOST_CHECK_MESSAGE(checker[i].GetStateSinceHeightFor(tip) == height, strprintf("Test %i for StateSinceHeight", num));[m
+[32m+[m[32m                BOOST_CHECK_MESSAGE(checker_delayed[i].GetStateSinceHeightFor(tip) == height_delayed, strprintf("Test %i for StateSinceHeight (delayed)", num));[m
+[32m+[m[32m                BOOST_CHECK_MESSAGE(checker_always[i].GetStateSinceHeightFor(tip) == 0, strprintf("Test %i for StateSinceHeight (always active)", num));[m
+[32m+[m[32m                BOOST_CHECK_MESSAGE(checker_never[i].GetStateSinceHeightFor(tip) == 0, strprintf("Test %i for StateSinceHeight (never active)", num));[m
+             }[m
+         }[m
+         num++;[m
+         return *this;[m
+     }[m
+ [m
+[31m-    VersionBitsTester& TestState(ThresholdState exp) {[m
+[32m+[m[32m    VersionBitsTester& TestState(ThresholdState exp)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return TestState(exp, exp);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    VersionBitsTester& TestState(ThresholdState exp, ThresholdState exp_delayed)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (exp != exp_delayed) {[m
+[32m+[m[32m            // only expected differences are that delayed stays in locked_in longer[m
+[32m+[m[32m            BOOST_CHECK_EQUAL(exp, ThresholdState::ACTIVE);[m
+[32m+[m[32m            BOOST_CHECK_EQUAL(exp_delayed, ThresholdState::LOCKED_IN);[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        const CBlockIndex* pindex = Tip();[m
+         for (int i = 0; i < CHECKERS; i++) {[m
+             if (InsecureRandBits(i) == 0) {[m
+[31m-                const CBlockIndex* pindex = vpblock.empty() ? nullptr : vpblock.back();[m
+                 ThresholdState got = checker[i].GetStateFor(pindex);[m
+[32m+[m[32m                ThresholdState got_delayed = checker_delayed[i].GetStateFor(pindex);[m
+                 ThresholdState got_always = checker_always[i].GetStateFor(pindex);[m
+                 ThresholdState got_never = checker_never[i].GetStateFor(pindex);[m
+                 // nHeight of the next block. If vpblock is empty, the next (ie first)[m
+                 // block should be the genesis block with nHeight == 0.[m
+                 int height = pindex == nullptr ? 0 : pindex->nHeight + 1;[m
+                 BOOST_CHECK_MESSAGE(got == exp, strprintf("Test %i for %s height %d (got %s)", num, StateName(exp), height, StateName(got)));[m
+[32m+[m[32m                BOOST_CHECK_MESSAGE(got_delayed == exp_delayed, strprintf("Test %i for %s height %d (got %s; delayed case)", num, StateName(exp_delayed), height, StateName(got_delayed)));[m
+                 BOOST_CHECK_MESSAGE(got_always == ThresholdState::ACTIVE, strprintf("Test %i for ACTIVE height %d (got %s; always active case)", num, height, StateName(got_always)));[m
+[31m-                BOOST_CHECK_MESSAGE(got_never == ThresholdState::DEFINED|| got_never == ThresholdState::FAILED, strprintf("Test %i for DEFINED/FAILED height %d (got %s; never active case)", num, height, StateName(got_never)));[m
+[32m+[m[32m                BOOST_CHECK_MESSAGE(got_never == ThresholdState::FAILED, strprintf("Test %i for FAILED height %d (got %s; never active case)", num, height, StateName(got_never)));[m
+             }[m
+         }[m
+         num++;[m
+[36m@@ -149,7 +179,10 @@[m [mpublic:[m
+     VersionBitsTester& TestActive() { return TestState(ThresholdState::ACTIVE); }[m
+     VersionBitsTester& TestFailed() { return TestState(ThresholdState::FAILED); }[m
+ [m
+[31m-    CBlockIndex * Tip() { return vpblock.size() ? vpblock.back() : nullptr; }[m
+[32m+[m[32m    // non-delayed should be active; delayed should still be locked in[m
+[32m+[m[32m    VersionBitsTester& TestActiveDelayed() { return TestState(ThresholdState::ACTIVE, ThresholdState::LOCKED_IN); }[m
+[32m+[m
+[32m+[m[32m    CBlockIndex* Tip() { return vpblock.empty() ? nullptr : vpblock.back(); }[m
+ };[m
+ [m
+ BOOST_FIXTURE_TEST_SUITE(versionbits_tests, TestingSetup)[m
+[36m@@ -157,18 +190,19 @@[m [mBOOST_FIXTURE_TEST_SUITE(versionbits_tests, TestingSetup)[m
+ BOOST_AUTO_TEST_CASE(versionbits_test)[m
+ {[m
+     for (int i = 0; i < 64; i++) {[m
+[31m-        // DEFINED -> FAILED[m
+[32m+[m[32m        // DEFINED -> STARTED after timeout reached -> FAILED[m
+         VersionBitsTester().TestDefined().TestStateSinceHeight(0)[m
+                            .Mine(1, TestTime(1), 0x100).TestDefined().TestStateSinceHeight(0)[m
+                            .Mine(11, TestTime(11), 0x100).TestDefined().TestStateSinceHeight(0)[m
+                            .Mine(989, TestTime(989), 0x100).TestDefined().TestStateSinceHeight(0)[m
+[31m-                           .Mine(999, TestTime(20000), 0x100).TestDefined().TestStateSinceHeight(0)[m
+[31m-                           .Mine(1000, TestTime(20000), 0x100).TestFailed().TestStateSinceHeight(1000)[m
+[31m-                           .Mine(1999, TestTime(30001), 0x100).TestFailed().TestStateSinceHeight(1000)[m
+[31m-                           .Mine(2000, TestTime(30002), 0x100).TestFailed().TestStateSinceHeight(1000)[m
+[31m-                           .Mine(2001, TestTime(30003), 0x100).TestFailed().TestStateSinceHeight(1000)[m
+[31m-                           .Mine(2999, TestTime(30004), 0x100).TestFailed().TestStateSinceHeight(1000)[m
+[31m-                           .Mine(3000, TestTime(30005), 0x100).TestFailed().TestStateSinceHeight(1000)[m
+[32m+[m[32m                           .Mine(999, TestTime(20000), 0x100).TestDefined().TestStateSinceHeight(0) // Timeout and start time reached simultaneously[m
+[32m+[m[32m                           .Mine(1000, TestTime(20000), 0).TestStarted().TestStateSinceHeight(1000) // Hit started, stop signalling[m
+[32m+[m[32m                           .Mine(1999, TestTime(30001), 0).TestStarted().TestStateSinceHeight(1000)[m
+[32m+[m[32m                           .Mine(2000, TestTime(30002), 0x100).TestFailed().TestStateSinceHeight(2000) // Hit failed, start signalling again[m
+[32m+[m[32m                           .Mine(2001, TestTime(30003), 0x100).TestFailed().TestStateSinceHeight(2000)[m
+[32m+[m[32m                           .Mine(2999, TestTime(30004), 0x100).TestFailed().TestStateSinceHeight(2000)[m
+[32m+[m[32m                           .Mine(3000, TestTime(30005), 0x100).TestFailed().TestStateSinceHeight(2000)[m
+[32m+[m[32m                           .Mine(4000, TestTime(30006), 0x100).TestFailed().TestStateSinceHeight(2000)[m
+ [m
+         // DEFINED -> STARTED -> FAILED[m
+                            .Reset().TestDefined().TestStateSinceHeight(0)[m
+[36m@@ -180,19 +214,19 @@[m [mBOOST_AUTO_TEST_CASE(versionbits_test)[m
+                            .Mine(3000, TestTime(20000), 0).TestFailed().TestStateSinceHeight(3000) // 50 old blocks (so 899 out of the past 1000)[m
+                            .Mine(4000, TestTime(20010), 0x100).TestFailed().TestStateSinceHeight(3000)[m
+ [m
+[31m-        // DEFINED -> STARTED -> FAILED while threshold reached[m
+[32m+[m[32m        // DEFINED -> STARTED -> LOCKEDIN after timeout reached -> ACTIVE[m
+                            .Reset().TestDefined().TestStateSinceHeight(0)[m
+                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)[m
+                            .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined[m
+                            .Mine(2000, TestTime(10000), 0x101).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period[m
+                            .Mine(2999, TestTime(30000), 0x100).TestStarted().TestStateSinceHeight(2000) // 999 new blocks[m
+[31m-                           .Mine(3000, TestTime(30000), 0x100).TestFailed().TestStateSinceHeight(3000) // 1 new block (so 1000 out of the past 1000 are new)[m
+[31m-                           .Mine(3999, TestTime(30001), 0).TestFailed().TestStateSinceHeight(3000)[m
+[31m-                           .Mine(4000, TestTime(30002), 0).TestFailed().TestStateSinceHeight(3000)[m
+[31m-                           .Mine(14333, TestTime(30003), 0).TestFailed().TestStateSinceHeight(3000)[m
+[31m-                           .Mine(24000, TestTime(40000), 0).TestFailed().TestStateSinceHeight(3000)[m
+[32m+[m[32m                           .Mine(3000, TestTime(30000), 0x100).TestLockedIn().TestStateSinceHeight(3000) // 1 new block (so 1000 out of the past 1000 are new)[m
+[32m+[m[32m                           .Mine(3999, TestTime(30001), 0).TestLockedIn().TestStateSinceHeight(3000)[m
+[32m+[m[32m                           .Mine(4000, TestTime(30002), 0).TestActiveDelayed().TestStateSinceHeight(4000, 3000)[m
+[32m+[m[32m                           .Mine(14333, TestTime(30003), 0).TestActiveDelayed().TestStateSinceHeight(4000, 3000)[m
+[32m+[m[32m                           .Mine(24000, TestTime(40000), 0).TestActive().TestStateSinceHeight(4000, 15000)[m
+ [m
+[31m-        // DEFINED -> STARTED -> LOCKEDIN at the last minute -> ACTIVE[m
+[32m+[m[32m        // DEFINED -> STARTED -> LOCKEDIN before timeout -> ACTIVE[m
+                            .Reset().TestDefined()[m
+                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)[m
+                            .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined[m
+[36m@@ -202,9 +236,10 @@[m [mBOOST_AUTO_TEST_CASE(versionbits_test)[m
+                            .Mine(2999, TestTime(19999), 0x200).TestStarted().TestStateSinceHeight(2000) // 49 old blocks[m
+                            .Mine(3000, TestTime(29999), 0x200).TestLockedIn().TestStateSinceHeight(3000) // 1 old block (so 900 out of the past 1000)[m
+                            .Mine(3999, TestTime(30001), 0).TestLockedIn().TestStateSinceHeight(3000)[m
+[31m-                           .Mine(4000, TestTime(30002), 0).TestActive().TestStateSinceHeight(4000)[m
+[31m-                           .Mine(14333, TestTime(30003), 0).TestActive().TestStateSinceHeight(4000)[m
+[31m-                           .Mine(24000, TestTime(40000), 0).TestActive().TestStateSinceHeight(4000)[m
+[32m+[m[32m                           .Mine(4000, TestTime(30002), 0).TestActiveDelayed().TestStateSinceHeight(4000, 3000) // delayed will not become active until height=15000[m
+[32m+[m[32m                           .Mine(14333, TestTime(30003), 0).TestActiveDelayed().TestStateSinceHeight(4000, 3000)[m
+[32m+[m[32m                           .Mine(15000, TestTime(40000), 0).TestActive().TestStateSinceHeight(4000, 15000)[m
+[32m+[m[32m                           .Mine(24000, TestTime(40000), 0).TestActive().TestStateSinceHeight(4000, 15000)[m
+ [m
+         // DEFINED multiple periods -> STARTED multiple periods -> FAILED[m
+                            .Reset().TestDefined().TestStateSinceHeight(0)[m
+[36m@@ -214,10 +249,16 @@[m [mBOOST_AUTO_TEST_CASE(versionbits_test)[m
+                            .Mine(3000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(3000)[m
+                            .Mine(4000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(3000)[m
+                            .Mine(5000, TestTime(10000), 0).TestStarted().TestStateSinceHeight(3000)[m
+[32m+[m[32m                           .Mine(5999, TestTime(20000), 0).TestStarted().TestStateSinceHeight(3000)[m
+                            .Mine(6000, TestTime(20000), 0).TestFailed().TestStateSinceHeight(6000)[m
+[31m-                           .Mine(7000, TestTime(20000), 0x100).TestFailed().TestStateSinceHeight(6000);[m
+[32m+[m[32m                           .Mine(7000, TestTime(20000), 0x100).TestFailed().TestStateSinceHeight(6000)[m
+[32m+[m[32m                           .Mine(24000, TestTime(20000), 0x100).TestFailed().TestStateSinceHeight(6000) // stay in FAILED no matter how much we signal[m
+[32m+[m[32m        ;[m
+     }[m
+[32m+[m[32m}[m
+ [m
+[32m+[m[32mBOOST_AUTO_TEST_CASE(versionbits_sanity)[m
+[32m+[m[32m{[m
+     // Sanity checks of version bit deployments[m
+     const auto chainParams = CreateChainParams(*m_node.args, CBaseChainParams::MAIN);[m
+     const Consensus::Params &mainnetParams = chainParams->GetConsensus();[m
+[36m@@ -226,6 +267,13 @@[m [mBOOST_AUTO_TEST_CASE(versionbits_test)[m
+         // Make sure that no deployment tries to set an invalid bit.[m
+         BOOST_CHECK_EQUAL(bitmask & ~(uint32_t)VERSIONBITS_TOP_MASK, bitmask);[m
+ [m
+[32m+[m[32m        // Check min_activation_height is on a retarget boundary[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(mainnetParams.vDeployments[i].min_activation_height % mainnetParams.nMinerConfirmationWindow, 0);[m
+[32m+[m[32m        // Check min_activation_height is 0 for ALWAYS_ACTIVE and never active deployments[m
+[32m+[m[32m        if (mainnetParams.vDeployments[i].nStartTime == Consensus::BIP9Deployment::ALWAYS_ACTIVE || mainnetParams.vDeployments[i].nStartTime == Consensus::BIP9Deployment::NEVER_ACTIVE) {[m
+[32m+[m[32m            BOOST_CHECK_EQUAL(mainnetParams.vDeployments[i].min_activation_height, 0);[m
+[32m+[m[32m        }[m
+[32m+[m
+         // Verify that the deployment windows of different deployment using the[m
+         // same bit are disjoint.[m
+         // This test may need modification at such time as a new deployment[m
+[36m@@ -242,81 +290,118 @@[m [mBOOST_AUTO_TEST_CASE(versionbits_test)[m
+     }[m
+ }[m
+ [m
+[2m-BOOST_AUTO_TEST_CASE(versionbits_computeblockversion)[m
+[32m+[m[32m/** Check that ComputeBlockVersion will set the appropriate bit correctly */[m
+[32m+[m[32mstatic void check_computeblockversion(const Consensus::Params& params, Consensus::DeploymentPos dep)[m
+ {[m
+[31m-    // Check that ComputeBlockVersion will set the appropriate bit correctly[m
+[31m-    // on mainnet.[m
+[31m-    const auto chainParams = CreateChainParams(*m_node.args, CBaseChainParams::MAIN);[m
+[31m-    const Consensus::Params &mainnetParams = chainParams->GetConsensus();[m
+[32m+[m[32m    // This implicitly uses versionbitscache, so clear it every time[m
+[32m+[m[32m    versionbitscache.Clear();[m
+[32m+[m
+[32m+[m[32m    int64_t bit = params.vDeployments[dep].bit;[m
+[32m+[m[32m    int64_t nStartTime = params.vDeployments[dep].nStartTime;[m
+[32m+[m[32m    int64_t nTimeout = params.vDeployments[dep].nTimeout;[m
+[32m+[m[32m    int min_activation_height = params.vDeployments[dep].min_activation_height;[m
+[32m+[m
+[32m+[m[32m    // should not be any signalling for first block[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(ComputeBlockVersion(nullptr, params), VERSIONBITS_TOP_BITS);[m
+ [m
+[31m-    // Use the TESTDUMMY deployment for testing purposes.[m
+[31m-    int64_t bit = mainnetParams.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit;[m
+[31m-    int64_t nStartTime = mainnetParams.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime;[m
+[31m-    int64_t nTimeout = mainnetParams.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout;[m
+[32m+[m[32m    // always/never active deployments shouldn't need to be tested further[m
+[32m+[m[32m    if (nStartTime == Consensus::BIP9Deployment::ALWAYS_ACTIVE) return;[m
+[32m+[m[32m    if (nStartTime == Consensus::BIP9Deployment::NEVER_ACTIVE) return;[m
+ [m
+[31m-    assert(nStartTime < nTimeout);[m
+[32m+[m[32m    BOOST_REQUIRE(nStartTime < nTimeout);[m
+[32m+[m[32m    BOOST_REQUIRE(nStartTime >= 0);[m
+[32m+[m[32m    BOOST_REQUIRE(nTimeout <= std::numeric_limits<uint32_t>::max() || nTimeout == Consensus::BIP9Deployment::NO_TIMEOUT);[m
+[32m+[m[32m    BOOST_REQUIRE(0 <= bit && bit < 32);[m
+[32m+[m[32m    BOOST_REQUIRE(((1 << bit) & VERSIONBITS_TOP_MASK) == 0);[m
+[32m+[m[32m    BOOST_REQUIRE(min_activation_height >= 0);[m
+[32m+[m[32m    BOOST_REQUIRE_EQUAL(min_activation_height % params.nMinerConfirmationWindow, 0);[m
+ [m
+     // In the first chain, test that the bit is set by CBV until it has failed.[m
+     // In the second chain, test the bit is set by CBV while STARTED and[m
+     // LOCKED-IN, and then no longer set while ACTIVE.[m
+     VersionBitsTester firstChain, secondChain;[m
+ [m
+[31m-    // Start generating blocks before nStartTime[m
+[31m-    int64_t nTime = nStartTime - 1;[m
+[32m+[m[32m    int64_t nTime = nStartTime;[m
+[32m+[m
+[32m+[m[32m    const CBlockIndex *lastBlock = nullptr;[m
+ [m
+     // Before MedianTimePast of the chain has crossed nStartTime, the bit[m
+     // should not be set.[m
+[31m-    CBlockIndex *lastBlock = nullptr;[m
+[31m-    lastBlock = firstChain.Mine(mainnetParams.nMinerConfirmationWindow, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-    BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit), 0);[m
+[31m-[m
+[31m-    // Mine more blocks (4 less than the adjustment period) at the old time, and check that CBV isn't setting the bit yet.[m
+[31m-    for (uint32_t i = 1; i < mainnetParams.nMinerConfirmationWindow - 4; i++) {[m
+[31m-        lastBlock = firstChain.Mine(mainnetParams.nMinerConfirmationWindow + i, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-        // This works because VERSIONBITS_LAST_OLD_BLOCK_VERSION happens[m
+[31m-        // to be 4, and the bit we're testing happens to be bit 28.[m
+[31m-        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit), 0);[m
+[31m-    }[m
+[31m-    // Now mine 5 more blocks at the start time -- MTP should not have passed yet, so[m
+[31m-    // CBV should still not yet set the bit.[m
+[31m-    nTime = nStartTime;[m
+[31m-    for (uint32_t i = mainnetParams.nMinerConfirmationWindow - 4; i <= mainnetParams.nMinerConfirmationWindow; i++) {[m
+[31m-        lastBlock = firstChain.Mine(mainnetParams.nMinerConfirmationWindow + i, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit), 0);[m
+[32m+[m[32m    if (nTime == 0) {[m
+[32m+[m[32m        // since CBlockIndex::nTime is uint32_t we can't represent any[m
+[32m+[m[32m        // earlier time, so will transition from DEFINED to STARTED at the[m
+[32m+[m[32m        // end of the first period by mining blocks at nTime == 0[m
+[32m+[m[32m        lastBlock = firstChain.Mine(params.nMinerConfirmationWindow - 1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & (1<<bit), 0);[m
+[32m+[m[32m        lastBlock = firstChain.Mine(params.nMinerConfirmationWindow, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m        BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+[32m+[m[32m        // then we'll keep mining at nStartTime...[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m        // use a time 1s earlier than start time to check we stay DEFINED[m
+[32m+[m[32m        --nTime;[m
+[32m+[m
+[32m+[m[32m        // Start generating blocks before nStartTime[m
+[32m+[m[32m        lastBlock = firstChain.Mine(params.nMinerConfirmationWindow, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & (1<<bit), 0);[m
+[32m+[m
+[32m+[m[32m        // Mine more blocks (4 less than the adjustment period) at the old time, and check that CBV isn't setting the bit yet.[m
+[32m+[m[32m        for (uint32_t i = 1; i < params.nMinerConfirmationWindow - 4; i++) {[m
+[32m+[m[32m            lastBlock = firstChain.Mine(params.nMinerConfirmationWindow + i, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m            BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & (1<<bit), 0);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        // Now mine 5 more blocks at the start time -- MTP should not have passed yet, so[m
+[32m+[m[32m        // CBV should still not yet set the bit.[m
+[32m+[m[32m        nTime = nStartTime;[m
+[32m+[m[32m        for (uint32_t i = params.nMinerConfirmationWindow - 4; i <= params.nMinerConfirmationWindow; i++) {[m
+[32m+[m[32m            lastBlock = firstChain.Mine(params.nMinerConfirmationWindow + i, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m            BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & (1<<bit), 0);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        // Next we will advance to the next period and transition to STARTED,[m
+     }[m
+ [m
+[31m-    // Advance to the next period and transition to STARTED,[m
+[31m-    lastBlock = firstChain.Mine(mainnetParams.nMinerConfirmationWindow * 3, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m    lastBlock = firstChain.Mine(params.nMinerConfirmationWindow * 3, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+     // so ComputeBlockVersion should now set the bit,[m
+[31m-    BOOST_CHECK((ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit)) != 0);[m
+[32m+[m[32m    BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+     // and should also be using the VERSIONBITS_TOP_BITS.[m
+[31m-    BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & VERSIONBITS_TOP_MASK, VERSIONBITS_TOP_BITS);[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & VERSIONBITS_TOP_MASK, VERSIONBITS_TOP_BITS);[m
+ [m
+     // Check that ComputeBlockVersion will set the bit until nTimeout[m
+     nTime += 600;[m
+[31m-    uint32_t blocksToMine = mainnetParams.nMinerConfirmationWindow * 2; // test blocks for up to 2 time periods[m
+[31m-    uint32_t nHeight = mainnetParams.nMinerConfirmationWindow * 3;[m
+[32m+[m[32m    uint32_t blocksToMine = params.nMinerConfirmationWindow * 2; // test blocks for up to 2 time periods[m
+[32m+[m[32m    uint32_t nHeight = params.nMinerConfirmationWindow * 3;[m
+     // These blocks are all before nTimeout is reached.[m
+     while (nTime < nTimeout && blocksToMine > 0) {[m
+         lastBlock = firstChain.Mine(nHeight+1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-        BOOST_CHECK((ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit)) != 0);[m
+[31m-        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & VERSIONBITS_TOP_MASK, VERSIONBITS_TOP_BITS);[m
+[32m+[m[32m        BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & VERSIONBITS_TOP_MASK, VERSIONBITS_TOP_BITS);[m
+         blocksToMine--;[m
+         nTime += 600;[m
+         nHeight += 1;[m
+     }[m
+ [m
+[31m-    nTime = nTimeout;[m
+[31m-    // FAILED is only triggered at the end of a period, so CBV should be setting[m
+[31m-    // the bit until the period transition.[m
+[31m-    for (uint32_t i = 0; i < mainnetParams.nMinerConfirmationWindow - 1; i++) {[m
+[32m+[m[32m    if (nTimeout != Consensus::BIP9Deployment::NO_TIMEOUT) {[m
+[32m+[m[32m        // can reach any nTimeout other than NO_TIMEOUT due to earlier BOOST_REQUIRE[m
+[32m+[m
+[32m+[m[32m        nTime = nTimeout;[m
+[32m+[m
+[32m+[m[32m        // finish the last period before we start timing out[m
+[32m+[m[32m        while (nHeight % params.nMinerConfirmationWindow != 0) {[m
+[32m+[m[32m            lastBlock = firstChain.Mine(nHeight+1, nTime - 1, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m            BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+[32m+[m[32m            nHeight += 1;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // FAILED is only triggered at the end of a period, so CBV should be setting[m
+[32m+[m[32m        // the bit until the period transition.[m
+[32m+[m[32m        for (uint32_t i = 0; i < params.nMinerConfirmationWindow - 1; i++) {[m
+[32m+[m[32m            lastBlock = firstChain.Mine(nHeight+1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m            BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+[32m+[m[32m            nHeight += 1;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        // The next block should trigger no longer setting the bit.[m
+         lastBlock = firstChain.Mine(nHeight+1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-        BOOST_CHECK((ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit)) != 0);[m
+[31m-        nHeight += 1;[m
+[32m+[m[32m        BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & (1<<bit), 0);[m
+     }[m
+[31m-    // The next block should trigger no longer setting the bit.[m
+[31m-    lastBlock = firstChain.Mine(nHeight+1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-    BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit), 0);[m
+ [m
+     // On a new chain:[m
+     // verify that the bit will be set after lock-in, and then stop being set[m
+[36m@@ -325,26 +410,62 @@[m [mBOOST_AUTO_TEST_CASE(versionbits_computeblockversion)[m
+ [m
+     // Mine one period worth of blocks, and check that the bit will be on for the[m
+     // next period.[m
+[31m-    lastBlock = secondChain.Mine(mainnetParams.nMinerConfirmationWindow, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-    BOOST_CHECK((ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit)) != 0);[m
+[32m+[m[32m    lastBlock = secondChain.Mine(params.nMinerConfirmationWindow, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m    BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+ [m
+     // Mine another period worth of blocks, signaling the new bit.[m
+[31m-    lastBlock = secondChain.Mine(mainnetParams.nMinerConfirmationWindow * 2, nTime, VERSIONBITS_TOP_BITS | (1<<bit)).Tip();[m
+[32m+[m[32m    lastBlock = secondChain.Mine(params.nMinerConfirmationWindow * 2, nTime, VERSIONBITS_TOP_BITS | (1<<bit)).Tip();[m
+     // After one period of setting the bit on each block, it should have locked in.[m
+     // We keep setting the bit for one more period though, until activation.[m
+[31m-    BOOST_CHECK((ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit)) != 0);[m
+[32m+[m[32m    BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1<<bit)) != 0);[m
+ [m
+     // Now check that we keep mining the block until the end of this period, and[m
+     // then stop at the beginning of the next period.[m
+[31m-    lastBlock = secondChain.Mine((mainnetParams.nMinerConfirmationWindow * 3) - 1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-    BOOST_CHECK((ComputeBlockVersion(lastBlock, mainnetParams) & (1 << bit)) != 0);[m
+[31m-    lastBlock = secondChain.Mine(mainnetParams.nMinerConfirmationWindow * 3, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[31m-    BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & (1<<bit), 0);[m
+[31m-[m
+[31m-    // Finally, verify that after a soft fork has activated, CBV no longer uses[m
+[31m-    // VERSIONBITS_LAST_OLD_BLOCK_VERSION.[m
+[31m-    //BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, mainnetParams) & VERSIONBITS_TOP_MASK, VERSIONBITS_TOP_BITS);[m
+[32m+[m[32m    lastBlock = secondChain.Mine((params.nMinerConfirmationWindow * 3) - 1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m    BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1 << bit)) != 0);[m
+[32m+[m[32m    lastBlock = secondChain.Mine(params.nMinerConfirmationWindow * 3, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m
+[32m+[m[32m    if (lastBlock->nHeight + 1 < min_activation_height) {[m
+[32m+[m[32m        // check signalling continues while min_activation_height is not reached[m
+[32m+[m[32m        lastBlock = secondChain.Mine(min_activation_height - 1, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m        BOOST_CHECK((ComputeBlockVersion(lastBlock, params) & (1 << bit)) != 0);[m
+[32m+[m[32m        // then reach min_activation_height, which was already REQUIRE'd to start a new period[m
+[32m+[m[32m        lastBlock = secondChain.Mine(min_activation_height, nTime, VERSIONBITS_LAST_OLD_BLOCK_VERSION).Tip();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Check that we don't signal after activation[m
+[32m+[m[32m    BOOST_CHECK_EQUAL(ComputeBlockVersion(lastBlock, params) & (1<<bit), 0);[m
+ }[m
+ [m
+[2m+[m[2mBOOST_AUTO_TEST_CASE(versionbits_computeblockversion)[m
+[32m+[m[32m{[m
+[32m+[m[32m    // check that any deployment on any chain can conceivably reach both[m
+[32m+[m[32m    // ACTIVE and FAILED states in roughly the way we expect[m
+[32m+[m[32m    for (const auto& chain_name : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET, CBaseChainParams::SIGNET, CBaseChainParams::REGTEST}) {[m
+[32m+[m[32m        const auto chainParams = CreateChainParams(*m_node.args, chain_name);[m
+[32m+[m[32m        for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; ++i) {[m
+[32m+[m[32m            check_computeblockversion(chainParams->GetConsensus(), static_cast<Consensus::DeploymentPos>(i));[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // Use regtest/testdummy to ensure we always exercise some[m
+[32m+[m[32m        // deployment that's not always/never active[m
+[32m+[m[32m        ArgsManager args;[m
+[32m+[m[32m        args.ForceSetArg("-vbparams", "testdummy:1199145601:1230767999"); // January 1, 2008 - December 31, 2008[m
+[32m+[m[32m        const auto chainParams = CreateChainParams(args, CBaseChainParams::REGTEST);[m
+[32m+[m[32m        check_computeblockversion(chainParams->GetConsensus(), Consensus::DEPLOYMENT_TESTDUMMY);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // Use regtest/testdummy to ensure we always exercise the[m
+[32m+[m[32m        // min_activation_height test, even if we're not using that in a[m
+[32m+[m[32m        // live deployment[m
+[32m+[m[32m        ArgsManager args;[m
+[32m+[m[32m        args.ForceSetArg("-vbparams", "testdummy:1199145601:1230767999:403200"); // January 1, 2008 - December 31, 2008, min act height 403200[m
+[32m+[m[32m        const auto chainParams = CreateChainParams(args, CBaseChainParams::REGTEST);[m
+[32m+[m[32m        check_computeblockversion(chainParams->GetConsensus(), Consensus::DEPLOYMENT_TESTDUMMY);[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+ [m
+ BOOST_AUTO_TEST_SUITE_END()[m
+[33mdiff --git a/src/versionbits.cpp b/src/versionbits.cpp[m
+[33mindex af07c67cc..df2ec4e05 100644[m
+[33m--- a/src/versionbits.cpp[m
+[33m+++ b/src/versionbits.cpp[m
+[36m@@ -9,6 +9,7 @@[m [mThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex*[m
+ {[m
+     int nPeriod = Period(params);[m
+     int nThreshold = Threshold(params);[m
+[32m+[m[32m    int min_activation_height = MinActivationHeight(params);[m
+     int64_t nTimeStart = BeginTime(params);[m
+     int64_t nTimeTimeout = EndTime(params);[m
+ [m
+[36m@@ -17,6 +18,11 @@[m [mThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex*[m
+         return ThresholdState::ACTIVE;[m
+     }[m
+ [m
+[32m+[m[32m    // Check if this deployment is never active.[m
+[32m+[m[32m    if (nTimeStart == Consensus::BIP9Deployment::NEVER_ACTIVE) {[m
+[32m+[m[32m        return ThresholdState::FAILED;[m
+[32m+[m[32m    }[m
+[32m+[m
+     // A block's state is always the same as that of the first of its period, so it is computed based on a pindexPrev whose height equals a multiple of nPeriod - 1.[m
+     if (pindexPrev != nullptr) {[m
+         pindexPrev = pindexPrev->GetAncestor(pindexPrev->nHeight - ((pindexPrev->nHeight + 1) % nPeriod));[m
+[36m@@ -51,18 +57,12 @@[m [mThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex*[m
+ [m
+         switch (state) {[m
+             case ThresholdState::DEFINED: {[m
+[31m-                if (pindexPrev->GetMedianTimePast() >= nTimeTimeout) {[m
+[2m-                    stateNext = ThresholdState::FAILED;[m
+[31m-                } else if (pindexPrev->GetMedianTimePast() >= nTimeStart) {[m
+[32m+[m[32m                if (pindexPrev->GetMedianTimePast() >= nTimeStart) {[m
+                     stateNext = ThresholdState::STARTED;[m
+                 }[m
+                 break;[m
+             }[m
+             case ThresholdState::STARTED: {[m
+[31m-                if (pindexPrev->GetMedianTimePast() >= nTimeTimeout) {[m
+[2m-                    stateNext = ThresholdState::FAILED;[m
+[31m-                    break;[m
+[31m-                }[m
+                 // We need to count[m
+                 const CBlockIndex* pindexCount = pindexPrev;[m
+                 int count = 0;[m
+[36m@@ -74,12 +74,16 @@[m [mThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex*[m
+                 }[m
+                 if (count >= nThreshold) {[m
+                     stateNext = ThresholdState::LOCKED_IN;[m
+[32m+[m[32m                } else if (pindexPrev->GetMedianTimePast() >= nTimeTimeout) {[m
+[2m+[m[2m                    stateNext = ThresholdState::FAILED;[m
+                 }[m
+                 break;[m
+             }[m
+             case ThresholdState::LOCKED_IN: {[m
+[31m-                // Always progresses into ACTIVE.[m
+[31m-                stateNext = ThresholdState::ACTIVE;[m
+[32m+[m[32m                // Progresses into ACTIVE provided activation height will have been reached.[m
+[32m+[m[32m                if (pindexPrev->nHeight + 1 >= min_activation_height) {[m
+[32m+[m[32m                    stateNext = ThresholdState::ACTIVE;[m
+[32m+[m[32m                }[m
+                 break;[m
+             }[m
+             case ThresholdState::FAILED:[m
+[36m@@ -126,7 +130,7 @@[m [mBIP9Stats AbstractThresholdConditionChecker::GetStateStatisticsFor(const CBlockI[m
+ int AbstractThresholdConditionChecker::GetStateSinceHeightFor(const CBlockIndex* pindexPrev, const Consensus::Params& params, ThresholdConditionCache& cache) const[m
+ {[m
+     int64_t start_time = BeginTime(params);[m
+[31m-    if (start_time == Consensus::BIP9Deployment::ALWAYS_ACTIVE) {[m
+[32m+[m[32m    if (start_time == Consensus::BIP9Deployment::ALWAYS_ACTIVE || start_time == Consensus::BIP9Deployment::NEVER_ACTIVE) {[m
+         return 0;[m
+     }[m
+ [m
+[36m@@ -170,6 +174,7 @@[m [mprivate:[m
+ protected:[m
+     int64_t BeginTime(const Consensus::Params& params) const override { return params.vDeployments[id].nStartTime; }[m
+     int64_t EndTime(const Consensus::Params& params) const override { return params.vDeployments[id].nTimeout; }[m
+[32m+[m[32m    int MinActivationHeight(const Consensus::Params& params) const override { return params.vDeployments[id].min_activation_height; }[m
+     int Period(const Consensus::Params& params) const override { return params.nMinerConfirmationWindow; }[m
+     int Threshold(const Consensus::Params& params) const override { return params.nRuleChangeActivationThreshold; }[m
+ [m
+[33mdiff --git a/src/versionbits.h b/src/versionbits.h[m
+[33mindex 6df1db881..634a848ef 100644[m
+[33m--- a/src/versionbits.h[m
+[33m+++ b/src/versionbits.h[m
+[36m@@ -25,7 +25,7 @@[m [mstatic const int32_t VERSIONBITS_NUM_BITS = 29;[m
+ enum class ThresholdState {[m
+     DEFINED,   // First state that each softfork starts out as. The genesis block is by definition in this state for each deployment.[m
+     STARTED,   // For blocks past the starttime.[m
+[31m-    LOCKED_IN, // For one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion.[m
+[32m+[m[32m    LOCKED_IN, // For at least one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion, until min_activation_height is reached.[m
+     ACTIVE,    // For all blocks after the LOCKED_IN retarget period (final state)[m
+     FAILED,    // For all blocks once the first retarget period after the timeout time is hit, if LOCKED_IN wasn't already reached (final state)[m
+ };[m
+[36m@@ -57,6 +57,7 @@[m [mprotected:[m
+     virtual bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const =0;[m
+     virtual int64_t BeginTime(const Consensus::Params& params) const =0;[m
+     virtual int64_t EndTime(const Consensus::Params& params) const =0;[m
+[32m+[m[32m    virtual int MinActivationHeight(const Consensus::Params& params) const { return 0; }[m
+     virtual int Period(const Consensus::Params& params) const =0;[m
+     virtual int Threshold(const Consensus::Params& params) const =0;[m
+ [m
+[33mdiff --git a/test/functional/rpc_blockchain.py b/test/functional/rpc_blockchain.py[m
+[33mindex e09003020..821409ccc 100755[m
+[33m--- a/test/functional/rpc_blockchain.py[m
+[33m+++ b/test/functional/rpc_blockchain.py[m
+[36m@@ -149,6 +149,7 @@[m [mclass BlockchainTest(BitcoinTestFramework):[m
+                         'count': 57,[m
+                         'possible': True,[m
+                     },[m
+[32m+[m[32m                    'min_activation_height': 0,[m
+                 },[m
+                 'active': False[m
+             },[m
+[36m@@ -158,7 +159,8 @@[m [mclass BlockchainTest(BitcoinTestFramework):[m
+                     'status': 'active',[m
+                     'start_time': -1,[m
+                     'timeout': 9223372036854775807,[m
+[31m-                    'since': 0[m
+[32m+[m[32m                    'since': 0,[m
+[32m+[m[32m                    'min_activation_height': 0,[m
+                 },[m
+                 'height': 0,[m
+                 'active': True[m

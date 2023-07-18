@@ -1,0 +1,7 @@
+- [ ] af9ea55a72 Use LockAssertion utility class instead of AssertLockHeld()
+- [ ] 3ddc150857 Add missed thread safety annotations
+- [ ] 23d71d171e Do not hide compile-time thread safety warnings
+- [ ] 2ee7743fe7 sync.h: Make runtime lock checks require compile-time lock checks
+- [ ] ea74e10acf doc: Add best practice for annotating/asserting locks
+- [ ] 3340dbadd3 Remove -zapwallettxes
+- [ ] 1e1cc9d859 addrman: use unordered_map instead of map

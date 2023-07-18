@@ -1,0 +1,7 @@
+ACK 8fb03ca47c01907b98461b8d538e2691d7ef65af ([`jamesob/ackr/24050.1.dongcarl.validation_move_cblockin`](https://github.com/jamesob/bitcoin/tree/ackr/24050.1.dongcarl.validation_move_cblockin))
+
+Good change! For what it's worth, my previous benchmarking may be a relevant consideration for reviewers: https://github.com/bitcoin/bitcoin/pull/22564#issuecomment-930377301
+
+Some of the intermediate commits could probably be squashed, but that doesn't bother me much either way.
+
+I've compiled each commit and run unittests locally.

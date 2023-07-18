@@ -1,0 +1,6 @@
+- [ ] 76d37d6130 [refactor] add helper to apply ArgsManager to BlockAssembler::Options
+- [ ] a9c0c345bf [refactor] parameterize BlockAssembler::Options in PrepareBlock
+- [ ] d369bbccf4 [miner] allow bypassing TestBlockValidity
+- [ ] 99e377deec [test util] randomize fee in PopulateMempool
+- [ ] 50218324da [test util] lock cs_main before pool.cs in PopulateMempool
+- [ ] b05347204d [bench] BlockAssembler with mempool packages

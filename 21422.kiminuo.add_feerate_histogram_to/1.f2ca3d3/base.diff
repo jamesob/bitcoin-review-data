@@ -1,0 +1,377 @@
+[33mdiff --git a/src/rest.cpp b/src/rest.cpp[m
+[33mindex d599f381e3..26b2f09b0c 100644[m
+[33m--- a/src/rest.cpp[m
+[33m+++ b/src/rest.cpp[m
+[36m@@ -24,6 +24,7 @@[m
+ #include <version.h>[m
+ [m
+ #include <any>[m
+[32m+[m[32m#include <optional>[m
+ [m
+ #include <boost/algorithm/string.hpp>[m
+ [m
+[36m@@ -373,7 +374,7 @@[m [mstatic bool rest_mempool_info(const std::any& context, HTTPRequest* req, const s[m
+ [m
+     switch (rf) {[m
+     case RetFormat::JSON: {[m
+[31m-        UniValue mempoolInfoObject = MempoolInfoToJSON(*mempool);[m
+[32m+[m[32m        UniValue mempoolInfoObject = MempoolInfoToJSON(*mempool, std::nullopt);[m
+ [m
+         std::string strJSON = mempoolInfoObject.write() + "\n";[m
+         req->WriteHeader("Content-Type", "application/json");[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex 63897e0e05..6b8fc353a3 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -46,6 +46,7 @@[m
+ #include <condition_variable>[m
+ #include <memory>[m
+ #include <mutex>[m
+[32m+[m[32m#include <optional>[m
+ [m
+ struct CUpdatedBlock[m
+ {[m
+[36m@@ -1630,7 +1631,7 @@[m [mstatic RPCHelpMan getchaintips()[m
+     };[m
+ }[m
+ [m
+[31m-UniValue MempoolInfoToJSON(const CTxMemPool& pool)[m
+[32m+[m[32mUniValue MempoolInfoToJSON(const CTxMemPool& pool, const std::optional<MempoolHistogramFeeRates> feeLimits)[m
+ {[m
+     // Make sure this call is atomic in the pool.[m
+     LOCK(pool.cs);[m
+[36m@@ -1645,6 +1646,67 @@[m [mUniValue MempoolInfoToJSON(const CTxMemPool& pool)[m
+     ret.pushKV("mempoolminfee", ValueFromAmount(std::max(pool.GetMinFee(maxmempool), ::minRelayTxFee).GetFeePerK()));[m
+     ret.pushKV("minrelaytxfee", ValueFromAmount(::minRelayTxFee.GetFeePerK()));[m
+     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});[m
+[32m+[m
+[32m+[m[32m    if (feeLimits) {[m
+[32m+[m[32m        const MempoolHistogramFeeRates& limits{feeLimits.value()};[m
+[32m+[m
+[32m+[m[32m        /* Keep histogram per...[m
+[32m+[m[32m         * ... cumulated tx sizes[m
+[32m+[m[32m         * ... txns (count)[m
+[32m+[m[32m         * ... cumulated fees */[m
+[32m+[m[32m        std::vector<uint64_t> sizes(limits.size(), 0);[m
+[32m+[m[32m        std::vector<uint64_t> count(limits.size(), 0);[m
+[32m+[m[32m        std::vector<CAmount> fees(limits.size(), 0);[m
+[32m+[m
+[32m+[m[32m        for (const CTxMemPoolEntry& e : pool.mapTx) {[m
+[32m+[m[32m            const CAmount fee{e.GetFee()}, afees{e.GetModFeesWithAncestors()}, dfees{e.GetModFeesWithDescendants()};[m
+[32m+[m[32m            const uint32_t size{(uint32_t)e.GetTxSize()}, asize{(uint32_t)e.GetSizeWithAncestors()}, dsize{(uint32_t)e.GetSizeWithDescendants()};[m
+[32m+[m
+[32m+[m[32m            const CAmount fpb{CFeeRate{fee, size}.GetFee(1)};     // Fee rate per byte[m
+[32m+[m[32m            const CAmount afpb{CFeeRate{afees, asize}.GetFee(1)}; // Fee rate per byte including ancestors[m
+[32m+[m[32m            const CAmount dfpb{CFeeRate{dfees, dsize}.GetFee(1)}; // Fee rate per byte including descendants[m
+[32m+[m
+[32m+[m[32m            // Fee rate per byte including ancestors & descendants[m
+[32m+[m[32m            const CAmount tfpb{CFeeRate{afees + dfees - fee, asize + dsize - size}.GetFee(1)};[m
+[32m+[m[32m            const CAmount fee_rate_per_byte{std::max(std::min(dfpb, tfpb), std::min(fpb, afpb))};[m
+[32m+[m
+[32m+[m[32m            // Distribute fee rates into fee limits[m
+[32m+[m[32m            for (size_t i = limits.size(); i-- > 0; ) {[m
+[32m+[m[32m                if (fee_rate_per_byte >= limits[i]) {[m
+[32m+[m[32m                    sizes[i] += size;[m
+[32m+[m[32m                    ++count[i];[m
+[32m+[m[32m                    fees[i] += fee;[m
+[32m+[m[32m                    break;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Track total amount of available fees in fee rate groups[m
+[32m+[m[32m        CAmount total_fees = 0;[m
+[32m+[m[32m        UniValue groups(UniValue::VOBJ);[m
+[32m+[m[32m        for (size_t i = 0; i < limits.size(); ++i) {[m
+[32m+[m[32m            UniValue info_sub(UniValue::VOBJ);[m
+[32m+[m[32m            info_sub.pushKV("size", sizes.at(i));[m
+[32m+[m[32m            info_sub.pushKV("count", count.at(i));[m
+[32m+[m[32m            info_sub.pushKV("fees", fees.at(i));[m
+[32m+[m[32m            info_sub.pushKV("from", limits.at(i));[m
+[32m+[m
+[32m+[m[32m            if (i == limits.size() - 1) {[m
+[32m+[m[32m                info_sub.pushKV("to", NullUniValue);[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                info_sub.pushKV("to", limits[i + 1] - 1);[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            total_fees += fees.at(i);[m
+[32m+[m[32m            groups.pushKV(ToString(limits.at(i)), info_sub);[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        UniValue info(UniValue::VOBJ);[m
+[32m+[m[32m        info.pushKV("fee_rate_groups", groups);[m
+[32m+[m[32m        info.pushKV("total_fees", total_fees);[m
+[32m+[m[32m        ret.pushKV("fee_histogram", info);[m
+[32m+[m[32m    }[m
+[32m+[m
+     return ret;[m
+ }[m
+ [m
+[36m@@ -1652,7 +1714,13 @@[m [mstatic RPCHelpMan getmempoolinfo()[m
+ {[m
+     return RPCHelpMan{"getmempoolinfo",[m
+                 "\nReturns details on the active state of the TX memory pool.\n",[m
+[31m-                {},[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    {"fee_histogram", RPCArg::Type::ARR, RPCArg::Optional::OMITTED_NAMED_ARG, "Fee statistics grouped by fee rate ranges",[m
+[32m+[m[32m                        {[m
+[32m+[m[32m                            {"fee_rate", RPCArg::Type::NUM, RPCArg::Optional::NO, "Fee rate (in " + CURRENCY_ATOM + "/vB) to group the fees by"},[m
+[32m+[m[32m                        },[m
+[32m+[m[32m                    },[m
+[32m+[m[32m                },[m
+                 RPCResult{[m
+                     RPCResult::Type::OBJ, "", "",[m
+                     {[m
+[36m@@ -1660,19 +1728,59 @@[m [mstatic RPCHelpMan getmempoolinfo()[m
+                         {RPCResult::Type::NUM, "size", "Current tx count"},[m
+                         {RPCResult::Type::NUM, "bytes", "Sum of all virtual transaction sizes as defined in BIP 141. Differs from actual serialized size because witness data is discounted"},[m
+                         {RPCResult::Type::NUM, "usage", "Total memory usage for the mempool"},[m
+[31m-                        {RPCResult::Type::STR_AMOUNT, "total_fee", "Total fees for the mempool in " + CURRENCY_UNIT + ", ignoring modified fees through prioritizetransaction"},[m
+[32m+[m[32m                        {RPCResult::Type::STR_AMOUNT, "total_fee", "Total fees for the mempool in " + CURRENCY_UNIT + "/kvB, ignoring modified fees through prioritizetransaction"},[m
+                         {RPCResult::Type::NUM, "maxmempool", "Maximum memory usage for the mempool"},[m
+                         {RPCResult::Type::STR_AMOUNT, "mempoolminfee", "Minimum fee rate in " + CURRENCY_UNIT + "/kvB for tx to be accepted. Is the maximum of minrelaytxfee and minimum mempool fee"},[m
+                         {RPCResult::Type::STR_AMOUNT, "minrelaytxfee", "Current minimum relay fee for transactions"},[m
+[31m-                        {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"}[m
+[32m+[m[32m                        {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},[m
+[32m+[m[32m                        {RPCResult::Type::OBJ, "fee_histogram", "",[m
+[32m+[m[32m                            {[m
+[32m+[m[32m                                {RPCResult::Type::OBJ_DYN, "fee_rate_groups", "",[m
+[32m+[m[32m                                {[m
+[32m+[m[32m                                    {RPCResult::Type::OBJ, "<fee_rate_group>", "Fee rate group named by its lower bound (in " + CURRENCY_ATOM + "/vB), identical to the \"from\" field below",[m
+[32m+[m[32m                                    {[m
+[32m+[m[32m                                        {RPCResult::Type::NUM, "size", "Cumulative size of all transactions in the fee rate group"},[m
+[32m+[m[32m                                        {RPCResult::Type::NUM, "count", "Number of transactions in the fee rate group"},[m
+[32m+[m[32m                                        {RPCResult::Type::NUM, "fees", "Cumulative fees of all transactions in the fee rate group (in " + CURRENCY_ATOM + "/vB)"},[m
+[32m+[m[32m                                        {RPCResult::Type::NUM, "from", "Group contains transactions with fee rates equal or greater than this value (in " + CURRENCY_ATOM + "/vB)"},[m
+[32m+[m[32m                                        {RPCResult::Type::NUM, "to", "Group contains transactions with fee rates equal or less than this value (in " + CURRENCY_ATOM + "/vB)"},[m
+[32m+[m[32m                                    }}}},[m
+[32m+[m[32m                                {RPCResult::Type::NUM, "total_fees", "Total available fees in mempool (in " + CURRENCY_ATOM + "/vB)"},[m
+[32m+[m[32m                            }},[m
+                     }},[m
+                 RPCExamples{[m
+[31m-                    HelpExampleCli("getmempoolinfo", "")[m
+[31m-            + HelpExampleRpc("getmempoolinfo", "")[m
+[32m+[m[32m                    HelpExampleCli("getmempoolinfo", "") +[m
+[32m+[m[32m                    HelpExampleCli("getmempoolinfo", R"("[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17, 20, 25, 30, 40, 50, 60, 70, 80, 100, 120, 140, 170, 200]")") +[m
+[32m+[m[32m                    HelpExampleRpc("getmempoolinfo", "") +[m
+[32m+[m[32m                    HelpExampleRpc("getmempoolinfo", R"([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17, 20, 25, 30, 40, 50, 60, 70, 80, 100, 120, 140, 170, 200])")[m
+                 },[m
+         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue[m
+ {[m
+[31m-    return MempoolInfoToJSON(EnsureAnyMemPool(request.context));[m
+[32m+[m[32m    MempoolHistogramFeeRates feelimits;[m
+[32m+[m[32m    std::optional<MempoolHistogramFeeRates> feelimits_opt = std::nullopt;[m
+[32m+[m
+[32m+[m[32m    if (!request.params[0].isNull()) {[m
+[32m+[m[32m        const UniValue feelimits_univalue = request.params[0].get_array();[m
+[32m+[m
+[32m+[m[32m        if (feelimits_univalue.size() == 0 || feelimits_univalue.size() > 30) {[m
+[32m+[m[32m            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid number of parameters");[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        for (size_t i = 0; i < feelimits_univalue.size(); ++i) {[m
+[32m+[m[32m            int64_t value = feelimits_univalue[i].get_int64();[m
+[32m+[m
+[32m+[m[32m            if (value < 0) {[m
+[32m+[m[32m                throw JSONRPCError(RPC_INVALID_PARAMETER, "Non-negative values are expected");[m
+[32m+[m[32m            } else if (i > 0 && feelimits.back() >= value) {[m
+[32m+[m[32m                throw JSONRPCError(RPC_INVALID_PARAMETER, "Strictly increasing values are expected");[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            feelimits.push_back(value);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        feelimits_opt = std::optional<MempoolHistogramFeeRates>(feelimits);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    return MempoolInfoToJSON(EnsureAnyMemPool(request.context), feelimits_opt);[m
+ },[m
+     };[m
+ }[m
+[33mdiff --git a/src/rpc/blockchain.h b/src/rpc/blockchain.h[m
+[33mindex ffb6f03b47..36ef9a6060 100644[m
+[33m--- a/src/rpc/blockchain.h[m
+[33m+++ b/src/rpc/blockchain.h[m
+[36m@@ -11,6 +11,7 @@[m
+ #include <sync.h>[m
+ [m
+ #include <any>[m
+[32m+[m[32m#include <optional>[m
+ #include <stdint.h>[m
+ #include <vector>[m
+ [m
+[36m@@ -41,8 +42,10 @@[m [mvoid RPCNotifyBlockChange(const CBlockIndex*);[m
+ /** Block description to JSON */[m
+ UniValue blockToJSON(const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, bool txDetails = false) LOCKS_EXCLUDED(cs_main);[m
+ [m
+[32m+[m[32mtypedef std::vector<CAmount> MempoolHistogramFeeRates;[m
+[32m+[m
+ /** Mempool information to JSON */[m
+[31m-UniValue MempoolInfoToJSON(const CTxMemPool& pool);[m
+[32m+[m[32mUniValue MempoolInfoToJSON(const CTxMemPool& pool, const std::optional<MempoolHistogramFeeRates> feeLimits);[m
+ [m
+ /** Mempool to JSON */[m
+ UniValue MempoolToJSON(const CTxMemPool& pool, bool verbose = false, bool include_mempool_sequence = false);[m
+[33mdiff --git a/src/rpc/client.cpp b/src/rpc/client.cpp[m
+[33mindex 9c8582c7a3..9fe5dca562 100644[m
+[33m--- a/src/rpc/client.cpp[m
+[33m+++ b/src/rpc/client.cpp[m
+[36m@@ -148,6 +148,7 @@[m [mstatic const CRPCConvertParam vRPCConvertParams[] =[m
+     { "getblockstats", 1, "stats" },[m
+     { "pruneblockchain", 0, "height" },[m
+     { "keypoolrefill", 0, "newsize" },[m
+[32m+[m[32m    { "getmempoolinfo", 0, "fee_histogram" },[m
+     { "getrawmempool", 0, "verbose" },[m
+     { "getrawmempool", 1, "mempool_sequence" },[m
+     { "estimatesmartfee", 0, "conf_target" },[m
+[33mdiff --git a/test/functional/mempool_fee_histogram.py b/test/functional/mempool_fee_histogram.py[m
+[33mnew file mode 100755[m
+[33mindex 0000000000..0a2a00cb70[m
+[33m--- /dev/null[m
+[33m+++ b/test/functional/mempool_fee_histogram.py[m
+[36m@@ -0,0 +1,117 @@[m
+[32m+[m[32m#!/usr/bin/env python3[m
+[32m+[m[32m# Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m# Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m# file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m[32m"""Test mempool fee histogram."""[m
+[32m+[m
+[32m+[m[32mfrom decimal import Decimal[m
+[32m+[m
+[32m+[m[32mfrom test_framework.test_framework import BitcoinTestFramework[m
+[32m+[m[32mfrom test_framework.util import ([m
+[32m+[m[32m    assert_equal,[m
+[32m+[m[32m    assert_greater_than,[m
+[32m+[m[32m    assert_greater_than_or_equal,[m
+[32m+[m[32m    assert_no_key,[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m[32mclass MempoolFeeHistogramTest(BitcoinTestFramework):[m
+[32m+[m[32m    def set_test_params(self):[m
+[32m+[m[32m        self.setup_clean_chain = True[m
+[32m+[m[32m        self.num_nodes = 1[m
+[32m+[m
+[32m+[m[32m    def skip_test_if_missing_module(self):[m
+[32m+[m[32m        self.skip_if_no_wallet()[m
+[32m+[m
+[32m+[m[32m    def run_test(self):[m
+[32m+[m[32m        node = self.nodes[0][m
+[32m+[m[32m        node.generate(102)[m
+[32m+[m
+[32m+[m[32m        # We have two utxos and we do this:[m
+[32m+[m[32m        #[m
+[32m+[m[32m        # coinbase-tx-101 <- tx1 (5 sat/vB) <- tx2 (14 sat/vB) <----\[m
+[32m+[m[32m        # coinbase-tx-102 <--------------------------------------- tx3 (6 sat/vB)[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test getmempoolinfo does not return fee histogram by default")[m
+[32m+[m[32m        assert_no_key('fee_histogram', node.getmempoolinfo())[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test getmempoolinfo returns empty fee histogram when mempool is empty")[m
+[32m+[m[32m        info = node.getmempoolinfo([1, 2, 3])[m
+[32m+[m[32m        (non_empty_groups, empty_groups, total_fees) = self.histogram_stats(info['fee_histogram'])[m
+[32m+[m[32m        assert_equal(0, non_empty_groups)[m
+[32m+[m[32m        assert_equal(3, empty_groups)[m
+[32m+[m[32m        assert_equal(0, total_fees)[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test that we have two spendable utxos and lock the second one")[m
+[32m+[m[32m        utxos = node.listunspent()[m
+[32m+[m[32m        assert_equal(2, len(utxos))[m
+[32m+[m[32m        node.lockunspent(False, [{"txid": utxos[1]["txid"], "vout": utxos[1]["vout"]}])[m
+[32m+[m
+[32m+[m[32m        self.log.info("Send tx1 transaction with 5 sat/vB fee rate")[m
+[32m+[m[32m        node.sendtoaddress(address=node.getnewaddress(), amount=Decimal("50.0"), fee_rate=5, subtractfeefromamount=True)[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test fee rate histogram when mempool contains 1 transaction (tx1: 5 sat/vB)")[m
+[32m+[m[32m        info = node.getmempoolinfo([1, 3, 5, 10])[m
+[32m+[m[32m        (non_empty_groups, empty_groups, total_fees) = self.histogram_stats(info['fee_histogram'])[m
+[32m+[m[32m        assert_equal(1, non_empty_groups)[m
+[32m+[m[32m        assert_equal(3, empty_groups)[m
+[32m+[m[32m        assert_equal(1, info['fee_histogram']['fee_rate_groups']['5']['count'])[m
+[32m+[m[32m        assert_equal(total_fees, info['fee_histogram']['total_fees'])[m
+[32m+[m
+[32m+[m[32m        self.log.info("Send tx2 transaction with 14 sat/vB fee rate (spends tx1 utxo)")[m
+[32m+[m[32m        node.sendtoaddress(address=node.getnewaddress(), amount=Decimal("25.0"), fee_rate=14)[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test fee rate histogram when mempool contains 2 transactions (tx1: 5 sat/vB, tx2: 14 sat/vB)")[m
+[32m+[m[32m        info = node.getmempoolinfo([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])[m
+[32m+[m
+[32m+[m[32m        # Both tx1 and tx2 are supposed to be reported in 8 sat/vB fee rate group[m
+[32m+[m[32m        (non_empty_groups, empty_groups, total_fees) = self.histogram_stats(info['fee_histogram'])[m
+[32m+[m[32m        assert_equal(1, non_empty_groups)[m
+[32m+[m[32m        assert_equal(14, empty_groups)[m
+[32m+[m[32m        assert_equal(2, info['fee_histogram']['fee_rate_groups']['8']['count'])[m
+[32m+[m[32m        assert_equal(total_fees, info['fee_histogram']['total_fees'])[m
+[32m+[m
+[32m+[m[32m        # Unlock the second UTXO which we locked[m
+[32m+[m[32m        node.lockunspent(True, [{"txid": utxos[1]["txid"], "vout": utxos[1]["vout"]}])[m
+[32m+[m
+[32m+[m[32m        self.log.info("Send tx3 transaction with 6 sat/vB fee rate (spends all available utxos)")[m
+[32m+[m[32m        node.sendtoaddress(address=node.getnewaddress(), amount=Decimal("99.9"), fee_rate=6)[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test fee rate histogram when mempool contains 3 transactions (tx1: 5 sat/vB, tx2: 14 sat/vB, tx3: 6 sat/vB)")[m
+[32m+[m[32m        info = node.getmempoolinfo([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])[m
+[32m+[m
+[32m+[m[32m        # Verify that each of 6, 7 and 8 sat/vB fee rate groups contain one transaction[m
+[32m+[m[32m        (non_empty_groups, empty_groups, total_fees) = self.histogram_stats(info['fee_histogram'])[m
+[32m+[m[32m        assert_equal(3, non_empty_groups)[m
+[32m+[m[32m        assert_equal(12, empty_groups)[m
+[32m+[m[32m        assert_equal(1, info['fee_histogram']['fee_rate_groups']['6']['count'])[m
+[32m+[m[32m        assert_equal(1, info['fee_histogram']['fee_rate_groups']['7']['count'])[m
+[32m+[m[32m        assert_equal(1, info['fee_histogram']['fee_rate_groups']['8']['count'])[m
+[32m+[m[32m        assert_equal(total_fees, info['fee_histogram']['total_fees'])[m
+[32m+[m
+[32m+[m
+[32m+[m[32m    def histogram_stats(self, histogram):[m
+[32m+[m[32m        total_fees = 0[m
+[32m+[m[32m        empty_count = 0[m
+[32m+[m[32m        non_empty_count = 0[m
+[32m+[m
+[32m+[m[32m        for key, bin in histogram['fee_rate_groups'].items():[m
+[32m+[m[32m            assert_equal(int(key), bin['from'])[m
+[32m+[m[32m            if bin['fees'] > 0:[m
+[32m+[m[32m                assert_greater_than(bin['count'], 0)[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                assert_equal(bin['count'], 0)[m
+[32m+[m[32m            assert_greater_than_or_equal(bin['fees'], 0)[m
+[32m+[m[32m            assert_greater_than_or_equal(bin['size'], 0)[m
+[32m+[m[32m            if bin['to'] is not None:[m
+[32m+[m[32m                assert_greater_than_or_equal(bin['to'], bin['from'])[m
+[32m+[m[32m            total_fees += bin['fees'][m
+[32m+[m
+[32m+[m[32m            if bin['count'] == 0:[m
+[32m+[m[32m                empty_count += 1[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                non_empty_count += 1[m
+[32m+[m
+[32m+[m[32m        return (non_empty_count, empty_count, total_fees)[m
+[32m+[m
+[32m+[m[32mif __name__ == '__main__':[m
+[32m+[m[32m    MempoolFeeHistogramTest().main()[m
+[33mdiff --git a/test/functional/test_framework/util.py b/test/functional/test_framework/util.py[m
+[33mindex f354ae0075..3e13087769 100644[m
+[33m--- a/test/functional/test_framework/util.py[m
+[33m+++ b/test/functional/test_framework/util.py[m
+[36m@@ -56,6 +56,11 @@[m [mdef assert_greater_than(thing1, thing2):[m
+         raise AssertionError("%s <= %s" % (str(thing1), str(thing2)))[m
+ [m
+ [m
+[32m+[m[32mdef assert_no_key(key, dictionary):[m
+[32m+[m[32m    if key in dictionary:[m
+[32m+[m[32m        raise AssertionError(f"Key '{key}' not expected to be found in {dictionary}")[m
+[32m+[m
+[32m+[m
+ def assert_greater_than_or_equal(thing1, thing2):[m
+     if thing1 < thing2:[m
+         raise AssertionError("%s < %s" % (str(thing1), str(thing2)))[m
+[33mdiff --git a/test/functional/test_runner.py b/test/functional/test_runner.py[m
+[33mindex 76347b052d..71bc89a7b9 100755[m
+[33m--- a/test/functional/test_runner.py[m
+[33m+++ b/test/functional/test_runner.py[m
+[36m@@ -228,6 +228,7 @@[m [mBASE_SCRIPTS = [[m
+     'feature_nulldummy.py --descriptors',[m
+     'mempool_accept.py',[m
+     'mempool_expiry.py',[m
+[32m+[m[32m    'mempool_fee_histogram.py',[m
+     'wallet_import_rescan.py --legacy-wallet',[m
+     'wallet_import_with_label.py --legacy-wallet',[m
+     'wallet_importdescriptors.py --descriptors',[m

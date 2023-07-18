@@ -1,0 +1,143 @@
+[33mdiff --git a/test/functional/mining_prioritisetransaction.py b/test/functional/mining_prioritisetransaction.py[m
+[33mindex 6f2ac805a0..a15fbe5a24 100755[m
+[33m--- a/test/functional/mining_prioritisetransaction.py[m
+[33m+++ b/test/functional/mining_prioritisetransaction.py[m
+[36m@@ -4,11 +4,15 @@[m
+ # file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+ """Test the prioritisetransaction mining RPC."""[m
+ [m
+[32m+[m[32mfrom decimal import Decimal[m
+ import time[m
+ [m
+[32m+[m[32mfrom test_framework.blocktools import COINBASE_MATURITY[m
+ from test_framework.messages import COIN, MAX_BLOCK_WEIGHT[m
+ from test_framework.test_framework import BitcoinTestFramework[m
+ from test_framework.util import assert_equal, assert_raises_rpc_error, create_confirmed_utxos, create_lots_of_big_transactions, gen_return_txouts[m
+[32m+[m[32mfrom test_framework.wallet import MiniWallet[m
+[32m+[m
+ [m
+ class PrioritiseTransactionTest(BitcoinTestFramework):[m
+     def set_test_params(self):[m
+[36m@@ -23,7 +27,84 @@[m [mclass PrioritiseTransactionTest(BitcoinTestFramework):[m
+     def skip_test_if_missing_module(self):[m
+         self.skip_if_no_wallet()[m
+ [m
+[32m+[m[32m    def test_diamond(self):[m
+[32m+[m[32m        self.log.info("Test diamond-shape package with priority")[m
+[32m+[m[32m        self.generate(self.wallet, COINBASE_MATURITY + 1)[m
+[32m+[m[32m        mock_time = int(time.time())[m
+[32m+[m[32m        self.nodes[0].setmocktime(mock_time)[m
+[32m+[m
+[32m+[m[32m        #      tx_a[m
+[32m+[m[32m        #      / \[m
+[32m+[m[32m        #     /   \[m
+[32m+[m[32m        #   tx_b  tx_c[m
+[32m+[m[32m        #     \   /[m
+[32m+[m[32m        #      \ /[m
+[32m+[m[32m        #      tx_d[m
+[32m+[m
+[32m+[m[32m        tx_o_a = self.wallet.send_self_transfer_multi([m
+[32m+[m[32m            from_node=self.nodes[0],[m
+[32m+[m[32m            num_outputs=2,[m
+[32m+[m[32m        )[m
+[32m+[m[32m        txid_a = tx_o_a["txid"][m
+[32m+[m
+[32m+[m[32m        tx_o_b, tx_o_c = [self.wallet.send_self_transfer([m
+[32m+[m[32m            from_node=self.nodes[0],[m
+[32m+[m[32m            utxo_to_spend=u,[m
+[32m+[m[32m        ) for u in tx_o_a["new_utxos"]][m
+[32m+[m[32m        txid_b = tx_o_b["txid"][m
+[32m+[m[32m        txid_c = tx_o_c["txid"][m
+[32m+[m
+[32m+[m[32m        tx_o_d = self.wallet.send_self_transfer_multi([m
+[32m+[m[32m            from_node=self.nodes[0],[m
+[32m+[m[32m            utxos_to_spend=[[m
+[32m+[m[32m                self.wallet.get_utxo(txid=txid_b),[m
+[32m+[m[32m                self.wallet.get_utxo(txid=txid_c),[m
+[32m+[m[32m            ],[m
+[32m+[m[32m        )[m
+[32m+[m[32m        txid_d = tx_o_d["txid"][m
+[32m+[m
+[32m+[m[32m        self.log.info("Test priority while txs are in mempool")[m
+[32m+[m[32m        raw_before = self.nodes[0].getrawmempool(verbose=True)[m
+[32m+[m[32m        fee_delta_b = Decimal(9999) / COIN[m
+[32m+[m[32m        fee_delta_c_1 = Decimal(-1234) / COIN[m
+[32m+[m[32m        fee_delta_c_2 = Decimal(8888) / COIN[m
+[32m+[m[32m        self.nodes[0].prioritisetransaction(txid=txid_b, fee_delta=int(fee_delta_b * COIN))[m
+[32m+[m[32m        self.nodes[0].prioritisetransaction(txid=txid_c, fee_delta=int(fee_delta_c_1 * COIN))[m
+[32m+[m[32m        self.nodes[0].prioritisetransaction(txid=txid_c, fee_delta=int(fee_delta_c_2 * COIN))[m
+[32m+[m[32m        raw_before[txid_a]["fees"]["descendant"] += fee_delta_b + fee_delta_c_1 + fee_delta_c_2[m
+[32m+[m[32m        raw_before[txid_b]["fees"]["modified"] += fee_delta_b[m
+[32m+[m[32m        raw_before[txid_b]["fees"]["ancestor"] += fee_delta_b[m
+[32m+[m[32m        raw_before[txid_b]["fees"]["descendant"] += fee_delta_b[m
+[32m+[m[32m        raw_before[txid_c]["fees"]["modified"] += fee_delta_c_1 + fee_delta_c_2[m
+[32m+[m[32m        raw_before[txid_c]["fees"]["ancestor"] += fee_delta_c_1 + fee_delta_c_2[m
+[32m+[m[32m        raw_before[txid_c]["fees"]["descendant"] += fee_delta_c_1 + fee_delta_c_2[m
+[32m+[m[32m        raw_before[txid_d]["fees"]["ancestor"] += fee_delta_b + fee_delta_c_1 + fee_delta_c_2[m
+[32m+[m[32m        raw_after = self.nodes[0].getrawmempool(verbose=True)[m
+[32m+[m[32m        assert_equal(raw_before[txid_a], raw_after[txid_a])[m
+[32m+[m[32m        assert_equal(raw_before, raw_after)[m
+[32m+[m
+[32m+[m[32m        self.log.info("Test priority while txs are not in mempool")[m
+[32m+[m[32m        self.restart_node(0, extra_args=["-nopersistmempool"])[m
+[32m+[m[32m        self.nodes[0].setmocktime(mock_time)[m
+[32m+[m[32m        assert_equal(self.nodes[0].getmempoolinfo()["size"], 0)[m
+[32m+[m[32m        self.nodes[0].prioritisetransaction(txid=txid_b, fee_delta=int(fee_delta_b * COIN))[m
+[32m+[m[32m        self.nodes[0].prioritisetransaction(txid=txid_c, fee_delta=int(fee_delta_c_1 * COIN))[m
+[32m+[m[32m        self.nodes[0].prioritisetransaction(txid=txid_c, fee_delta=int(fee_delta_c_2 * COIN))[m
+[32m+[m[32m        for t in [tx_o_a["hex"], tx_o_b["hex"], tx_o_c["hex"], tx_o_d["hex"]]:[m
+[32m+[m[32m            self.nodes[0].sendrawtransaction(t)[m
+[32m+[m[32m        raw_after = self.nodes[0].getrawmempool(verbose=True)[m
+[32m+[m[32m        assert_equal(raw_before[txid_a], raw_after[txid_a])[m
+[32m+[m[32m        assert_equal(raw_before, raw_after)[m
+[32m+[m
+[32m+[m[32m        # Clear mempool[m
+[32m+[m[32m        self.generate(self.nodes[0], 1)[m
+[32m+[m
+[32m+[m[32m        # Use default extra_args[m
+[32m+[m[32m        self.restart_node(0)[m
+[32m+[m
+     def run_test(self):[m
+[32m+[m[32m        self.wallet = MiniWallet(self.nodes[0])[m
+[32m+[m
+         # Test `prioritisetransaction` required parameters[m
+         assert_raises_rpc_error(-1, "prioritisetransaction", self.nodes[0].prioritisetransaction)[m
+         assert_raises_rpc_error(-1, "prioritisetransaction", self.nodes[0].prioritisetransaction, '')[m
+[36m@@ -44,6 +125,8 @@[m [mclass PrioritiseTransactionTest(BitcoinTestFramework):[m
+         # Test `prioritisetransaction` invalid `fee_delta`[m
+         assert_raises_rpc_error(-1, "JSON value is not an integer as expected", self.nodes[0].prioritisetransaction, txid=txid, fee_delta='foo')[m
+ [m
+[32m+[m[32m        self.test_diamond()[m
+[32m+[m
+         self.txouts = gen_return_txouts()[m
+         self.relayfee = self.nodes[0].getnetworkinfo()['relayfee'][m
+ [m
+[33mdiff --git a/test/functional/test_framework/wallet.py b/test/functional/test_framework/wallet.py[m
+[33mindex 37b8a2294d..e86f365f11 100644[m
+[33m--- a/test/functional/test_framework/wallet.py[m
+[33m+++ b/test/functional/test_framework/wallet.py[m
+[36m@@ -207,11 +207,12 @@[m [mclass MiniWallet:[m
+         return {'new_utxos': [self.get_utxo(txid=txid, vout=vout) for vout in range(len(tx.vout))],[m
+                 'txid': txid, 'hex': tx.serialize().hex(), 'tx': tx}[m
+ [m
+[31m-    def create_self_transfer_multi(self, *, from_node, utxos_to_spend, num_outputs=1, fee_per_output=1000):[m
+[32m+[m[32m    def create_self_transfer_multi(self, *, from_node, utxos_to_spend=None, num_outputs=1, fee_per_output=1000):[m
+         """[m
+         Create and return a transaction that spends the given UTXOs and creates a[m
+         certain number of outputs with equal amounts.[m
+         """[m
+[32m+[m[32m        utxos_to_spend = utxos_to_spend or [self.get_utxo()][m
+         # create simple tx template (1 input, 1 output)[m
+         tx = self.create_self_transfer(fee_rate=0, from_node=from_node, utxo_to_spend=utxos_to_spend[0], mempool_valid=False)['tx'][m
+ [m
+[36m@@ -227,8 +228,8 @@[m [mclass MiniWallet:[m
+         # adapt output amounts (use fixed fee per output)[m
+         inputs_value_total = sum([int(COIN * utxo['value']) for utxo in utxos_to_spend])[m
+         outputs_value_total = inputs_value_total - fee_per_output * num_outputs[m
+[31m-        for i in range(num_outputs):[m
+[31m-            tx.vout[i].nValue = outputs_value_total // num_outputs[m
+[32m+[m[32m        for o in tx.vout:[m
+[32m+[m[32m            o.nValue = outputs_value_total // num_outputs[m
+         return tx[m
+ [m
+     def create_self_transfer(self, *, fee_rate=Decimal("0.003"), from_node=None, utxo_to_spend=None, mempool_valid=True, locktime=0, sequence=0):[m

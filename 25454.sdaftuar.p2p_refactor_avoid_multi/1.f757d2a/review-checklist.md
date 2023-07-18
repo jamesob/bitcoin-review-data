@@ -1,0 +1,8 @@
+- [ ] 4d29f7b483 Move handling of unconnecting headers into own function
+- [ ] 1595c9522a Add helper function for checking header continuity
+- [ ] 4a7ba7a2b5 Move additional headers fetching to own function
+- [ ] abecc241e1 Move headers-direct-fetch logic into own function
+- [ ] 3135303052 Move headers direct fetch to end of ProcessHeadersMessage
+- [ ] cbdd647f0e Move peer state updates from headers message into separate function
+- [ ] 64deef68be Cleanup received_new_header calculation to use WITH_LOCK
+- [ ] f757d2a471 Don't send getheaders message when another request is outstanding

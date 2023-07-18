@@ -1,0 +1,7 @@
+- [ ] 2c815adc88 refactor: Introduce GetLastPruneBlock helper function
+- [ ] 9c70676ade validation: Add prune blockers to BlockManager
+- [ ] d07eedafa0 Index: Use prune blockers for blockfilterindex
+- [ ] f8c48146d3 Index: Allow coinstatsindex with pruning enabled
+- [ ] e9aa4350ba test: Update test for indices on pruned nodes
+- [ ] b32b16f214 move-only: Rename index + pruning functional test
+- [ ] 983a3552f2 Index: Skip pruning checks when node is not pruning

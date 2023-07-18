@@ -1,0 +1,1 @@
+- [ ] e3afe660a4 multiprocess: add interfaces::ExternalSigner class

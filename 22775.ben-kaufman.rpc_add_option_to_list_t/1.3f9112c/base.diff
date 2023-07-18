@@ -1,0 +1,110 @@
+[33mdiff --git a/doc/release-notes-22775.md b/doc/release-notes-22775.md[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..80d9588041[m
+[33m--- /dev/null[m
+[33m+++ b/doc/release-notes-22775.md[m
+[36m@@ -0,0 +1,5 @@[m
+[32m+[m[32mNew RPCs[m
+[32m+[m[32m--------[m
+[32m+[m[32m- A new optional ascending_order flag in the `listtransactions` RPC[m
+[32m+[m[32mwill allow to go through the transactions list from the oldest to[m
+[32m+[m[32mthe newest in addition to the current newest to oldest behavior. (#22775)[m
+[33mdiff --git a/src/rpc/client.cpp b/src/rpc/client.cpp[m
+[33mindex 4357ab2bb3..39cf9e67ca 100644[m
+[33m--- a/src/rpc/client.cpp[m
+[33m+++ b/src/rpc/client.cpp[m
+[36m@@ -64,6 +64,7 @@[m [mstatic const CRPCConvertParam vRPCConvertParams[] =[m
+     { "listtransactions", 1, "count" },[m
+     { "listtransactions", 2, "skip" },[m
+     { "listtransactions", 3, "include_watchonly" },[m
+[32m+[m[32m    { "listtransactions", 4, "ascending_order" },[m
+     { "walletpassphrase", 1, "timeout" },[m
+     { "getblocktemplate", 0, "template_request" },[m
+     { "listsinceblock", 1, "target_confirmations" },[m
+[33mdiff --git a/src/wallet/rpcwallet.cpp b/src/wallet/rpcwallet.cpp[m
+[33mindex 916f811f9b..2e390fe174 100644[m
+[33m--- a/src/wallet/rpcwallet.cpp[m
+[33m+++ b/src/wallet/rpcwallet.cpp[m
+[36m@@ -1414,6 +1414,7 @@[m [mstatic RPCHelpMan listtransactions()[m
+                     {"count", RPCArg::Type::NUM, RPCArg::Default{10}, "The number of transactions to return"},[m
+                     {"skip", RPCArg::Type::NUM, RPCArg::Default{0}, "The number of transactions to skip"},[m
+                     {"include_watchonly", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for watch-only wallets, otherwise false"}, "Include transactions to watch-only addresses (see 'importaddress')"},[m
+[32m+[m[32m                    {"ascending_order", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for ascending order (newest to oldest), false for descending order (oldest to newest), default is true"}, "The direction from which to start getting transactions"},[m
+                 },[m
+                 RPCResult{[m
+                     RPCResult::Type::ARR, "", "",[m
+[36m@@ -1483,6 +1484,13 @@[m [mstatic RPCHelpMan listtransactions()[m
+     if (nFrom < 0)[m
+         throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative from");[m
+ [m
+[32m+[m[32m    // Default ascending_order to true if no value has been specified[m
+[32m+[m[32m    bool ascending_order = true;[m
+[32m+[m
+[32m+[m[32m    if (!request.params[4].isNull()) {[m
+[32m+[m[32m        ascending_order = request.params[4].get_bool();[m
+[32m+[m[32m    }[m
+[32m+[m
+     UniValue ret(UniValue::VARR);[m
+ [m
+     {[m
+[36m@@ -1490,12 +1498,22 @@[m [mstatic RPCHelpMan listtransactions()[m
+ [m
+         const CWallet::TxItems & txOrdered = pwallet->wtxOrdered;[m
+ [m
+[31m-        // iterate backwards until we have nCount items to return:[m
+[31m-        for (CWallet::TxItems::const_reverse_iterator it = txOrdered.rbegin(); it != txOrdered.rend(); ++it)[m
+[31m-        {[m
+[31m-            CWalletTx *const pwtx = (*it).second;[m
+[31m-            ListTransactions(*pwallet, *pwtx, 0, true, ret, filter, filter_label);[m
+[31m-            if ((int)ret.size() >= (nCount+nFrom)) break;[m
+[32m+[m[32m        // iterate until we have nCount items to return:[m
+[32m+[m[32m        // iterate backwards if ascending order or forwards if descending order[m
+[32m+[m[32m        if (ascending_order) {[m
+[32m+[m[32m            for (CWallet::TxItems::const_reverse_iterator it = txOrdered.rbegin(); it != txOrdered.rend(); ++it)[m
+[32m+[m[32m            {[m
+[32m+[m[32m                CWalletTx *const pwtx = (*it).second;[m
+[32m+[m[32m                ListTransactions(*pwallet, *pwtx, 0, true, ret, filter, filter_label);[m
+[32m+[m[32m                if ((int)ret.size() >= (nCount+nFrom)) break;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            for (CWallet::TxItems::const_iterator it = txOrdered.cbegin(); it != txOrdered.cend(); ++it)[m
+[32m+[m[32m            {[m
+[32m+[m[32m                CWalletTx *const pwtx = (*it).second;[m
+[32m+[m[32m                ListTransactions(*pwallet, *pwtx, 0, true, ret, filter, filter_label);[m
+[32m+[m[32m                if ((int)ret.size() >= (nCount+nFrom)) break;[m
+[32m+[m[32m            }[m
+         }[m
+     }[m
+ [m
+[36m@@ -1508,7 +1526,11 @@[m [mstatic RPCHelpMan listtransactions()[m
+ [m
+     const std::vector<UniValue>& txs = ret.getValues();[m
+     UniValue result{UniValue::VARR};[m
+[31m-    result.push_backV({ txs.rend() - nFrom - nCount, txs.rend() - nFrom }); // Return oldest to newest[m
+[32m+[m[32m    if (ascending_order) {[m
+[32m+[m[32m        result.push_backV({ txs.rend() - nFrom - nCount, txs.rend() - nFrom }); // Return oldest to newest[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m        result.push_backV({ txs.cbegin() + nFrom, txs.cbegin() + nFrom + nCount }); // Return oldest to newest[m
+[32m+[m[32m    }[m
+     return result;[m
+ },[m
+     };[m
+[33mdiff --git a/test/functional/wallet_listtransactions.py b/test/functional/wallet_listtransactions.py[m
+[33mindex c0386f5d70..a39bf4e66c 100755[m
+[33m--- a/test/functional/wallet_listtransactions.py[m
+[33m+++ b/test/functional/wallet_listtransactions.py[m
+[36m@@ -103,6 +103,14 @@[m [mclass ListTransactionsTest(BitcoinTestFramework):[m
+                                 {"category": "receive", "amount": Decimal("0.1")},[m
+                                 {"txid": txid, "label": "watchonly"})[m
+ [m
+[32m+[m[32m        self.log.info("Test 'ascending_order' feature")[m
+[32m+[m[32m        # The first transaction counting from the oldest (descending order) should be the last transaction counting from the newest (ascending order)[m
+[32m+[m[32m        assert_equal(self.nodes[0].listtransactions(count=1, ascending_order=False),[m
+[32m+[m[32m                     self.nodes[0].listtransactions(count=1, skip=len(self.nodes[0].listtransactions(count=10000)) - 1, ascending_order=True))[m
+[32m+[m[32m        # The second and third transactions counting from the oldest (descending order) should be the 2 before the last transaction counting from the newest (ascending order)[m
+[32m+[m[32m        assert_equal(self.nodes[0].listtransactions(count=2, skip=1, ascending_order=False),[m
+[32m+[m[32m                     self.nodes[0].listtransactions(count=2, skip=len(self.nodes[0].listtransactions(count=10000)) - 3, ascending_order=True))[m
+[32m+[m
+         self.run_rbf_opt_in_test()[m
+ [m
+ [m

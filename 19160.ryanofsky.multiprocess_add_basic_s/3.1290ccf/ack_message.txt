@@ -1,0 +1,21 @@
+ACK 1290ccf8c70f5f11148683c3f69044fac9956e05 ([`jamesob/ackr/19160.3.ryanofsky.multiprocess_add_basic_s`](https://github.com/jamesob/bitcoin/tree/ackr/19160.3.ryanofsky.multiprocess_add_basic_s))
+
+Examined range-diff to ensure changes since last ACK only reflect rebase.
+
+Didn't complete rebuild due to clang thread-safety-analysis failures (on master?).
+
+<details><summary>Show platform data</summary>
+<p>
+
+```
+Tested on Linux-4.19.0-16-amd64-x86_64-with-glibc2.28
+
+Configured with ./configure LDFLAGS=-L/home/james/src/bitcoin/db4/lib/ CPPFLAGS=-I/home/james/src/bitcoin/db4/include/ CXXFLAGS=-fPIE -pipe -O2 -g -Wthread-safety-analysis -Wall -Werror=sign-compare -Wsign-compare -Werror=thread-safety-analysis --enable-wallet --enable-debug --with-daemon --enable-natpmp-default
+
+Compiled with /usr/bin/ccache /usr/local/bin/clang++ -std=c++17 -mavx -mavx2 -fPIE -pipe -O2 -g -Wthread-safety-analysis -Wall -Werror=sign-compare -Wsign-compare -Werror=thread-safety-analysis -O0 -g3 -ftrapv  -Wstack-protector -fstack-protector-all -fcf-protection=full -fstack-clash-protection -msse4 -msha -msse4.1 -msse4.2  i
+
+Compiler version: 
+```
+
+</p></details>
+

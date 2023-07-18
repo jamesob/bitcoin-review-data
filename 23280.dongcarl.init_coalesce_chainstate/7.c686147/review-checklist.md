@@ -1,0 +1,22 @@
+- [ ] cb64af9635 node: Extract chainstate loading sequence
+- [ ] cbac28b72f node/chainstate: Decouple from GetTimeMillis
+- [ ] ae9121f958 node/chainstate: Decouple from stringy errors
+- [ ] c7a5c46e6f node/chainstate: Decouple from ArgsManager
+- [ ] 9162a4f93e node/chainstate: Decouple from concept of NodeContext
+- [ ] 8715658983 Move mempool nullptr Assert out of LoadChainstate
+- [ ] 975235ca0a Move init logistics message for BAD_GENESIS_BLOCK to init.cpp
+- [ ] adf4912d77 node/chainstate: Remove do/while loop
+- [ ] ca7c0b934d Split off VerifyLoadedChainstate
+- [ ] 9f862feef7 node/chainstate: Decouple from concept of uiInterface
+- [ ] d0d4c2747c node/chainstate: Reduce coupling of LogPrintf
+- [ ] 824903d6fc Move -checkblocks LogPrintf to AppInitMain
+- [ ] c25b082c7f init: Delay RPC block notif until warmup finished
+- [ ] 19824c5cfd node/chainstate: Decouple from GetTime
+- [ ] e339fe12c6 node/chainstate: Decouple from ShutdownRequested
+- [ ] dd64979d39 validation: VerifyDB only needs Consensus::Params
+- [ ] 24f055ccb3 node/caches: Extract cache calculation logic
+- [ ] 384847e224 node/chainstate: Add options for in-memory DBs
+- [ ] ea6d8634d2 test/setup: Use LoadChainstate
+- [ ] 4e54d903a3 test/setup: Unify m_args and gArgs
+- [ ] 3971813e7f Remove all #include // for * comments
+- [ ] c6861476f7 Collapse the 2 cs_main locks in LoadChainstate

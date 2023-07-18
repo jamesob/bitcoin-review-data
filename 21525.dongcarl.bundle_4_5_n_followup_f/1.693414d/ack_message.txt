@@ -1,0 +1,19 @@
+ACK 693414d27181cf967f787a2ca72344e52c58c7f0 ([`jamesob/ackr/21525.1.dongcarl.bundle_4_5_n_followup_f`](https://github.com/jamesob/bitcoin/tree/ackr/21525.1.dongcarl.bundle_4_5_n_followup_f))
+
+Built locally and read through the code. Everything here is pretty non-controversial/rote. The first four commits just revert the chainstate parameterization of BlockAssembler methods in favor of making the chainstate a member and (presumably) saving on args.
+
+<details><summary>Show platform data</summary>
+<p>
+
+```
+Tested on Linux-4.19.0-16-amd64-x86_64-with-glibc2.28
+
+Configured with ./configure LDFLAGS=-L/home/james/src/bitcoin/db4/lib/ CPPFLAGS=-I/home/james/src/bitcoin/db4/include/ CXXFLAGS=-fPIE -pipe -O2 -g -Wthread-safety-analysis -Wall -Werror=sign-compare -Wsign-compare -Werror=thread-safety-analysis --enable-wallet --enable-debug --with-daemon --enable-natpmp-default CXX=/usr/local/bin/clang++ CC=/usr/local/bin/clang --disable-shared --with-pic --enable-benchmark=no --with-bignum=no --enable-module-recovery --enable-module-schnorrsig --enable-experimental --no-create --no-recursion
+
+Compiled with /usr/bin/ccache /usr/local/bin/clang++ -std=c++17 -mavx -mavx2 -fPIE -pipe -O2 -g -Wthread-safety-analysis -Wall -Werror=sign-compare -Wsign-compare -Werror=thread-safety-analysis -O0 -g3 -ftrapv  -Wstack-protector -fstack-protector-all -fcf-protection=full -fstack-clash-protection -msse4 -msha -msse4.1 -msse4.2  i
+
+Compiler version: Debian clang version 11.1.0-++20210204120158+1fdec59bffc1-1~exp1~20210203230823.159
+```
+
+</p></details>
+

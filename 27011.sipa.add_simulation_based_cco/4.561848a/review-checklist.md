@@ -1,0 +1,4 @@
+- [ ] 3c9cea1340 Add simulation-based CCoinsViewCache fuzzer
+- [ ] b0ff310840 Add CCoinsViewCache::SanityCheck() and use it in fuzz test
+- [ ] 59e6828bb5 Add deterministic mode to CCoinsViewCache
+- [ ] 561848aaf2 Exercise non-DIRTY spent coins in caches in fuzz test

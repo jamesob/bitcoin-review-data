@@ -1,0 +1,5 @@
+ACK eeddd1c8fa96cf546b0bf92063cefa4fd8c6b415 ([`jamesob/ackr/22499.1.sriramdvt.update_assumed_chain_par`](https://github.com/jamesob/bitcoin/tree/ackr/22499.1.sriramdvt.update_assumed_chain_par))
+
+Built locally, verified `CMainParams` value changes (but not regtest) using 
+`getchaintxstats`/`getblockheader` for block 
+`00000000000000000008a89e854d57e5667df88f1cdef6fde2fbca1de5b639ad` on my node.

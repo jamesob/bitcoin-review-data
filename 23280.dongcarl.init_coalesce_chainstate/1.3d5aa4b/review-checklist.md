@@ -1,0 +1,17 @@
+- [ ] 603e4c6c20 init: Extract chainstate loading sequence
+- [ ] bfd13fa354 init/chainstate: Decouple from ArgsManager
+- [ ] 9f77734c95 init/chainstate: Decouple from concept of NodeContext
+- [ ] ae1c9cc05e init/chainstate: Decouple from GetTimeMillis
+- [ ] 109298fc53 init/chainstate: Decouple from stringy errors
+- [ ] f62e35a9f2 init/chainstate: Remove do/while loop
+- [ ] 0cdfb4996d init/chainstate: Decouple from concept of uiInterface
+- [ ] a8e6679f00 init/chainstate: Reduce coupling of LogPrintf
+- [ ] 42ecea259f init/chainstate: Move -checkblocks limitation to help
+- [ ] 60639f2302 validation: Call NotifyBlockTip in CCS::LoadChainTip
+- [ ] 5923a5af62 init/chainstate: Decouple from GetAdjustedTime
+- [ ] 1d516a0a43 init/chainstate: Decouple from ShutdownRequested
+- [ ] 9a1be01235 validation: VerifyDB only needs Consensus::Params
+- [ ] 610f2c8d7e init/caches: Extract cache calculation logic
+- [ ] c6a0491e21 init/chainstate: Add options for in-memory DBs
+- [ ] 8cb331c283 test/setup: Use LoadChainstateSequence
+- [ ] 3d5aa4b850 test/setup: Unify m_args and gArgs

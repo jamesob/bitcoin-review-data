@@ -1,0 +1,576 @@
+[33mdiff --git a/src/index/base.cpp b/src/index/base.cpp[m
+[33mindex 6fd2701e2e..c54a0bfcb4 100644[m
+[33m--- a/src/index/base.cpp[m
+[33m+++ b/src/index/base.cpp[m
+[36m@@ -62,21 +62,17 @@[m [mbool BaseIndex::Init()[m
+     LOCK(cs_main);[m
+     CChain& active_chain = m_chainstate->m_chain;[m
+     if (locator.IsNull()) {[m
+[31m-        m_best_block_index = nullptr;[m
+[32m+[m[32m        SetBestBlockIndex(nullptr);[m
+     } else {[m
+[31m-        m_best_block_index = m_chainstate->m_blockman.FindForkInGlobalIndex(active_chain, locator);[m
+[32m+[m[32m        SetBestBlockIndex(m_chainstate->m_blockman.FindForkInGlobalIndex(active_chain, locator));[m
+     }[m
+     m_synced = m_best_block_index.load() == active_chain.Tip();[m
+[31m-    if (!m_synced) {[m
+[32m+[m[32m    if (!m_synced && (fPruneMode || fHavePruned) && !fReindex) {[m
+         bool prune_violation = false;[m
+         if (!m_best_block_index) {[m
+             // index is not built yet[m
+             // make sure we have all block data back to the genesis[m
+[31m-            const CBlockIndex* block = active_chain.Tip();[m
+[31m-            while (block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+[31m-                block = block->pprev;[m
+[31m-            }[m
+[31m-            prune_violation = block != active_chain.Genesis();[m
+[32m+[m[32m            prune_violation = GetLastPrunedBlock(active_chain.Tip()) != active_chain.Genesis();[m
+         }[m
+         // in case the index has a best block set and is not fully synced[m
+         // check if we have the required blocks to continue building the index[m
+[36m@@ -131,7 +127,7 @@[m [mvoid BaseIndex::ThreadSync()[m
+         int64_t last_locator_write_time = 0;[m
+         while (true) {[m
+             if (m_interrupt) {[m
+[31m-                m_best_block_index = pindex;[m
+[32m+[m[32m                SetBestBlockIndex(pindex);[m
+                 // No need to handle errors in Commit. If it fails, the error will be already be[m
+                 // logged. The best way to recover is to continue, as index cannot be corrupted by[m
+                 // a missed commit to disk for an advanced index state.[m
+[36m@@ -143,7 +139,7 @@[m [mvoid BaseIndex::ThreadSync()[m
+                 LOCK(cs_main);[m
+                 const CBlockIndex* pindex_next = NextSyncBlock(pindex, m_chainstate->m_chain);[m
+                 if (!pindex_next) {[m
+[31m-                    m_best_block_index = pindex;[m
+[32m+[m[32m                    SetBestBlockIndex(pindex);[m
+                     m_synced = true;[m
+                     // No need to handle errors in Commit. See rationale above.[m
+                     Commit();[m
+[36m@@ -165,7 +161,7 @@[m [mvoid BaseIndex::ThreadSync()[m
+             }[m
+ [m
+             if (last_locator_write_time + SYNC_LOCATOR_WRITE_INTERVAL < current_time) {[m
+[31m-                m_best_block_index = pindex;[m
+[32m+[m[32m                SetBestBlockIndex(pindex);[m
+                 last_locator_write_time = current_time;[m
+                 // No need to handle errors in Commit. See rationale above.[m
+                 Commit();[m
+[36m@@ -218,10 +214,10 @@[m [mbool BaseIndex::Rewind(const CBlockIndex* current_tip, const CBlockIndex* new_ti[m
+     // out of sync may be possible but a users fault.[m
+     // In case we reorg beyond the pruned depth, ReadBlockFromDisk would[m
+     // throw and lead to a graceful shutdown[m
+[31m-    m_best_block_index = new_tip;[m
+[32m+[m[32m    SetBestBlockIndex(new_tip);[m
+     if (!Commit()) {[m
+         // If commit fails, revert the best block index to avoid corruption.[m
+[31m-        m_best_block_index = current_tip;[m
+[32m+[m[32m        SetBestBlockIndex(current_tip);[m
+         return false;[m
+     }[m
+ [m
+[36m@@ -262,7 +258,7 @@[m [mvoid BaseIndex::BlockConnected(const std::shared_ptr<const CBlock>& block, const[m
+     }[m
+ [m
+     if (WriteBlock(*block, pindex)) {[m
+[31m-        m_best_block_index = pindex;[m
+[32m+[m[32m        SetBestBlockIndex(pindex);[m
+     } else {[m
+         FatalError("%s: Failed to write block %s to index",[m
+                    __func__, pindex->GetBlockHash().ToString());[m
+[36m@@ -369,3 +365,12 @@[m [mIndexSummary BaseIndex::GetSummary() const[m
+     summary.best_block_height = m_best_block_index ? m_best_block_index.load()->nHeight : 0;[m
+     return summary;[m
+ }[m
+[32m+[m
+[32m+[m[32mvoid BaseIndex::SetBestBlockIndex(const CBlockIndex* block) {[m
+[32m+[m[32m    CChain& active_chain = m_chainstate->m_chain;[m
+[32m+[m[32m    m_best_block_index = block;[m
+[32m+[m[32m    if (AllowPrune() && (fPruneMode || fHavePruned) && !fReindex) {[m
+[32m+[m[32m        LOCK(::cs_main);[m
+[32m+[m[32m        m_chainstate->m_blockman.UpdatePruneBlocker(GetName(), block ? block : active_chain.Genesis());[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[33mdiff --git a/src/index/base.h b/src/index/base.h[m
+[33mindex df4bdff1ea..ddfd2f0551 100644[m
+[33m--- a/src/index/base.h[m
+[33m+++ b/src/index/base.h[m
+[36m@@ -104,6 +104,8 @@[m [mprotected:[m
+     /// Get the name of the index for display in logs.[m
+     virtual const char* GetName() const = 0;[m
+ [m
+[32m+[m[32m    virtual bool AllowPrune() const = 0;[m
+[32m+[m
+ public:[m
+     /// Destructor interrupts sync thread if running and blocks until it exits.[m
+     virtual ~BaseIndex();[m
+[36m@@ -126,6 +128,8 @@[m [mpublic:[m
+ [m
+     /// Get a summary of the index and its state.[m
+     IndexSummary GetSummary() const;[m
+[32m+[m
+[32m+[m[32m    void SetBestBlockIndex(const CBlockIndex* block);[m
+ };[m
+ [m
+ #endif // BITCOIN_INDEX_BASE_H[m
+[33mdiff --git a/src/index/blockfilterindex.h b/src/index/blockfilterindex.h[m
+[33mindex 221ac02c9e..c3a31057cc 100644[m
+[33m--- a/src/index/blockfilterindex.h[m
+[33m+++ b/src/index/blockfilterindex.h[m
+[36m@@ -51,6 +51,8 @@[m [mprotected:[m
+ [m
+     const char* GetName() const override { return m_name.c_str(); }[m
+ [m
+[32m+[m[32m    bool AllowPrune() const override { return true; }[m
+[32m+[m
+ public:[m
+     /** Constructs the index, which becomes available to be queried. */[m
+     explicit BlockFilterIndex(BlockFilterType filter_type,[m
+[33mdiff --git a/src/index/coinstatsindex.h b/src/index/coinstatsindex.h[m
+[33mindex a575b37c7c..233fe369e7 100644[m
+[33m--- a/src/index/coinstatsindex.h[m
+[33m+++ b/src/index/coinstatsindex.h[m
+[36m@@ -47,6 +47,8 @@[m [mprotected:[m
+ [m
+     const char* GetName() const override { return "coinstatsindex"; }[m
+ [m
+[32m+[m[32m    bool AllowPrune() const override { return true; }[m
+[32m+[m
+ public:[m
+     // Constructs the index, which becomes available to be queried.[m
+     explicit CoinStatsIndex(size_t n_cache_size, bool f_memory = false, bool f_wipe = false);[m
+[33mdiff --git a/src/index/txindex.h b/src/index/txindex.h[m
+[33mindex 8202c3c951..5f3ea5f340 100644[m
+[33m--- a/src/index/txindex.h[m
+[33m+++ b/src/index/txindex.h[m
+[36m@@ -32,6 +32,8 @@[m [mprotected:[m
+ [m
+     const char* GetName() const override { return "txindex"; }[m
+ [m
+[32m+[m[32m    bool AllowPrune() const override { return false; }[m
+[32m+[m
+ public:[m
+     /// Constructs the index, which becomes available to be queried.[m
+     explicit TxIndex(size_t n_cache_size, bool f_memory = false, bool f_wipe = false);[m
+[33mdiff --git a/src/init.cpp b/src/init.cpp[m
+[33mindex b744298667..e87256675f 100644[m
+[33m--- a/src/init.cpp[m
+[33m+++ b/src/init.cpp[m
+[36m@@ -396,7 +396,7 @@[m [mvoid SetupServerArgs(ArgsManager& argsman)[m
+         -GetNumCores(), MAX_SCRIPTCHECK_THREADS, DEFAULT_SCRIPTCHECK_THREADS), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+     argsman.AddArg("-persistmempool", strprintf("Whether to save the mempool on shutdown and load on restart (default: %u)", DEFAULT_PERSIST_MEMPOOL), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+     argsman.AddArg("-pid=<file>", strprintf("Specify pid file. Relative paths will be prefixed by a net-specific datadir location. (default: %s)", BITCOIN_PID_FILENAME), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+[31m-    argsman.AddArg("-prune=<n>", strprintf("Reduce storage requirements by enabling pruning (deleting) of old blocks. This allows the pruneblockchain RPC to be called to delete specific blocks, and enables automatic pruning of old blocks if a target size in MiB is provided. This mode is incompatible with -txindex, -coinstatsindex and -rescan. "[m
+[32m+[m[32m    argsman.AddArg("-prune=<n>", strprintf("Reduce storage requirements by enabling pruning (deleting) of old blocks. This allows the pruneblockchain RPC to be called to delete specific blocks, and enables automatic pruning of old blocks if a target size in MiB is provided. This mode is incompatible with -txindex and -rescan. "[m
+             "Warning: Reverting this setting requires re-downloading the entire blockchain. "[m
+             "(default: 0 = disable pruning blocks, 1 = allow manual pruning via RPC, >=%u = automatically prune block files to stay under the specified target size in MiB)", MIN_DISK_SPACE_FOR_BLOCK_FILES / 1024 / 1024), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+     argsman.AddArg("-reindex", "Rebuild chain state and block index from the blk*.dat files on disk", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);[m
+[36m@@ -841,12 +841,10 @@[m [mbool AppInitParameterInteraction(const ArgsManager& args)[m
+         nLocalServices = ServiceFlags(nLocalServices | NODE_COMPACT_FILTERS);[m
+     }[m
+ [m
+[31m-    // if using block pruning, then disallow txindex and coinstatsindex[m
+[32m+[m[32m    // if using block pruning, then disallow txindex[m
+     if (args.GetArg("-prune", 0)) {[m
+         if (args.GetBoolArg("-txindex", DEFAULT_TXINDEX))[m
+             return InitError(_("Prune mode is incompatible with -txindex."));[m
+[31m-        if (args.GetBoolArg("-coinstatsindex", DEFAULT_COINSTATSINDEX))[m
+[31m-            return InitError(_("Prune mode is incompatible with -coinstatsindex."));[m
+     }[m
+ [m
+     // If -forcednsseed is set to true, ensure -dnsseed has not been set to false[m
+[33mdiff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp[m
+[33mindex 90f7ba191d..456a4f25f0 100644[m
+[33m--- a/src/node/blockstorage.cpp[m
+[33m+++ b/src/node/blockstorage.cpp[m
+[36m@@ -51,6 +51,15 @@[m [mbool IsBlockPruned(const CBlockIndex* pblockindex)[m
+     return (fHavePruned && !(pblockindex->nStatus & BLOCK_HAVE_DATA) && pblockindex->nTx > 0);[m
+ }[m
+ [m
+[32m+[m[32mconst CBlockIndex* GetLastPrunedBlock(const CBlockIndex* start_block) {[m
+[32m+[m[32m    CHECK_NONFATAL(start_block);[m
+[32m+[m[32m    const CBlockIndex* last_block = start_block;[m
+[32m+[m[32m    while (last_block->pprev && (last_block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+[32m+[m[32m        last_block = last_block->pprev;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return last_block;[m
+[32m+[m[32m}[m
+[32m+[m
+ // If we're using -prune with -reindex, then delete block files that will be ignored by the[m
+ // reindex.  Since reindexing works by starting at block file 0 and looping until a blockfile[m
+ // is missing, do the same here to delete any later block files after a gap.  Also delete all[m
+[33mdiff --git a/src/node/blockstorage.h b/src/node/blockstorage.h[m
+[33mindex 7c7bf68178..8d144983e5 100644[m
+[33m--- a/src/node/blockstorage.h[m
+[33m+++ b/src/node/blockstorage.h[m
+[36m@@ -48,6 +48,9 @@[m [mextern uint64_t nPruneTarget;[m
+ //! Check whether the block associated with this index entry is pruned or not.[m
+ bool IsBlockPruned(const CBlockIndex* pblockindex);[m
+ [m
+[32m+[m[32m//! Find the last block that is pruned[m
+[32m+[m[32mconst CBlockIndex* GetLastPrunedBlock(const CBlockIndex* start_block);[m
+[32m+[m
+ void CleanupBlockRevFiles();[m
+ [m
+ /** Open a block file (blk?????.dat) */[m
+[33mdiff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp[m
+[33mindex 909019d796..08b14a68ad 100644[m
+[33m--- a/src/rpc/blockchain.cpp[m
+[33m+++ b/src/rpc/blockchain.cpp[m
+[36m@@ -1073,12 +1073,9 @@[m [mstatic RPCHelpMan pruneblockchain()[m
+     }[m
+ [m
+     PruneBlockFilesManual(active_chainstate, height);[m
+[31m-    const CBlockIndex* block = active_chain.Tip();[m
+[31m-    CHECK_NONFATAL(block);[m
+[31m-    while (block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+[31m-        block = block->pprev;[m
+[31m-    }[m
+[31m-    return uint64_t(block->nHeight);[m
+[32m+[m[32m    const CBlockIndex* last_block = GetLastPrunedBlock(active_chain.Tip());[m
+[32m+[m
+[32m+[m[32m    return static_cast<uint64_t>(last_block->nHeight);[m
+ },[m
+     };[m
+ }[m
+[36m@@ -1494,13 +1491,7 @@[m [mRPCHelpMan getblockchaininfo()[m
+     obj.pushKV("size_on_disk",          CalculateCurrentUsage());[m
+     obj.pushKV("pruned",                fPruneMode);[m
+     if (fPruneMode) {[m
+[31m-        const CBlockIndex* block = tip;[m
+[31m-        CHECK_NONFATAL(block);[m
+[31m-        while (block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {[m
+[31m-            block = block->pprev;[m
+[31m-        }[m
+[31m-[m
+[31m-        obj.pushKV("pruneheight",        block->nHeight);[m
+[32m+[m[32m        obj.pushKV("pruneheight", GetLastPrunedBlock(tip)->nHeight);[m
+ [m
+         // if 0, execution bypasses the whole if block.[m
+         bool automatic_pruning = (gArgs.GetArg("-prune", 0) != 1);[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex 753b824167..4bdbba79e5 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -18,7 +18,6 @@[m
+ #include <deploymentstatus.h>[m
+ #include <flatfile.h>[m
+ #include <hash.h>[m
+[31m-#include <index/blockfilterindex.h>[m
+ #include <logging.h>[m
+ #include <logging/timer.h>[m
+ #include <node/blockstorage.h>[m
+[36m@@ -2017,12 +2016,18 @@[m [mbool CChainState::FlushStateToDisk([m
+         CoinsCacheSizeState cache_state = GetCoinsCacheSizeState();[m
+         LOCK(cs_LastBlockFile);[m
+         if (fPruneMode && (fCheckForPruning || nManualPruneHeight > 0) && !fReindex) {[m
+[31m-            // make sure we don't prune above the blockfilterindexes bestblocks[m
+[32m+[m[32m            // make sure we don't prune above any of the prune blockers bestblocks[m
+             // pruning is height-based[m
+             int last_prune = m_chain.Height(); // last height we can prune[m
+[31m-            ForEachBlockFilterIndex([&](BlockFilterIndex& index) {[m
+[31m-               last_prune = std::max(1, std::min(last_prune, index.GetSummary().best_block_height));[m
+[31m-            });[m
+[32m+[m
+[32m+[m[32m            for (auto const& blocker : m_blockman.m_prune_blockers) {[m
+[32m+[m[32m                const int blocker_height = blocker.second->nHeight - PRUNE_BLOCKER_BUFFER;[m
+[32m+[m[32m                last_prune = std::max(1, std::min(last_prune, blocker_height));[m
+[32m+[m[32m                if (last_prune == blocker_height) {[m
+[32m+[m[32m                    LogPrint(BCLog::PRUNE,"%s limited pruning to height %d\n", blocker.first, blocker_height);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m
+ [m
+             if (nManualPruneHeight > 0) {[m
+                 LOG_TIME_MILLIS_WITH_CATEGORY("find files to prune (manual)", BCLog::BENCH);[m
+[36m@@ -3635,6 +3640,11 @@[m [mvoid BlockManager::FindFilesToPrune(std::set<int>& setFilesToPrune, uint64_t nPr[m
+            nLastBlockWeCanPrune, count);[m
+ }[m
+ [m
+[32m+[m[32mvoid BlockManager::UpdatePruneBlocker(const std::string& name, const CBlockIndex* block) {[m
+[32m+[m[32m    AssertLockHeld(::cs_main);[m
+[32m+[m[32m    m_prune_blockers[name] = block;[m
+[32m+[m[32m}[m
+[32m+[m
+ CBlockIndex * BlockManager::InsertBlockIndex(const uint256& hash)[m
+ {[m
+     AssertLockHeld(cs_main);[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex d4fcac1d48..290a55a352 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -97,6 +97,8 @@[m [mstatic const unsigned int DEFAULT_CHECKLEVEL = 3;[m
+ // one 128MB block file + added 15% undo data = 147MB greater for a total of 545MB[m
+ // Setting the target to >= 550 MiB will make it likely we can respect the target.[m
+ static const uint64_t MIN_DISK_SPACE_FOR_BLOCK_FILES = 550 * 1024 * 1024;[m
+[32m+[m[32m/** Blocks to keep below deepest prune blocker */[m
+[32m+[m[32mstatic constexpr int PRUNE_BLOCKER_BUFFER{10};[m
+ [m
+ /** Current sync state passed to tip changed callbacks. */[m
+ enum class SynchronizationState {[m
+[36m@@ -488,6 +490,16 @@[m [mpublic:[m
+      */[m
+     int GetSpendHeight(const CCoinsViewCache& inputs) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Map from external index name to most recent block the index can tolerate being pruned.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * @note Internally, only blocks at height (block->nHeight - PRUNE_BLOCKER_BUFFER) and[m
+[32m+[m[32m     * below will be pruned, but callers should avoid assuming any particular buffer size.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    std::unordered_map<std::string, const CBlockIndex*> m_prune_blockers;[m
+[32m+[m
+[32m+[m[32m    void UpdatePruneBlocker(const std::string& name, const CBlockIndex* block) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);[m
+[32m+[m
+     ~BlockManager() {[m
+         Unload();[m
+     }[m
+[33mdiff --git a/test/functional/feature_blockfilterindex_prune.py b/test/functional/feature_blockfilterindex_prune.py[m
+[33mdeleted file mode 100755[m
+[33mindex 28d8f2fbbc..0000000000[m
+[33m--- a/test/functional/feature_blockfilterindex_prune.py[m
+[33m+++ /dev/null[m
+[36m@@ -1,67 +0,0 @@[m
+[31m-#!/usr/bin/env python3[m
+[31m-# Copyright (c) 2020 The Bitcoin Core developers[m
+[2;3m-# Distributed under the MIT software license, see the accompanying[m
+[2;3m-# file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[31m-"""Test blockfilterindex in conjunction with prune."""[m
+[2m-from test_framework.test_framework import BitcoinTestFramework[m
+[2m-from test_framework.util import ([m
+[2m-    assert_equal,[m
+[2m-    assert_greater_than,[m
+[2m-    assert_raises_rpc_error,[m
+[31m-)[m
+[31m-[m
+[31m-[m
+[31m-class FeatureBlockfilterindexPruneTest(BitcoinTestFramework):[m
+[2m-    def set_test_params(self):[m
+[31m-        self.num_nodes = 1[m
+[31m-        self.extra_args = [["-fastprune", "-prune=1", "-blockfilterindex=1"]][m
+[2;3m-[m
+[2;3m-    def sync_index(self, height):[m
+[31m-        expected = {'basic block filter index': {'synced': True, 'best_block_height': height}}[m
+[31m-        self.wait_until(lambda: self.nodes[0].getindexinfo() == expected)[m
+[31m-[m
+[31m-    def run_test(self):[m
+[31m-        self.log.info("check if we can access a blockfilter when pruning is enabled but no blocks are actually pruned")[m
+[2;3m-        self.sync_index(height=200)[m
+[31m-        assert_greater_than(len(self.nodes[0].getblockfilter(self.nodes[0].getbestblockhash())['filter']), 0)[m
+[2m-        # Mine two batches of blocks to avoid hitting NODE_NETWORK_LIMITED_MIN_BLOCKS disconnection[m
+[31m-        self.nodes[0].generate(250)[m
+[31m-        self.sync_all()[m
+[31m-        self.nodes[0].generate(250)[m
+[31m-        self.sync_all()[m
+[2;3m-        self.sync_index(height=700)[m
+[1;34m-[m
+[1;35m-        self.log.info("prune some blocks")[m
+[31m-        pruneheight = self.nodes[0].pruneblockchain(400)[m
+[31m-        assert_equal(pruneheight, 248)[m
+[31m-[m
+[31m-        self.log.info("check if we can access the tips blockfilter when we have pruned some blocks")[m
+[31m-        assert_greater_than(len(self.nodes[0].getblockfilter(self.nodes[0].getbestblockhash())['filter']), 0)[m
+[31m-[m
+[31m-        self.log.info("check if we can access the blockfilter of a pruned block")[m
+[31m-        assert_greater_than(len(self.nodes[0].getblockfilter(self.nodes[0].getblockhash(2))['filter']), 0)[m
+[31m-[m
+[31m-        self.log.info("start node without blockfilterindex")[m
+[31m-        self.restart_node(0, extra_args=["-fastprune", "-prune=1"])[m
+[31m-[m
+[31m-        self.log.info("make sure accessing the blockfilters throws an error")[m
+[31m-        assert_raises_rpc_error(-1, "Index is not enabled for filtertype basic", self.nodes[0].getblockfilter, self.nodes[0].getblockhash(2))[m
+[31m-        self.nodes[0].generate(1000)[m
+[31m-[m
+[31m-        self.log.info("prune below the blockfilterindexes best block while blockfilters are disabled")[m
+[31m-        pruneheight_new = self.nodes[0].pruneblockchain(1000)[m
+[31m-        assert_greater_than(pruneheight_new, pruneheight)[m
+[31m-        self.stop_node(0)[m
+[31m-[m
+[31m-        self.log.info("make sure we get an init error when starting the node again with block filters")[m
+[31m-        self.nodes[0].assert_start_raises_init_error([m
+[31m-            extra_args=["-fastprune", "-prune=1", "-blockfilterindex=1"],[m
+[31m-            expected_msg="Error: basic block filter index best block of the index goes beyond pruned data. Please disable the index or reindex (which will download the whole blockchain again)",[m
+[31m-        )[m
+[31m-[m
+[31m-        self.log.info("make sure the node starts again with the -reindex arg")[m
+[31m-        self.start_node(0, extra_args=["-fastprune", "-prune=1", "-blockfilterindex", "-reindex"])[m
+[31m-[m
+[31m-[m
+[31m-if __name__ == '__main__':[m
+[31m-    FeatureBlockfilterindexPruneTest().main()[m
+[33mdiff --git a/test/functional/feature_index_prune.py b/test/functional/feature_index_prune.py[m
+[33mnew file mode 100755[m
+[33mindex 0000000000..4e2aaf3b76[m
+[33m--- /dev/null[m
+[33m+++ b/test/functional/feature_index_prune.py[m
+[36m@@ -0,0 +1,130 @@[m
+[32m+[m[32m#!/usr/bin/env python3[m
+[32m+[m[32m# Copyright (c) 2020-2021 The Bitcoin Core developers[m
+[2;3m+[m[2;3m# Distributed under the MIT software license, see the accompanying[m
+[2;3m+[m[2;3m# file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m[32m"""Test indices in conjunction with prune."""[m
+[2m+[m[2mfrom test_framework.test_framework import BitcoinTestFramework[m
+[2m+[m[2mfrom test_framework.util import ([m
+[2m+[m[2m    assert_equal,[m
+[2m+[m[2m    assert_greater_than,[m
+[2m+[m[2m    assert_raises_rpc_error,[m
+[32m+[m[32m    p2p_port,[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass FeatureIndexPruneTest(BitcoinTestFramework):[m
+[2m+[m[2m    def set_test_params(self):[m
+[32m+[m[32m        self.num_nodes = 4[m
+[32m+[m[32m        self.extra_args = [[m
+[32m+[m[32m            ["-fastprune", "-prune=1", "-blockfilterindex=1"],[m
+[32m+[m[32m            ["-fastprune", "-prune=1", "-coinstatsindex=1"],[m
+[32m+[m[32m            ["-fastprune", "-prune=1", "-blockfilterindex=1", "-coinstatsindex=1"],[m
+[32m+[m[32m            [][m
+[32m+[m[32m        ][m
+[2;3m+[m
+[2;3m+[m[2;3m    def sync_index(self, height):[m
+[32m+[m[32m        expected_filter = {[m
+[32m+[m[32m            'basic block filter index': {'synced': True, 'best_block_height': height},[m
+[32m+[m[32m        }[m
+[32m+[m[32m        self.wait_until(lambda: self.nodes[0].getindexinfo() == expected_filter)[m
+[32m+[m
+[32m+[m[32m        expected_stats = {[m
+[32m+[m[32m            'coinstatsindex': {'synced': True, 'best_block_height': height}[m
+[32m+[m[32m        }[m
+[32m+[m[32m        self.wait_until(lambda: self.nodes[1].getindexinfo() == expected_stats)[m
+[32m+[m
+[32m+[m[32m        expected = {**expected_filter, **expected_stats}[m
+[32m+[m[32m        self.wait_until(lambda: self.nodes[2].getindexinfo() == expected)[m
+[32m+[m
+[32m+[m[32m    def reconnect_nodes(self):[m
+[32m+[m[32m        self.connect_nodes(0,1)[m
+[32m+[m[32m        self.connect_nodes(0,2)[m
+[32m+[m[32m        self.connect_nodes(0,3)[m
+[32m+[m
+[32m+[m[32m    def mine_batches(self, n):[m
+[32m+[m[32m        for _ in range(n):[m
+[32m+[m[32m            self.nodes[0].generate(250)[m
+[32m+[m[32m            self.sync_blocks()[m
+[32m+[m
+[32m+[m[32m    def expected_prune_height(self, n):[m
+[32m+[m[32m        # Sanity check for correct prune blocker height in logs[m
+[32m+[m[32m        for node in self.nodes:[m
+[32m+[m[32m            node.assert_debug_log([f'limited pruning to height {n}'])[m
+[32m+[m
+[32m+[m[32m    def run_test(self):[m
+[32m+[m[32m        filter_nodes = [self.nodes[0], self.nodes[2]][m
+[32m+[m[32m        stats_nodes = [self.nodes[1], self.nodes[2]][m
+[32m+[m
+[32m+[m[32m        self.log.info("check if we can access blockfilters and coinstats when pruning is enabled but no blocks are actually pruned")[m
+[2;3m+[m[2;3m        self.sync_index(height=200)[m
+[32m+[m[32m        tip = self.nodes[0].getbestblockhash()[m
+[32m+[m[32m        for node in filter_nodes:[m
+[32m+[m[32m            assert_greater_than(len(node.getblockfilter(tip)['filter']), 0)[m
+[32m+[m[32m        for node in stats_nodes:[m
+[32m+[m[32m            assert(node.gettxoutsetinfo(hash_type="muhash", hash_or_height=tip)['muhash'])[m
+[32m+[m
+[2;3m+[m[2;3m        # Mine two batches of blocks to avoid hitting NODE_NETWORK_LIMITED_MIN_BLOCKS disconnection[m
+[32m+[m[32m        self.mine_batches(2)[m
+[2m+[m[2m        self.sync_index(height=700)[m
+[2m+[m
+[32m+[m[32m        self.expected_prune_height(690)[m
+[2;3m+[m
+[2;3m+[m[2;3m        self.log.info("prune some blocks")[m
+[32m+[m[32m        for node in self.nodes[:2]:[m
+[32m+[m[32m            pruneheight = node.pruneblockchain(400)[m
+[32m+[m[32m            assert_equal(pruneheight, 248)[m
+[32m+[m
+[32m+[m[32m        self.log.info("check if we can access the tips blockfilter and coinstats when we have pruned some blocks")[m
+[32m+[m[32m        tip = self.nodes[0].getbestblockhash()[m
+[32m+[m[32m        for node in filter_nodes:[m
+[32m+[m[32m            assert_greater_than(len(node.getblockfilter(tip)['filter']), 0)[m
+[32m+[m[32m        for node in stats_nodes:[m
+[32m+[m[32m            assert(node.gettxoutsetinfo(hash_type="muhash", hash_or_height=tip)['muhash'])[m
+[32m+[m
+[32m+[m[32m        self.log.info("check if we can access the blockfilter and coinstats of a pruned block")[m
+[32m+[m[32m        height_hash = self.nodes[0].getblockhash(2)[m
+[32m+[m[32m        for node in filter_nodes:[m
+[32m+[m[32m            assert_greater_than(len(node.getblockfilter(height_hash)['filter']), 0)[m
+[32m+[m[32m        for node in stats_nodes:[m
+[32m+[m[32m            assert(node.gettxoutsetinfo(hash_type="muhash", hash_or_height=height_hash)['muhash'])[m
+[32m+[m
+[32m+[m[32m        self.log.info("restart nodes without indices")[m
+[32m+[m[32m        for i in range(3):[m
+[32m+[m[32m            self.restart_node(i, extra_args=["-fastprune", "-prune=1"])[m
+[32m+[m[32m        self.reconnect_nodes()[m
+[32m+[m
+[32m+[m[32m        self.log.info("make sure trying to access the indices throws errors")[m
+[32m+[m[32m        for node in filter_nodes:[m
+[32m+[m[32m            msg = "Index is not enabled for filtertype basic"[m
+[32m+[m[32m            assert_raises_rpc_error(-1, msg, node.getblockfilter, height_hash)[m
+[32m+[m[32m        for node in stats_nodes:[m
+[32m+[m[32m            msg = "Querying specific block heights requires coinstatsindex"[m
+[32m+[m[32m            assert_raises_rpc_error(-8, msg, node.gettxoutsetinfo, "muhash", height_hash)[m
+[32m+[m
+[32m+[m[32m        self.mine_batches(4)[m
+[32m+[m
+[32m+[m[32m        self.log.info("prune further than the indices best blocks while the indices are disabled")[m
+[32m+[m[32m        for i in range(3):[m
+[32m+[m[32m            pruneheight_new = self.nodes[i].pruneblockchain(1000)[m
+[32m+[m[32m            assert_greater_than(pruneheight_new, pruneheight)[m
+[32m+[m[32m            self.stop_node(i)[m
+[32m+[m
+[32m+[m[32m        self.log.info("make sure we get an init error when starting the nodes again with the indices")[m
+[32m+[m[32m        filter_msg = "Error: basic block filter index best block of the index goes beyond pruned data. Please disable the index or reindex (which will download the whole blockchain again)"[m
+[32m+[m[32m        stats_msg = "Error: coinstatsindex best block of the index goes beyond pruned data. Please disable the index or reindex (which will download the whole blockchain again)"[m
+[32m+[m[32m        for i, msg in enumerate([filter_msg, stats_msg, filter_msg]):[m
+[32m+[m[32m            self.nodes[i].assert_start_raises_init_error(extra_args=self.extra_args[i], expected_msg=msg)[m
+[32m+[m
+[32m+[m[32m        self.log.info("make sure the nodes start again with the indices and an additional -reindex arg")[m
+[32m+[m[32m        ip_port = "127.0.0.1:" + str(p2p_port(3))[m
+[32m+[m[32m        for i in range(3):[m
+[32m+[m[32m            # The nodes need to be reconnected to the non-pruning node upon restart, otherwise they will be stuck[m
+[32m+[m[32m            restart_args = self.extra_args[i]+["-reindex", f"-connect={ip_port}"][m
+[32m+[m[32m            self.restart_node(i, extra_args=restart_args)[m
+[32m+[m
+[32m+[m[32m        self.sync_blocks()[m
+[32m+[m[32m        self.expected_prune_height(1690)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mif __name__ == '__main__':[m
+[32m+[m[32m    FeatureIndexPruneTest().main()[m
+[33mdiff --git a/test/functional/feature_pruning.py b/test/functional/feature_pruning.py[m
+[33mindex 2f0868e733..dcbd9efa2d 100755[m
+[33m--- a/test/functional/feature_pruning.py[m
+[33m+++ b/test/functional/feature_pruning.py[m
+[36m@@ -140,10 +140,6 @@[m [mclass PruneTest(BitcoinTestFramework):[m
+             expected_msg='Error: Prune mode is incompatible with -txindex.',[m
+             extra_args=['-prune=550', '-txindex'],[m
+         )[m
+[31m-        self.nodes[0].assert_start_raises_init_error([m
+[31m-            expected_msg='Error: Prune mode is incompatible with -coinstatsindex.',[m
+[31m-            extra_args=['-prune=550', '-coinstatsindex'],[m
+[31m-        )[m
+ [m
+     def test_height_min(self):[m
+         assert os.path.isfile(os.path.join(self.prunedir, "blk00000.dat")), "blk00000.dat is missing, pruning too early"[m
+[33mdiff --git a/test/functional/test_runner.py b/test/functional/test_runner.py[m
+[33mindex d6d676da1f..efa20fa716 100755[m
+[33m--- a/test/functional/test_runner.py[m
+[33m+++ b/test/functional/test_runner.py[m
+[36m@@ -308,7 +308,7 @@[m [mBASE_SCRIPTS = [[m
+     'feature_help.py',[m
+     'feature_shutdown.py',[m
+     'p2p_ibd_txrelay.py',[m
+[31m-    'feature_blockfilterindex_prune.py'[m
+[32m+[m[32m    'feature_index_prune.py'[m
+     # Don't append tests at the end to avoid merge conflicts[m
+     # Put them in a random line within the section that fits their approximate run-time[m
+ ][m
+[33mdiff --git a/test/lint/lint-circular-dependencies.sh b/test/lint/lint-circular-dependencies.sh[m
+[33mindex 8e74f41bb6..df18995839 100755[m
+[33m--- a/test/lint/lint-circular-dependencies.sh[m
+[33m+++ b/test/lint/lint-circular-dependencies.sh[m
+[36m@@ -11,8 +11,6 @@[m [mexport LC_ALL=C[m
+ EXPECTED_CIRCULAR_DEPENDENCIES=([m
+     "chainparamsbase -> util/system -> chainparamsbase"[m
+     "node/blockstorage -> validation -> node/blockstorage"[m
+[31m-    "index/blockfilterindex -> node/blockstorage -> validation -> index/blockfilterindex"[m
+[31m-    "index/base -> validation -> index/blockfilterindex -> index/base"[m
+     "index/coinstatsindex -> node/coinstats -> index/coinstatsindex"[m
+     "policy/fees -> txmempool -> policy/fees"[m
+     "policy/rbf -> txmempool -> validation -> policy/rbf"[m

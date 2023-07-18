@@ -1,0 +1,9 @@
+ACK 22a17be0b9b56e0b35cfc5d1376e51b1e6dc0ed6 ([`jamesob/ackr/22831.1.jonatack.test_bugfix_addrman_trie`](https://github.com/jamesob/bitcoin/tree/ackr/22831.1.jonatack.test_bugfix_addrman_trie))
+
+Changeset looks like a minimal way to distinguish that the bug fixed in #22791 is actually fixed. I
+
+- `git checkout 181a1207; make ...; git checkout 22a17be0b9b56e0b35cfc5d1376e51b1e6dc0ed6`
+- `./test/functional/feature_asmap.py`, observed failure.
+- `git checkout master; make ...; git checkout 22a17be0b9b56e0b35cfc5d1376e51b1e6dc0ed6`
+- `./test/functional/feature_asmap.py`, ensured pass.
+

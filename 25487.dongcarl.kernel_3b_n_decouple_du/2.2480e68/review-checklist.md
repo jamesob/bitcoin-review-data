@@ -1,0 +1,10 @@
+- [ ] c84390b741 test/mempool_persist: Test manual savemempool when -persistmempool=0
+- [ ] 9c83269682 DumpMempool: Use std::chrono instead of weird int64_t arthmetics
+- [ ] 04f72e9020 DumpMempool: Pass in dump_path, stop using gArgs
+- [ ] ae6bf8ed30 scripted-diff: Rename m_is_loaded -> m_load_tried
+- [ ] 4c6491607b mempool: Use NodeClock+friends for LoadMempool
+- [ ] 923580af41 test/fuzz: Move DummyChainstate to its own file
+- [ ] a3f9e00509 LoadMempool: Pass in load_path, stop using gArgs
+- [ ] 9ab8ba3f29 Move DEFAULT_PERSIST_MEMPOOL out of libbitcoinkernel
+- [ ] cc203579d6 Move FopenFn to fsbridge namespace
+- [ ] 2480e68230 Move {Load,Dump}Mempool to kernel namespace

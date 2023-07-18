@@ -1,0 +1,28 @@
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex e24d39170e..e1ba8b96d2 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -4859,15 +4859,15 @@[m [mstatic bool DeleteCoinsDBFromDisk(const fs::path db_path, bool is_snapshot)[m
+     if (is_snapshot) {[m
+         fs::path base_blockhash_path = db_path / node::SNAPSHOT_BLOCKHASH_FILENAME;[m
+ [m
+[31m-        if (fs::exists(base_blockhash_path)) {[m
+[31m-            bool removed = fs::remove(base_blockhash_path);[m
+[31m-            if (!removed) {[m
+[31m-                LogPrintf("[snapshot] failed to remove file %s\n",[m
+[31m-                          fs::PathToString(base_blockhash_path));[m
+[32m+[m[32m        try {[m
+[32m+[m[32m            bool existed = fs::remove(base_blockhash_path);[m
+[32m+[m[32m            if (!existed) {[m
+[32m+[m[32m                LogPrintf("[snapshot] snapshot chainstate dir being removed lacks %s file\n",[m
+[32m+[m[32m                          fs::PathToString(node::SNAPSHOT_BLOCKHASH_FILENAME));[m
+             }[m
+[31m-        } else {[m
+[31m-            LogPrintf("[snapshot] snapshot chainstate dir being removed lacks %s file\n",[m
+[31m-                    fs::PathToString(node::SNAPSHOT_BLOCKHASH_FILENAME));[m
+[32m+[m[32m        } catch (const fs::filesystem_error& e) {[m
+[32m+[m[32m            LogPrintf("[snapshot] failed to remove file %s: %s\n",[m
+[32m+[m[32m                    fs::PathToString(base_blockhash_path), fsbridge::get_filesystem_error_message(e));[m
+         }[m
+     }[m
+ [m

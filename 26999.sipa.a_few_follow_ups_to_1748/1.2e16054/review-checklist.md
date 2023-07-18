@@ -1,0 +1,4 @@
+- [ ] bb00357add Make test/fuzz/coins_view exercise CCoinsViewCache::Sync()
+- [ ] 98db35c2f8 Follow coding style for named arguments
+- [ ] 941feb6ca2 Avoid unclear {it = ++it;}
+- [ ] 2e16054a66 Add assertions that BatchWrite(erase=true) erases

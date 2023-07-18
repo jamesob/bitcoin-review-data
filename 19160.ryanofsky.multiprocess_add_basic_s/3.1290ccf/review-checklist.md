@@ -1,0 +1,498 @@
+- [ ] 1404c5740 [doc] Coin: explain that IsSpent() can also mean never existed
+- [ ] b5a80fa7e util: Handle HTTP_SERVICE_UNAVAILABLE in bitcoin-cli
+- [ ] 8dd5946c0 add functional test
+- [ ] e62f0c71f rpc: fix {sign,message}verify RPC errors for invalid address/signature
+- [ ] 9e399b9b2 test: check parameter validity in rpc_signmessage.py
+- [ ] a5cfb40e2 doc: release note for changed {sign,verify}message error codes
+- [ ] 9be1437c4 descriptors: Add ToNormalizedString and tests
+- [ ] bbe4a3615 wallet: Add GetDescriptorString to DescriptorScriptPubKeyMan
+- [ ] e4ac869a0 rpc: Add parent descriptor to getaddressinfo output
+- [ ] de6b389d5 tests: Test getaddressinfo parent_desc
+- [ ] fd0be92cf doc: Add instructions on how to fuzz the P2P layer using Honggfuzz NetDriver
+- [ ] 51e2cd322 Have CalculateMaximumSignedTxSize also compute tx weight
+- [ ] 3e69939b7 Fail if maximum weight is too large
+- [ ] 48a0319ba Add a test that selects too large if BnB is used
+- [ ] 76f52e3da build: Fix Qt processing of configure script for depends with DEBUG=1
+- [ ] b4511e2e2 log: Prefix log messages with function name if -logsourcelocations is set
+- [ ] cc3971c9f GUI: Write PSBTs to file with binary mode
+- [ ] 233a886b4 test: check that getblockfilter RPC fails without block filter index
+- [ ] aa929abf8 [docs] Update developer notes to discourage very long lines
+- [ ] de85af5cc test: store subversion (user agent) as string in msg_version
+- [ ] ba7e17e07 rpc, test: document {previous,next}blockhash as optional
+- [ ] 8353e8cec peers-tab: bug fix right panel toggle
+- [ ] 9781c08a3 net_processing: move some globals into PeerManagerImpl
+- [ ] eeac50625 net_processing: move AlreadyHaveTx into PeerManageImpl
+- [ ] 052d9bc7e net_processing: simplify AlreadyHaveTx args
+- [ ] a490f0a05 net_processing: move MarkBlockAs*, TipMayBeStale, FindNextBlocksToDL to PeerManagerImpl
+- [ ] d44084883 net_processing: simplify PeerManageImpl method args
+- [ ] 34207b900 net_processing: move FindTxForGetData and ProcessGetData to PeerManagerImpl
+- [ ] 7b7117efd net_processing: simplify ProcessGetData and FindTxForGetData args
+- [ ] 39c2a69bc net_processing: move MaybeSetPeerAsAnnouncingHeadersAndIDs into PeerManagerImpl
+- [ ] 645219084 net_processing: simplify MaybeSetPeerAsAnnouncingHeaderAndIDs args
+- [ ] 6158a6d39 refactor: Replace JSONRPCRequest fHelp field with mode field
+- [ ] 14f3d9b90 refactor: Add RPC server ExecuteCommands function
+- [ ] 9048c58e1 Remove pointer cast in CRPCTable::dumpArgMap
+- [ ] 63d4ee196 refactor: iterate arrays via C++11 range-based for loops if idx is not needed
+- [ ] ecdbaf71c qt, refactor: Drop intermediate assignment
+- [ ] 788205c3f qt: Move transactionView properties settings to constructor
+- [ ] 9c5f4f216 qt: Save/restore TransactionView table column sizes
+- [ ] f5c8093e7 qt: Move recentRequestsView properties settings to constructor
+- [ ] 3913d1e8c qt: Drop buggy TableViewLastColumnResizingFixer class
+- [ ] 964885d04 qt: Save/restore recentRequestsView table column sizes
+- [ ] 365539c84 refactor: init vectors via std::{begin,end} to avoid pointer arithmetic
+- [ ] e829c9afb refactor: replace sizeof(a)/sizeof(a[0]) by std::size (C++17)
+- [ ] b45eae4d5 net: update NET_UNROUTABLE to not_publicly_routable in GetNetworkName()
+- [ ] 1c3af3788 net: create GetNetworkNames()
+- [ ] 0dbde700a rpc: use GetNetworkNames() in getnetworkinfo and getpeerinfo helps
+- [ ] 96635e617 init: use GetNetworkNames() in -onlynet help
+- [ ] 19db590d0 [test] remove unnecessary OP_1s from CSV and CLTV tests
+- [ ] 0a76a39b6 [test] fix CSV test missing OP_ADD
+- [ ] 158a0b268 Apply maximal validation flags to tx_valid tests
+- [ ] 4c06ebf12 [test] fix two witness tests in invalid tests with empty vout
+- [ ] 9532591be [test] add BADTX setting for invalid txns that fail CheckTransaction
+- [ ] 7a77727b2 Apply minimal validation flags to tx_invalid tests
+- [ ] a7098a2a8 [refactor] use CheckTxScripts, TrimFlags, FillFlags
+- [ ] a260c22ca [test] Check for invalid flag combinations
+- [ ] b10ce9aa4 [test] check verification flags are minimal/maximal
+- [ ] 5786a818e Verify that all validation flags are backward compatible
+- [ ] b3bdff42b build: Proper quoting for var printing targets
+- [ ] 4c7d41858 depends: Improve id string robustness
+- [ ] 5200929bf depends: Include GUIX_ENVIRONMENT in id string
+- [ ] ae9d26a8f wallet: Fix already-loading error message grammar
+- [ ] 6fc72bd6f gui: allow ConnectionTypeToQString to prepend direction optionally
+- [ ] 151888383 gui: add "Type" column to Peers main window
+- [ ] be4cf4832 gui: update to "Direction/Type" peer details name/tooltip
+- [ ] fd6580e40 [refactor] txmempool: split epoch logic into class
+- [ ] f64adc1ee test: remove unused function xor_bytes
+- [ ] 9305862f7 wallet: load flags before everything else
+- [ ] 6014d6e1b zmq test: dedup message reception handling in ZMQSubscriber
+- [ ] 866603363 zmq test: accept arbitrary sequence start number in ZMQSubscriber
+- [ ] 5c6546362 zmq test: fix flakiness by using more robust sync method
+- [ ] ef21fb731 zmq test: speedup test by whitelisting peers (immediate tx relay)
+- [ ] 787df19b0 validation: don't try to invalidate genesis block
+- [ ] 737feadff contrib/init: (OpenRC) Do not fail if both rpcuser and rpcpassword are unset.
+- [ ] 95f97111d contrib/init: (OpenRC) quote some unquoted variables.
+- [ ] 6abe9f5b1 Allow blockfilter in conjunction with prune
+- [ ] 00d57ff76 Avoid accessing nullpointer in BaseIndex::GetSummary()
+- [ ] 9cc8e3012 test: fix sign comparison warning in socket tests
+- [ ] 7a6c46b37 chainparams: add allowed assumeutxo values
+- [ ] f6e2da5fb simplify ChainstateManager::SnapshotBlockhash() return semantics
+- [ ] ad949ba44 txdb: don't reset during in-memory cache resize
+- [ ] 6606a4f8c move-onlyish: break out CreateUTXOSnapshot from dumptxoutset
+- [ ] 31d225274 tests: add deterministic chain generation unittest fixture
+- [ ] 4d8de04f3 tests: add snapshot activation test
+- [ ] 769a1ef9f test: Add tests with maleated snapshot data
+- [ ] 1afc0e4aa doc: remove potentially confusing ChainstateManager comment
+- [ ] fa051c238 doc: Guix is shipped in Debian and Ubuntu
+- [ ] 015637dd4 [refactor] Correct log message in net.cpp
+- [ ] d4187e461 [test] Use mocktime in test_seed_peers()
+- [ ] c943326d3 doc/bips: Add BIPs 43, 44, 49, and 84
+- [ ] 24bda56c2 net: make CNode::m_inbound_onion public, drop getter, update tests
+- [ ] 2ee4a7a9e net: remove CNode::m_inbound_onion defaults for explicitness
+- [ ] 3f8776a13 Re-add dead code detection
+- [ ] e3e0a2432 Add benchmark to write JSON into a string
+- [ ] fafddfadd scripted-diff: Remove shadowing lock annotations
+- [ ] ffff84a9c fuzz: Remove expensive and redundant muhash from crypto fuzz target
+- [ ] f8b305899 [net processing] Add Peer& arg to MaybeDiscourageAndDisconnect()
+- [ ] 1a07600b4 [net] Add RunInactivityChecks()
+- [ ] 0b43b81f6 [net processing] Move send ping message logic into function
+- [ ] dd2646d12 [net processing] Move ping timeout logic to net processing
+- [ ] 45dcf2266 [net processing] Move ping data fields to net processing
+- [ ] a5e15ae45 scripted-diff: rename ping members
+- [ ] 882ce2513 cli: Treat high detail levels as the maximum in -netinfo
+- [ ] 5e112269c Avoid pruning below the blockfilterindex sync height
+- [ ] c286a22f7 Add debug startup parameter -fastprune for more effective pruning tests
+- [ ] ab3a0a2fb Add functional test for blockfilterindex in prune-mode
+- [ ] 84716b134 Add "index/blockfilterindex -> validation -> index/blockfilterindex" to expected circular dependencies
+- [ ] fa55159b9 net: Log to net debug in MaybeDiscourageAndDisconnect except for noban and manual peers
+- [ ] faabce7d0 test: Start only the number of nodes that are needed
+- [ ] fad25153f test: Remove unused bug workaround
+- [ ] fa4d8f316 test: Cache 25 mature coins for ADDRESS_BCRT1_P2WSH_OP_TRUE
+- [ ] fa1fe80c7 test: Change address type from P2PKH to P2WSH in rpc_blockchain
+- [ ] faa137eb9 test: Speed up rpc_blockchain.py by removing miniwallet.generate()
+- [ ] 901f54321 guix: Passthrough BASE_CACHE into container
+- [ ] 9a3bbe8fc [test] Introduce a unit test helper to create a valid mempool transaction.
+- [ ] a2d908e1d [test] Throw error instead of segfaulting in failure scenario
+- [ ] df6a5fc1d [util] Change GetMockTime to return chrono type instead of int
+- [ ] 47a7a1687 [util] Introduce a SetMockTime that takes chrono time
+- [ ] 1363b6c27 [doc / util] Use comments to clarify time unit for int64_t type.
+- [ ] 0997019e7 Disallow sendtoaddress and sendmany when private keys disabled
+- [ ] 6bfbc97d7 test: disallow sendtoaddress/sendmany when private keys disabled
+- [ ] 7bf04e358 build: remove mostly pointless BOOST_PROCESS macro
+- [ ] cad8b527e build: explicitly install libboost-dev package
+- [ ] c5da2749e build: actually stop configure if Boost isn't available
+- [ ] 3c2e16be2 time: add runtime sanity check
+- [ ] 9266f7497 util: Use std::chrono for time getters
+- [ ] 77772a1b8 doc: Rework internal and external links
+- [ ] 652311165 [test] Move MIN_VERSION_SUPPORTED to p2p.py
+- [ ] 7e158a691 [test] Move MY_VERSION to p2p.py
+- [ ] 9b4054cb7 [test] Move MY_SUBVERSION to p2p.py
+- [ ] 010542614 [test] Move MY_RELAY to p2p.py
+- [ ] 9ce4c3c4c [test] Add P2P_SERVICES to p2p.py
+- [ ] 9f21ed403 [test] Check user agent string from test framework connections
+- [ ] 22220ef6d test: Move P2WSH_OP_TRUE to shared test library
+- [ ] 7afdd7225 cli: enable -netinfo help to run without a remote server
+- [ ] 3732404af cli: warn in help that -netinfo is not intended to be a stable API
+- [ ] 6b45ef323 cli: improve -netinfo invalid argument error message
+- [ ] ef614bb40 cli: small -netinfo simplification and performance improvement
+- [ ] 7d3343fb8 cli: update -netinfo help doc following the merge of 882ce251
+- [ ] ad5f01b96 [validation] Move the lock annotation from function definition to declaration
+- [ ] 25c57d640 [doc] Add a note about where lock annotations should go.
+- [ ] 8f9644890 qt: Remove Transactionview Edit Label Action
+- [ ] d21d2b264 [net] Change AdvertiseLocal to GetLocalAddrForPeer
+- [ ] 3e68efa61 [net] Move checks from GetLocalAddrForPeer to caller
+- [ ] 876ac3f6b [tools] Allow argument/parameter bin packing in clang-format
+- [ ] 947688635 gui: display fRelayTxes in peer details
+- [ ] 142807af8 gui: display BIP152 high bandwidth relay in peer details
+- [ ] faf48f20f log: Clarify log message when file does not exist
+- [ ] f8ca8c5c2 guix: Supply --keep-failed for debugging
+- [ ] d02076b88 guix: Jump forwards in time-machine and adapt
+- [ ] bedb8d88b Avoid comparision of integers with different signs
+- [ ] d1f932b0b validation: Pass in coins cache to ::LimitMempoolSize
+- [ ] 73a6d2b7b validation: Pass in chainstate to IsCurrentForFeeEstimation
+- [ ] 252b489c9 validation: Pass in coins tip to CheckInputsFromMempoolAndCache
+- [ ] d015eaa55 validation: Pass in chain tip to ::CheckFinalTx
+- [ ] 7031cf89d scripted-diff: Invoke ::CheckFinalTx with chain tip
+- [ ] 577b774d0 validation: Remove old CheckFinalTx w/o chain tip param
+- [ ] 4c15942b7 validation: Pass in chainstate to ::CheckSequenceLocks
+- [ ] d8a816329 validation: Add chainstate member to MemPoolAccept
+- [ ] 3a205c43d validation: Pass in chainstate to AcceptToMemoryPoolWithTime
+- [ ] d0da7ea57 validation: Pass in chainstate to ::LoadMempool
+- [ ] 229bc37b5 validation: Pass in chainstate to ::AcceptToMemoryPool
+- [ ] fae8f35df test: pep8 touched test
+- [ ] fab699562 test: Make test actually test something
+- [ ] fa24247d0 test: Fix NODE_NETWORK_LIMITED_MIN_BLOCKS disconnection
+- [ ] 3704433c4 scripted-diff: Invoke ::AcceptToMemoryPool with chainstate
+- [ ] 417dafc1e validation: Remove old AcceptToMemoryPool w/o chainstate param
+- [ ] 120aaba9a tree-wide: Fix erroneous AcceptToMemoryPool replacements
+- [ ] 71734c65d validation: Pass in chain to ::TestLockPointValidity
+- [ ] 714201881 validation: Pass in chainstate to CTxMemPool::removeForReorg
+- [ ] 0a9a24d8c validation: Pass in chainstate to UpdateMempoolForReorg
+- [ ] 8c824819c validation: Use *this in CChainState::LoadMempool
+- [ ] 8f5c10006 style-only: Make CheckSequenceLock signature readable
+- [ ] e8ae1db86 style-only: Make AcceptToMemoryPool signature readable
+- [ ] 56ace907b Fix fuzz binary compilation under windows
+- [ ] 5e6df1132 guix: Add support for powerpc64{,le}
+- [ ] 95990b9f3 guix: Update conservative space requirements
+- [ ] fa330d8fe ci: Avoid invoking curl on the host
+- [ ] fa560cc6c test: Intermittent issue in feature_blockfilterindex_prune
+- [ ] fa1b71394 test: Assume node is running in subtests
+- [ ] fa730e915 test: Avoid connecting to real network when running tests
+- [ ] 87a97941f configure: add --enable-external-signer
+- [ ] f7eb7ecc6 test: framework: add skip_if_no_external_signer
+- [ ] 89e421918 gui: Add Roboto Mono font
+- [ ] 623de12d0 qt: Make GUIUtil::fixedPitchFont aware of embedded font
+- [ ] 22e0114d0 qt: Choose monospaced font in C++ code rather in `*.ui` file
+- [ ] 67f26319a gui: Add monospaced font settings
+- [ ] ccb7b6a97 contrib: run test-symbol check for RISCV
+- [ ] a6a1b106d guix: only download sources for hosts being built
+- [ ] ab8a747d1 qt, refactor: Use enum type as switch argument in AddressTableModel
+- [ ] a35223f1c qt, refactor: Use enum type as switch argument in BanTableModel
+- [ ] 52f122c11 qt, refactor: Use enum type as switch argument in PeerTableModel
+- [ ] 1d5d832d5 qt, refactor: Use enum type as switch argument in TransactionTableModel
+- [ ] fa1f3a26a doc: Clarify that squashing should happen before review
+- [ ] fa4fbec03 scripted-diff: Rename PROVIDE_MAIN_FUNCTION -> PROVIDE_FUZZ_MAIN_FUNCTION
+- [ ] fae216a73 scripted-diff: Rename MakeFuzzingContext to MakeNoLogFileContext
+- [ ] 584fd91d2 init: only use pipe2 if availabile, check in configure
+- [ ] 9bac71350 build: make HAVE_O_CLOEXEC available outside LevelDB (bugfix)
+- [ ] 9da106be4 validation: Check chain tip is non-null in CheckFinalTx
+- [ ] 4927c9e69 validation: Remove global ::LoadGenesisBlock
+- [ ] a3ba08ba7 validation: Remove global ::{{Precious,Invalidate}Block,ResetBlockFailureFlags}
+- [ ] 67c59ae47 qt: Make warning label look clickable
+- [ ] 13a9fd11a guix: Passthrough SDK_PATH into container
+- [ ] e348d7ea2 qt: Add Copy Address Action to Payment Requests
+- [ ] c7b46489f assumptions: assume a C++17 compiler
+- [ ] 5e531e6be assumptions: check C++17 assumption with MSVC
+- [ ] a69c3b35f wallet: listdescriptors uses normalized descriptor form
+- [ ] ca5bd1c8e qt: Prevent the main window popup menu
+- [ ] 8cf543f96 wallet: add -signer argument for external signer command
+- [ ] f3e6ce78f test: add external signer test
+- [ ] 157ea7c61 wallet: add external_signer flag
+- [ ] 8ce776707 wallet: add ExternalSignerScriptPubKeyMan
+- [ ] 07b7c940a rpc: add external signer RPC files
+- [ ] 2700f09c4 rpc: signer: add enumeratesigners to list external signers
+- [ ] 2655197e1 rpc: add external_signer option to createwallet
+- [ ] 259f52cc3 test: external_signer wallet flag is immutable
+- [ ] fc5da520f wallet: add GetExternalSigner()
+- [ ] 7ebc7c021 wallet: ExternalSigner: add GetDescriptors method
+- [ ] 245b4457c rpc: signerdisplayaddress
+- [ ] d4b0107d6 rpc: send: support external signer
+- [ ] f75e0c1ed doc: add external-signer.md
+- [ ] bb3da8fe4 qt: Disable requests context menu actions when appropriate
+- [ ] d98f4593c guix: Explicitly set umask in build container
+- [ ] da30c1bb0 wallet: fix doc typo in signer option
+- [ ] faa06ecc9 build: Bump minimum Qt version to 5.9.5
+- [ ] 22664d628 Revert "qt: Remove Transactionview Edit Label Action"
+- [ ] 5440c0745 qt: Rename "Edit label" to "Edit address label"
+- [ ] 8b08d0f2a build, doc: Fix configure script output indentation and typos
+- [ ] df8f2a11d test: Replace accidentally placed bit-OR with logical-OR
+- [ ] 65363a1bd guix: Rebase on 95aca2991b (1.2.0-12.dffc918)
+- [ ] c33b19945 guix: Bump glibc and linux-headers
+- [ ] faa205954 rpc: Properly document gettxout return value
+- [ ] fabaccf03 rpc: Properly document scantxoutset return value
+- [ ] fae542c28 rpc: Properly document getblocktemplate return value
+- [ ] fa7ff0790 rpc: Properly document submitblock return value
+- [ ] 4dc2fd6c3 qt: add RPCConsole::TimeDurationField helper, call systime only once
+- [ ] a21be7c40 gui: add "Last Tx" (CNodeStats::nLastTXTime) to peer details
+- [ ] 70d3c5d0b gui: add "Last Block" (CNodeStats::nLastBlockTime) to peer details
+- [ ] ace3f4cbd test: improve assertions in feature_blockfilterindex_prune.py
+- [ ] 88c4b9b76 test: remove unneeded node from feature_blockfilterindex_prune.py
+- [ ] 78f75a2d6 Allow icon colorization on mac os to better support dark mode
+- [ ] 303cfc622 allow darkmode on macos build
+- [ ] 9d5313df7 move-only: Add txorphanage module
+- [ ] 81dd57e5b txorphanage: Pass uint256 by reference instead of value
+- [ ] 38a11c355 txorphanage: Add lock annotations
+- [ ] ee135c8d5 txorphanage: Extract AddChildrenToWorkSet
+- [ ] 83679ffc6 txorphanage: Extract HaveOrphanTx
+- [ ] f294da727 txorphanage: Extract GetOrphanTx
+- [ ] 1041616d7 txorphanage: Extract OrphanageAddTx
+- [ ] 26d1a6ccd denialofservices_tests: check txorphanage's AddTx
+- [ ] 3c4c3c2fd net_processing: drop AddOrphanTx
+- [ ] 03257b832 txorphanage: Extract EraseOrphansForBlock
+- [ ] 6bd4963c0 txorphanage: Move functions and data into class
+- [ ] f8c0688b9 scripted-diff: Update txorphanage naming convention
+- [ ] eeeafb324 net_processing: move AddToCompactExtraTransactions into PeerManagerImpl
+- [ ] c524dc54b qt: Fix regression with initial sorting after pr205
+- [ ] 0f035c12f RPCConsole::updateDetailWidget: convert strings to translated strings
+- [ ] 6242beeb0 Hoist repeated translated strings to RPCConsole struct members
+- [ ] 8a8c6383f zmq test: fix sync-up by matching notification to generated block
+- [ ] bd49ac416 build: fix libnatpmp macos cross compile
+- [ ] 97f10621f guix: Add curl to required tool list
+- [ ] a0a7a4337 guix, doc: Update default HOSTS value
+- [ ] 4cba2fdaf util: extract {Read,Write}BinaryFile() to its own files
+- [ ] 8b6e4b3b2 util: fix ReadBinaryFile() returning partial contents
+- [ ] 545bc5f81 util: fix WriteBinaryFile() claiming success even if error occurred
+- [ ] 25605895a net: check for invalid socket earlier in CConnman::AcceptConnection()
+- [ ] 1f75a653d net: get the bind address earlier in CConnman::AcceptConnection()
+- [ ] 7c224fdac net: isolate the protocol-agnostic part of CConnman::AcceptConnection()
+- [ ] f6c267db3 net: avoid unnecessary GetBindAddress() call
+- [ ] cff65c4a2 net: extend CNetAddr::SetSpecial() to support I2P
+- [ ] 34bcfab56 net: move the constant maxWait out of InterruptibleRecv()
+- [ ] 78fdfbea6 net: dedup MSG_NOSIGNAL and MSG_DONTWAIT definitions
+- [ ] ea1845315 net: extend Sock::Wait() to report a timeout
+- [ ] 6a0a6e7d0 Correction for VerifyTaprootCommitment comments
+- [ ] fbbb2d4fc lint: Fix spelling errors in comments
+- [ ] 42c779f50 net: extend Sock with methods for robust send & read until terminator
+- [ ] 5bac7e45e net: extend Sock with a method to check whether connected
+- [ ] c22daa2ec net: implement the necessary parts of the I2P SAM protocol
+- [ ] 76c35c60f init: introduce I2P connectivity options
+- [ ] 9559bd140 net: add I2P to the reachability map
+- [ ] 0635233a1 net: make outgoing I2P connections from CConnman
+- [ ] b905363fa net: accept incoming I2P connections from CConnman
+- [ ] 0181e2443 net: recognize I2P from ParseNetwork() so that -onlynet=i2p works
+- [ ] a701fcf01 net: Do not skip the I2P network from GetNetworkNames()
+- [ ] 4bada7623 validation: Pass in chainstate to UpdateTip
+- [ ] 63e4c7316 validation: Pass in chainstate to ::PruneBlockFilesManual
+- [ ] 31eac50c7 validation: Remove global ::VersionBitsTip{State,SinceHeight,Statistics}
+- [ ] 2bdf37fe1 validation: Pass in chainstate to CVerifyDB::VerifyDB
+- [ ] 8b99efbcc validation: Move invalid block handling to CChainState
+- [ ] 8cdb2f7e5 validation: Move LoadBlockIndexDB to CChainState
+- [ ] 1fb7b2c59 validation: Use *this in CChainState::InvalidateBlock
+- [ ] 4899fa3ab doc: Update build instructions for Fedora
+- [ ] 9086e0dd3 build: set Unicode true for NSIS installer
+- [ ] 5e50e2d1b txorphanage: comment improvements
+- [ ] 64219c01d torcontrol: Move TorControlReply, TorControlConnection and TorController to improve testability
+- [ ] 10d4477da tests: Add fuzzing harness for TorController
+- [ ] 35da62357 Make .gitignore ignore src/test/fuzz/fuzz.exe
+- [ ] 7cc75c9ba util: Avoid invalid integer negation in FormatMoney: make FormatMoney(const CAmount& n) well-defined also when n is std::numeric_limits<CAmount>::min()
+- [ ] 1f05dbd06 util: Avoid invalid integer negation in ValueFromAmount: make ValueFromAmount(const CAmount& n) well-defined also when n is std::numeric_limits<CAmount>::min()
+- [ ] 9fef20994 build, refactor: Fix indentation for if..then..fi
+- [ ] a4128138b build: Make AM_CONDITIONAL([ENABLE_EXTERNAL_SIGNER]) unconditional
+- [ ] f1f63ac3f doc: Remove outdated comment
+- [ ] b22d4c160 fuzz: Add fuzzing harness for Socks5(...)
+- [ ] 366e3e1f8 fuzz: Add FUZZED_SOCKET_FAKE_LATENCY mode to FuzzedSock to allow for fuzzing timeout logic
+- [ ] a061a2997 test: bring p2p_leak.py up to date.
+- [ ] bec7f2caf doc: install qt5 when building on macOS
+- [ ] 7bbb40931 guix: Update darwin native packages dependencies
+- [ ] fa576b453 Move MakeNoLogFileContext to common libtest_util, and use it in bench
+- [ ] 52a43b0c7 build: Fix fuzz-cuckoocache cross-compiling for Windows with DEBUG=1
+- [ ] 3ba9283a4 tests: more helpful errors for failing versionbits tests
+- [ ] 0c471a5f3 tests: check never active versionbits
+- [ ] 4d98b401f Change all ping times to std::chrono types
+- [ ] c733ac4d8 Convert block/header sync timeouts to std::chrono types
+- [ ] 55e82881a Make all Poisson delays use std::chrono types
+- [ ] 0eaea66e8 Make tx relay data structure use std::chrono types
+- [ ] 4744efc9b validation: Pass in chainstate to CTxMemPool::check
+- [ ] a9d28bcd8 validation: Use *this in CChainState::ActivateBestChainStep
+- [ ] fee73347c validation: Pass in chain to FindBlockPos+SaveBlockToDisk
+- [ ] 5e4af7738 validation: Use existing chain member in CChainState::AcceptBlock
+- [ ] 03f75c42e validation: Use existing chain member in CChainState::LoadGenesisBlock
+- [ ] c967fb7fb guix: Remove libcap from manifest
+- [ ] e11b64965 validation: CVerifyDB::VerifyDB: Use locking annotation
+- [ ] d8239362e build, doc: Drop libcap-dev from macOS cross-compiling dependencies
+- [ ] f7f3829a6 build, doc: Drop libbz2-dev from macOS cross-compiling dependencies
+- [ ] c180c911b doc: revamp macOS build doc
+- [ ] ee3574575 build: use newer source for libnatpmp
+- [ ] 7af25024e build: compile libnatpmp with -DNATPMP_STATICLIB on Windows
+- [ ] fa59ad513 fuzz: Add missing include (test/util/setup_common.h)
+- [ ] a38a4e8f0 [net processing] Move RelayTransaction into PeerManager
+- [ ] 680eb56d8 [net processing] Don't pass CConnman to RelayTransactions
+- [ ] fa4cebadc util: Make Assume() usable as unary expression
+- [ ] 612f746a8 util: Add RAII TokenPipe
+- [ ] c3e6fdee6 shutdown: Use RAII TokenPipe in shutdown
+- [ ] e017a913d bitcoind: Add -daemonwait option to wait for initialization
+- [ ] c77de622d net: Replace enum CConnMan::NumConnections with enum class ConnectionDirection
+- [ ] 3f3646855 fuzz: Avoid -Wreturn-type warnings
+- [ ] 486693400 rpc: remove calls to CWallet.get()
+- [ ] 7c90c67b7 rpc: refactor rpc wallet functions to take references instead of pointers
+- [ ] bf2477402 build, qt: Refactor internal _BITCOIN_QT_CHECK_STATIC_PLUGINS macro
+- [ ] 620345791 build, refactor: Rename internal _BITCOIN_QT_FIND_STATIC_PLUGINS macro
+- [ ] 57b65225d build, qt: Make Qt static libs check regardless of plugindir
+- [ ] 32b8dc648 build, refactor: Fix indentation
+- [ ] fa476f188 Use C++11 member initializer in CNodeState
+- [ ] 36aa2955b fuzz: fix gcc Woverloaded-virtual build warnings
+- [ ] 88df300f2 qt: Do not translate file extensions
+- [ ] e21276a82 qt test: Don't bind to regtest port
+- [ ] fa4e088cb wallet: Mark replaced tx to not be in the mempool anymore
+- [ ] 3a16b5ef9 test: add missing logging to wallet_groups.py
+- [ ] 5129b3657 build: Clean remnants of QTBUG-34748 fix
+- [ ] 173ef8980 build: Small libxcb.mk improvements
+- [ ] 21b6a2337 doc: add signet to share/examples/bitcoin.conf
+- [ ] 4a285107c doc: add signet to doc/bitcoin-conf.md
+- [ ] fad0ae6bb doc: Rename fuzz seed_dir to corpus_dir
+- [ ] a04aac493 validation: Remove extraneous LoadGenesisBlock function prototype
+- [ ] d0de61b76 miner: Pass in chainstate to BlockAssembler::CreateNewBlock
+- [ ] 46b7f2934 scripted-diff: Invoke CreateNewBlock with chainstate
+- [ ] 2afcf2440 miner: Remove old CreateNewBlock w/o chainstate param
+- [ ] 2c3ba0069 miner: Pass in blockman to ::RegenerateCommitments
+- [ ] 106bcd4f3 node/coinstats: Pass in BlockManager to GetUTXOStats
+- [ ] 4cde4a701 node: Use existing NodeContext
+- [ ] 8a1d580b2 node/ifaces: NodeImpl: Use existing NodeContext member
+- [ ] 91c5b68ac node/ifaces: ChainImpl: Use existing NodeContext member
+- [ ] 021a04a46 net_processing: Move some static functions to PeerManager
+- [ ] 272d993e7 scripted-diff: net_processing: Use existing chainman
+- [ ] a67983cd6 net_processing: Add review-only assertion to PeerManager
+- [ ] c6b4bfb4b net: Make DNS lookup code testable
+- [ ] e52807518 tests: Add fuzzing harness for Lookup(...)/LookupHost(...)/LookupNumeric(...)/LookupSubNet(...)
+- [ ] ebde946a5 [doc] Improve comment about protected peers
+- [ ] a6b0fe206 [net processing] Remove unused CNode.address member
+- [ ] fa7dc7ae9 fuzz: Bump FuzzedDataProvider.h
+- [ ] fab633d2d doc: Update fuzzing docs for afl-clang-lto
+- [ ] ffdd7de69 build, qt: Fix regression introduced in #21363
+- [ ] d769b3372 build: only pass -optimized-tools to qt in debug mode
+- [ ] 3272e34f9 build: Add xkbcommon 0.8.4
+- [ ] 06cd0da21 build: qt 5.12.10
+- [ ] e674e9430 build: revert to using Qts internal zlib
+- [ ] 1be8e0f23 build: Add QMacStyle support
+- [ ] fa5e97e8c build: disable qt SDK version checking
+- [ ] 286d07ff1 build, qt: Fix lib paths in *.pc files
+- [ ] cc6f47d51 build: update qt lrelease patch for 5.12.10
+- [ ] 84928c4e7 build: update qt android jni static patch for 5.12.10
+- [ ] 6093ae4d3 build: update qt no-xlib patch for 5.12.10
+- [ ] 550ed1bed build: update qt qpaint non determinism patch for 5.12.10
+- [ ] 52f0be3a9 compat: remove memcpy -> memmove backwards compatibility alias
+- [ ] 3ba2840e7 scripted-diff: remove MakeUnique<T>()
+- [ ] 1a6323bdb doc: update developer notes for removal of MakeUnique
+- [ ] 03308b2bf rpc: don't require wallet for enumeratesigners
+- [ ] 57ff5a42a doc: specify minimum HWI version
+- [ ] c62f9bc0e test: use fewer blocks in wallet_groups and move sync call
+- [ ] cba4a7e41 build, qt: Always test plugins/subdir before adding to search paths
+- [ ] 72fc04395 build, qt: Drop redundant -lxcb-static flag
+- [ ] cc25f892d build: Cleanup libxkbcommon_postprocess_cmds
+- [ ] e67c0122a doc: Update dependencies.md with a new Qt version
+- [ ] da2bb6976 Implement Bech32m encoding/decoding
+- [ ] 25b1c6e13 Add Bech32m test vectors
+- [ ] fe5e495c3 Use Bech32m encoding for v1+ segwit addresses
+- [ ] 2e7c80fb5 Add signet support to gen_key_io_test_vectors.py
+- [ ] 03346022d naming nits
+- [ ] 5c0210e3e bugfix: fix bech32_encode calls in gen_key_io_test_vectors.py
+- [ ] 1639c3b76 tests: Add fuzzing harness for versionbits
+- [ ] af322c749 tests: Set errno in FuzzedFileProvider. Implement seek(..., ..., SEEK_END).
+- [ ] 91af6b97c validation: Make DumpMempool(...) and LoadMempool(...) easier to test/fuzz/mock
+- [ ] 7b3434f80 build: don't try and use -fstack-clash-protection on Windows
+- [ ] 55966e0cc [net processing] Remove CNodeState ctor body
+- [ ] 692793378 [net processing] Add ChainSyncTimeoutState default initializers
+- [ ] 77833a364 Revert "qt: Use "fusion" style on macOS Big Sur with old Qt"
+- [ ] 61a0f8f9c test: Cleanup test files in test-{security,symbol}-check.py
+- [ ] 0fc0c00f7 test: Drop unused get_machine function
+- [ ] 1a01a5dc8 doc: Update zlib info in dependencies.md
+- [ ] e4c0cada7 ci, gitian: Drop unneeded python3-dev package for macOS builds
+- [ ] def1e64bb scripted-diff: Drop redundant QString calls
+- [ ] 57e980d13 scripted-diff: remove Optional & nullopt
+- [ ] 2f0b25a15 rpc: remove scantxoutset EXPERIMENTAL warning
+- [ ] 7c8c140ec fuzz: Implement fuzzed_dns_lookup_function as lambda
+- [ ] 12cc5704d net: update incorrect Doxygen documentation in netbase.cpp
+- [ ] 68afd3eee tests: Add fuzzing harness for LoadMempool(...) and DumpMempool(...)
+- [ ] e6bd74b2e net: move Doxygen docs from netbase.cpp to netbase.h
+- [ ] 8348a3742 net: fix hSocket param in netbase.h::ConnectSocketDirectly()
+- [ ] 06e1fb0b1 Add new format string placeholders for walletnotify to include relevant block information for transactions
+- [ ] b9e3f3530 Update vcpkg checkout commit.
+- [ ] 24c654694 test: add ParseUInt8() unit and fuzz test coverage
+- [ ] 76782e560 refactor: reuse test string with embedded null char in util_tests
+- [ ] 4d008f908 Always add -daemonwait to known command line arguments
+- [ ] 80a5a8ea2 i2p: limit the size of incoming messages
+- [ ] 7059e6d82 test: add a test to ensure RecvUntilTerminator() limit works
+- [ ] d09120b7d test: give fundraw more time for test_transaction_too_large
+- [ ] 1a6a0b0df wallet: Use existing feerate instead of getting a new one
+- [ ] e2f429e6b wallet: Replace nFeeRateNeeded with effective_fee
+- [ ] bb3f79fbd doc: Update libnatpmp info in dependencies.md
+- [ ] 6423c8175 p2p, refactor: pass and use uint16_t CService::port as uint16_t
+- [ ] 2875a764f util: add ParseUInt16(), use it in SplitHostPort()
+- [ ] 6f09c0f6b util: add missing braces and apply clang format to SplitHostPort()
+- [ ] 52dd40a9f test: add missing netaddress include headers
+- [ ] 448d04b93 wallet: Move long term feerate setting to CreateTransaction
+- [ ] bdd0c2934 wallet: Move discard feerate fetching to CreateTransaction
+- [ ] f9cd2bfbc Rename CoinSelectionParams::effective_fee to m_effective_feerate
+- [ ] ebc4ab721 refactor: post Optional<> removal cleanups
+- [ ] fa2a80bf1 refactor: Pass PeerManagerImpl members only once
+- [ ] ef3e1d727 qt: Improve URI/file handling message
+- [ ] fae7c0429 log: Clarify that block request below NODE_NETWORK_LIMITED_MIN_BLOCKS disconnects
+- [ ] fae77b9e6 net: Simplify ProcessGetBlockData execution by removing send flag.
+- [ ] fa8177324 style-only: Remove whitespace
+- [ ] faa9ef49d fuzz: Add tx_pool fuzz targets
+- [ ] 92990e25b build: Make macOS-specific targets available for macOS builds only
+- [ ] 3d31abbaa build: Make Windows-specific targets available for Windows builds only
+- [ ] ea76f4ac7 Doc: Tell howto install clang-format on Debian/Ubuntu
+- [ ] d09ebc472  Fix wrong(1024) divisor for 1000-based prefixes
+- [ ] 732c7bdde tests: Add test for CNetAddr::ToString IPv6 address formatting (RFC 5952)
+- [ ] 3d086f42a test: add ParseUInt16() test coverage
+- [ ] 581791c62 test: add functional test for anchors.dat
+- [ ] 1c25adf6d [net] Construct addrman outside connman
+- [ ] 392a95d39 [net_processing] Keep addrman reference in PeerManager
+- [ ] 8073673db [net] remove CConnman::SetServices
+- [ ] bcd7f30b7 [net] remove CConnman::MarkAddressGood
+- [ ] 7c4cc67c0 [net] remove CConnman::AddNewAddresses
+- [ ] 55554463c fuzz: Use ConsumeWeakEnum in addrman for service flags
+- [ ] aa7f418fe fuzz: cleanups for versionbits fuzzer
+- [ ] 7e3444805 test: remove duplicate assertions in util_tests
+- [ ] ebfb10cb7 Qt: add Android packaging support
+- [ ] 7563720e3 CI: add Android APK build script
+- [ ] ba46adaa1 CI: add Android APK build to cirrus
+- [ ] 8e7ad4146 depends: disable Qt Vulkan support on Android
+- [ ] 246774e26 depends: fix Qt precompiled headers bug
+- [ ] 810b1310d build: Do not build unused CoreWLAN stuff in depends for macOS
+- [ ] 5294f0d5a refactor: return std::nullopt instead of {}
+- [ ] 3fc06d3d7 [net] remove fUpdateConnectionTime from FinalizeNode
+- [ ] 663f6cd9d contrib: Use -daemonwait in systemd init script
+- [ ] 0eabb2abe build: Remove unused header from the build system
+- [ ] 180dc3c88 build: miniupnpc 2.2.2
+- [ ] fa2b95f86 fuzz: Style fixups
+- [ ] fac921f23 fuzz: Fix tx_pool target to properly fuzz immature outpoints
+- [ ] 257f55c11 qt, refactor: Drop redundant setEditTriggers(NoEditTriggers) calls
+- [ ] 085b3a729 rpc: deprecate `addresses` and `reqSigs` from rpc outputs
+- [ ] 90ae3d8ca doc: Add release notes for -deprecatedrpc=addresses and bitcoin-tx
+- [ ] 51eef4a03 doc: Add release notes for #18335 (rpc work queue exceeded error)
+- [ ] 915e34112 qt: fix issue when disabling the auto-enabled blank wallet checkbox
+- [ ] 18a9b27dd p2p: Don't send FEEFILTER in blocksonly mode
+- [ ] 1a27af1d7 rpc: Improve gettxoutsetinfo help
+- [ ] 4973c5175 test: Remove wallet dependency of utxo set hash test
+- [ ] 4f2653a89 test: Use deterministic chain in utxo set hash test
+- [ ] 39a9ec579 Unconditionally check for fRelay field in test framework
+- [ ] fa818ca20 fuzz: [refactor] Use PickValue where possible
+- [ ] 804ac1063 remove unnecessary newline from initWarning() argument
+- [ ] ec76bad65 build, qt: Fix static builds on macOS Big Sur
+- [ ] dc4551c22 remove incompatibility release note for darkmode on macos
+- [ ] beead33a2 [test] no send feefilters when txrelay is turned off
+- [ ] fa908a41f ci: Set DEPENDS_DIR when setting BASE_ROOT_DIR
+- [ ] fac577d42 ci: Build depends only once for Android build
+- [ ] fa97a17ac ci: Bump Android cross-build to Ubuntu Focal
+- [ ] ffff4e737 cirrus: Only cache releases when needed
+- [ ] fa52d7d3a cirrus: Add missing depends_sources_cache to Android task
+- [ ] 9ac86bcc0 test: remove qt byteswap compattests
+- [ ] 7c543bc27 build: Enable safe warnings for msvc builds
+- [ ] 85f47de8f Update libmultiprocess library
+- [ ] 067935442 multiprocess: Add Ipc and Init interface definitions
+- [ ] 2198370ab multiprocess: Add Ipc interface implementation
+- [ ] 7f0d2e4da multiprocess: Add bitcoin-node process spawning support
+- [ ] 1fcaf81b3 multiprocess: Add comments and documentation
+- [ ] 1290ccf8c multiprocess: Add echoipc RPC method and test

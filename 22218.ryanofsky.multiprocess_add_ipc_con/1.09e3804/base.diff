@@ -1,0 +1,175 @@
+[33mdiff --git a/src/Makefile.am b/src/Makefile.am[m
+[33mindex e2ed70556d..93e059bc5e 100644[m
+[33m--- a/src/Makefile.am[m
+[33m+++ b/src/Makefile.am[m
+[36m@@ -840,9 +840,11 @@[m [mEXTRA_DIST += $(libbitcoin_ipc_mpgen_input)[m
+ if BUILD_MULTIPROCESS[m
+ LIBBITCOIN_IPC=libbitcoin_ipc.a[m
+ libbitcoin_ipc_a_SOURCES = \[m
+[32m+[m[32m  ipc/capnp/context.h \[m
+   ipc/capnp/init-types.h \[m
+   ipc/capnp/protocol.cpp \[m
+   ipc/capnp/protocol.h \[m
+[32m+[m[32m  ipc/context.h \[m
+   ipc/exception.h \[m
+   ipc/interfaces.cpp \[m
+   ipc/process.cpp \[m
+[33mdiff --git a/src/interfaces/ipc.h b/src/interfaces/ipc.h[m
+[33mindex e9e6c78053..03bdaa3a17 100644[m
+[33m--- a/src/interfaces/ipc.h[m
+[33m+++ b/src/interfaces/ipc.h[m
+[36m@@ -9,6 +9,10 @@[m
+ #include <memory>[m
+ #include <typeindex>[m
+ [m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mstruct Context;[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+ namespace interfaces {[m
+ class Init;[m
+ [m
+[36m@@ -58,6 +62,9 @@[m [mpublic:[m
+         addCleanup(typeid(Interface), &iface, std::move(cleanup));[m
+     }[m
+ [m
+[32m+[m[32m    //! Context accessor.[m
+[32m+[m[32m    virtual ipc::Context& context() = 0;[m
+[32m+[m
+ protected:[m
+     //! Internal implementation of public addCleanup method (above) as a[m
+     //! type-erased virtual function, since template functions can't be virtual.[m
+[33mdiff --git a/src/ipc/capnp/context.h b/src/ipc/capnp/context.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..06e1614494[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/capnp/context.h[m
+[36m@@ -0,0 +1,23 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_CAPNP_CONTEXT_H[m
+[32m+[m[32m#define BITCOIN_IPC_CAPNP_CONTEXT_H[m
+[32m+[m
+[32m+[m[32m#include <ipc/context.h>[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32mnamespace capnp {[m
+[32m+[m[32m//! Cap'n Proto context struct. Generally the parent ipc::Context struct should[m
+[32m+[m[32m//! be used instead of this struct to give all IPC protocols access to[m
+[32m+[m[32m//! application state, so there aren't unnecessary differences between IPC[m
+[32m+[m[32m//! protocols. But this specialized struct can be used to pass capnp-specific[m
+[32m+[m[32m//! function and object types to capnp hooks.[m
+[32m+[m[32mstruct Context : ipc::Context[m
+[32m+[m[32m{[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace capnp[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_CAPNP_CONTEXT_H[m
+[33mdiff --git a/src/ipc/capnp/protocol.cpp b/src/ipc/capnp/protocol.cpp[m
+[33mindex 74c66c899a..37b57a9525 100644[m
+[33m--- a/src/ipc/capnp/protocol.cpp[m
+[33m+++ b/src/ipc/capnp/protocol.cpp[m
+[36m@@ -3,6 +3,7 @@[m
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+ [m
+ #include <interfaces/init.h>[m
+[32m+[m[32m#include <ipc/capnp/context.h>[m
+ #include <ipc/capnp/init.capnp.h>[m
+ #include <ipc/capnp/init.capnp.proxy.h>[m
+ #include <ipc/capnp/protocol.h>[m
+[36m@@ -54,7 +55,7 @@[m [mpublic:[m
+     {[m
+         assert(!m_loop);[m
+         mp::g_thread_context.thread_name = mp::ThreadName(exe_name);[m
+[31m-        m_loop.emplace(exe_name, &IpcLogFn, nullptr);[m
+[32m+[m[32m        m_loop.emplace(exe_name, &IpcLogFn, &m_context);[m
+         mp::ServeStream<messages::Init>(*m_loop, fd, init);[m
+         m_loop->loop();[m
+         m_loop.reset();[m
+[36m@@ -63,13 +64,14 @@[m [mpublic:[m
+     {[m
+         mp::ProxyTypeRegister::types().at(type)(iface).cleanup.emplace_back(std::move(cleanup));[m
+     }[m
+[32m+[m[32m    Context& context() override { return m_context; }[m
+     void startLoop(const char* exe_name)[m
+     {[m
+         if (m_loop) return;[m
+         std::promise<void> promise;[m
+         m_loop_thread = std::thread([&] {[m
+             util::ThreadRename("capnp-loop");[m
+[31m-            m_loop.emplace(exe_name, &IpcLogFn, nullptr);[m
+[32m+[m[32m            m_loop.emplace(exe_name, &IpcLogFn, &m_context);[m
+             {[m
+                 std::unique_lock<std::mutex> lock(m_loop->m_mutex);[m
+                 m_loop->addClient(lock);[m
+[36m@@ -80,6 +82,7 @@[m [mpublic:[m
+         });[m
+         promise.get_future().wait();[m
+     }[m
+[32m+[m[32m    Context m_context;[m
+     std::thread m_loop_thread;[m
+     std::optional<mp::EventLoop> m_loop;[m
+ };[m
+[33mdiff --git a/src/ipc/context.h b/src/ipc/context.h[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..2532039a58[m
+[33m--- /dev/null[m
+[33m+++ b/src/ipc/context.h[m
+[36m@@ -0,0 +1,19 @@[m
+[32m+[m[32m// Copyright (c) 2021 The Bitcoin Core developers[m
+[32m+[m[32m// Distributed under the MIT software license, see the accompanying[m
+[32m+[m[32m// file COPYING or http://www.opensource.org/licenses/mit-license.php.[m
+[32m+[m
+[32m+[m[32m#ifndef BITCOIN_IPC_CONTEXT_H[m
+[32m+[m[32m#define BITCOIN_IPC_CONTEXT_H[m
+[32m+[m
+[32m+[m[32mnamespace ipc {[m
+[32m+[m[32m//! Context struct used to give IPC protocol implementations or implementation[m
+[32m+[m[32m//! hooks access to application state, in case they need to run extra code that[m
+[32m+[m[32m//! that isn't needed within a single procoess, like code copying global state[m
+[32m+[m[32m//! from an existing process to a new process when it's initialized, or code[m
+[32m+[m[32m//! dealing with shared objects that are created or destroyed remotely.[m
+[32m+[m[32mstruct Context[m
+[32m+[m[32m{[m
+[32m+[m[32m};[m
+[32m+[m[32m} // namespace ipc[m
+[32m+[m
+[32m+[m[32m#endif // BITCOIN_IPC_CONTEXT_H[m
+[33mdiff --git a/src/ipc/interfaces.cpp b/src/ipc/interfaces.cpp[m
+[33mindex ad4b78ed81..580590fde9 100644[m
+[33m--- a/src/ipc/interfaces.cpp[m
+[33m+++ b/src/ipc/interfaces.cpp[m
+[36m@@ -60,6 +60,7 @@[m [mpublic:[m
+     {[m
+         m_protocol->addCleanup(type, iface, std::move(cleanup));[m
+     }[m
+[32m+[m[32m    Context& context() override { return m_protocol->context(); }[m
+     const char* m_exe_name;[m
+     const char* m_process_argv0;[m
+     interfaces::Init& m_init;[m
+[33mdiff --git a/src/ipc/protocol.h b/src/ipc/protocol.h[m
+[33mindex af955b0007..4cd892e411 100644[m
+[33m--- a/src/ipc/protocol.h[m
+[33m+++ b/src/ipc/protocol.h[m
+[36m@@ -12,6 +12,8 @@[m
+ #include <typeindex>[m
+ [m
+ namespace ipc {[m
+[32m+[m[32mstruct Context;[m
+[32m+[m
+ //! IPC protocol interface for calling IPC methods over sockets.[m
+ //![m
+ //! There may be different implementations of this interface for different IPC[m
+[36m@@ -33,6 +35,9 @@[m [mpublic:[m
+     //! Add cleanup callback to interface that will run when the interface is[m
+     //! deleted.[m
+     virtual void addCleanup(std::type_index type, void* iface, std::function<void()> cleanup) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Context accessor.[m
+[32m+[m[32m    virtual Context& context() = 0;[m
+ };[m
+ } // namespace ipc[m
+ [m

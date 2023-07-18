@@ -1,0 +1,7 @@
+- [ ] fad975ad4 build_msvc: Add bitcoin-util.exe
+- [ ] fa4f6b074 test: Add bitcoin-util tests
+- [ ] fa5f20546 Remove unused includes from bitcoin-util
+- [ ] fa3b3b907 Remove unused else in bitcoin-util
+- [ ] 5555dc9fd Remove unused OptionsCategory arg from AddCommand
+- [ ] fa8c4608c Remove gArgs from AppInitUtil
+- [ ] fa2edd9c1 Use ArgsManager::GetCommand in bitcoin-util

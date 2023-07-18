@@ -1,0 +1,436 @@
+[33mdiff --git a/src/bench/block_assemble.cpp b/src/bench/block_assemble.cpp[m
+[33mindex b4b33d115f..0577ab80e3 100644[m
+[33m--- a/src/bench/block_assemble.cpp[m
+[33m+++ b/src/bench/block_assemble.cpp[m
+[36m@@ -34,10 +34,10 @@[m [mstatic void AssembleBlock(benchmark::Bench& bench)[m
+             txs.at(b) = MakeTransactionRef(tx);[m
+     }[m
+     {[m
+[31m-        LOCK(::cs_main); // Required for ::AcceptToMemoryPool.[m
+[32m+[m[32m        LOCK(::cs_main);[m
+ [m
+         for (const auto& txr : txs) {[m
+[31m-            const MempoolAcceptResult res = ::AcceptToMemoryPool(test_setup->m_node.chainman->ActiveChainstate(), *test_setup->m_node.mempool, txr, false /* bypass_limits */);[m
+[32m+[m[32m            const MempoolAcceptResult res = test_setup->m_node.chainman->ProcessTransaction(txr);[m
+             assert(res.m_result_type == MempoolAcceptResult::ResultType::VALID);[m
+         }[m
+     }[m
+[33mdiff --git a/src/consensus/validation.h b/src/consensus/validation.h[m
+[33mindex c4d305434a..05416d0aca 100644[m
+[33m--- a/src/consensus/validation.h[m
+[33m+++ b/src/consensus/validation.h[m
+[36m@@ -53,6 +53,7 @@[m [menum class TxValidationResult {[m
+      */[m
+     TX_CONFLICT,[m
+     TX_MEMPOOL_POLICY,        //!< violated mempool's fee/size/descendant/RBF/etc limits[m
+[32m+[m[32m    TX_NO_MEMPOOL,            //!< this node does not have a mempool so can't validate the transaction[m
+ };[m
+ [m
+ /** A "reason" why a block was invalid, suitable for determining whether the[m
+[33mdiff --git a/src/net_processing.cpp b/src/net_processing.cpp[m
+[33mindex 008b4d679c..0dbe0ba62b 100644[m
+[33m--- a/src/net_processing.cpp[m
+[33m+++ b/src/net_processing.cpp[m
+[36m@@ -460,9 +460,9 @@[m [mprivate:[m
+     bool AlreadyHaveTx(const GenTxid& gtxid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m
+     /**[m
+[31m-     * Filter for transactions that were recently rejected by[m
+[31m-     * AcceptToMemoryPool. These are not rerequested until the chain tip[m
+[31m-     * changes, at which point the entire filter is reset.[m
+[32m+[m[32m     * Filter for transactions that were recently rejected by the mempool.[m
+[32m+[m[32m     * These are not rerequested until the chain tip changes, at which point[m
+[32m+[m[32m     * the entire filter is reset.[m
+      *[m
+      * Without this filter we'd be re-requesting txs from each of our peers,[m
+      * increasing bandwidth consumption considerably. For instance, with 100[m
+[36m@@ -1408,6 +1408,7 @@[m [mbool PeerManagerImpl::MaybePunishNodeForTx(NodeId nodeid, const TxValidationStat[m
+     case TxValidationResult::TX_WITNESS_STRIPPED:[m
+     case TxValidationResult::TX_CONFLICT:[m
+     case TxValidationResult::TX_MEMPOOL_POLICY:[m
+[32m+[m[32m    case TxValidationResult::TX_NO_MEMPOOL:[m
+         break;[m
+     }[m
+     if (message != "") {[m
+[36m@@ -2241,7 +2242,7 @@[m [mvoid PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)[m
+         const auto [porphanTx, from_peer] = m_orphanage.GetTx(orphanHash);[m
+         if (porphanTx == nullptr) continue;[m
+ [m
+[31m-        const MempoolAcceptResult result = AcceptToMemoryPool(m_chainman.ActiveChainstate(), m_mempool, porphanTx, false /* bypass_limits */);[m
+[32m+[m[32m        const MempoolAcceptResult result = m_chainman.ProcessTransaction(porphanTx);[m
+         const TxValidationState& state = result.m_state;[m
+ [m
+         if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {[m
+[36m@@ -2298,7 +2299,6 @@[m [mvoid PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)[m
+             break;[m
+         }[m
+     }[m
+[31m-    m_mempool.check(m_chainman.ActiveChainstate());[m
+ }[m
+ [m
+ bool PeerManagerImpl::PrepareBlockFilterRequest(CNode& peer,[m
+[36m@@ -3256,11 +3256,10 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+             return;[m
+         }[m
+ [m
+[31m-        const MempoolAcceptResult result = AcceptToMemoryPool(m_chainman.ActiveChainstate(), m_mempool, ptx, false /* bypass_limits */);[m
+[32m+[m[32m        const MempoolAcceptResult result = m_chainman.ProcessTransaction(ptx);[m
+         const TxValidationState& state = result.m_state;[m
+ [m
+         if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {[m
+[31m-            m_mempool.check(m_chainman.ActiveChainstate());[m
+             // As this version of the transaction was acceptable, we can forget about any[m
+             // requests for it.[m
+             m_txrequest.ForgetTxHash(tx.GetHash());[m
+[36m@@ -3379,8 +3378,8 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+         }[m
+ [m
+         // If a tx has been detected by m_recent_rejects, we will have reached[m
+[31m-        // this point and the tx will have been ignored. Because we haven't run[m
+[31m-        // the tx through AcceptToMemoryPool, we won't have computed a DoS[m
+[32m+[m[32m        // this point and the tx will have been ignored. Because we haven't[m
+[32m+[m[32m        // submitted the tx to our mempool, we won't have computed a DoS[m
+         // score for it or determined exactly why we consider it invalid.[m
+         //[m
+         // This means we won't penalize any peer subsequently relaying a DoSy[m
+[33mdiff --git a/src/node/transaction.cpp b/src/node/transaction.cpp[m
+[33mindex 2a7bcc057f..4cc46d5009 100644[m
+[33m--- a/src/node/transaction.cpp[m
+[33m+++ b/src/node/transaction.cpp[m
+[36m@@ -70,8 +70,7 @@[m [mTransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t[m
+             if (max_tx_fee > 0) {[m
+                 // First, call ATMP with test_accept and check the fee. If ATMP[m
+                 // fails here, return error immediately.[m
+[31m-                const MempoolAcceptResult result = AcceptToMemoryPool(node.chainman->ActiveChainstate(), *node.mempool, tx, false /* bypass_limits */,[m
+[31m-                                                                      true /* test_accept */);[m
+[32m+[m[32m                const MempoolAcceptResult result = node.chainman->ProcessTransaction(tx, true /* test_accept */);[m
+                 if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {[m
+                     return HandleATMPError(result.m_state, err_string);[m
+                 } else if (result.m_base_fees.value() > max_tx_fee) {[m
+[36m@@ -79,8 +78,7 @@[m [mTransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t[m
+                 }[m
+             }[m
+             // Try to submit the transaction to the mempool.[m
+[31m-            const MempoolAcceptResult result = AcceptToMemoryPool(node.chainman->ActiveChainstate(), *node.mempool, tx, false /* bypass_limits */,[m
+[31m-                                                                  false /* test_accept */);[m
+[32m+[m[32m            const MempoolAcceptResult result = node.chainman->ProcessTransaction(tx, false /* test_accept */);[m
+             if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {[m
+                 return HandleATMPError(result.m_state, err_string);[m
+             }[m
+[33mdiff --git a/src/rpc/rawtransaction.cpp b/src/rpc/rawtransaction.cpp[m
+[33mindex b32bc670b6..dc7dfa5b0d 100644[m
+[33m--- a/src/rpc/rawtransaction.cpp[m
+[33m+++ b/src/rpc/rawtransaction.cpp[m
+[36m@@ -945,12 +945,13 @@[m [mstatic RPCHelpMan testmempoolaccept()[m
+ [m
+     NodeContext& node = EnsureAnyNodeContext(request.context);[m
+     CTxMemPool& mempool = EnsureMemPool(node);[m
+[31m-    CChainState& chainstate = EnsureChainman(node).ActiveChainstate();[m
+[32m+[m[32m    ChainstateManager& chainman = EnsureChainman(node);[m
+[32m+[m[32m    CChainState& chainstate = chainman.ActiveChainstate();[m
+     const PackageMempoolAcceptResult package_result = [&] {[m
+         LOCK(::cs_main);[m
+         if (txns.size() > 1) return ProcessNewPackage(chainstate, mempool, txns, /* test_accept */ true);[m
+         return PackageMempoolAcceptResult(txns[0]->GetWitnessHash(),[m
+[31m-               AcceptToMemoryPool(chainstate, mempool, txns[0], /* bypass_limits */ false, /* test_accept*/ true));[m
+[32m+[m[32m               chainman.ProcessTransaction(txns[0], /* test_accept*/ true));[m
+     }();[m
+ [m
+     UniValue rpc_result(UniValue::VARR);[m
+[33mdiff --git a/src/test/fuzz/tx_pool.cpp b/src/test/fuzz/tx_pool.cpp[m
+[33mindex 6201cc813c..31df6b4aee 100644[m
+[33m--- a/src/test/fuzz/tx_pool.cpp[m
+[33m+++ b/src/test/fuzz/tx_pool.cpp[m
+[36m@@ -218,7 +218,6 @@[m [mFUZZ_TARGET_INIT(tx_pool_standard, initialize_tx_pool)[m
+         std::set<CTransactionRef> added;[m
+         auto txr = std::make_shared<TransactionsDelta>(removed, added);[m
+         RegisterSharedValidationInterface(txr);[m
+[31m-        const bool bypass_limits = fuzzed_data_provider.ConsumeBool();[m
+         ::fRequireStandard = fuzzed_data_provider.ConsumeBool();[m
+ [m
+         // Make sure ProcessNewPackage on one transaction works and always fully validates the transaction.[m
+[36m@@ -230,7 +229,7 @@[m [mFUZZ_TARGET_INIT(tx_pool_standard, initialize_tx_pool)[m
+         Assert(it->second.m_result_type == MempoolAcceptResult::ResultType::VALID ||[m
+                it->second.m_result_type == MempoolAcceptResult::ResultType::INVALID);[m
+ [m
+[31m-        const auto res = WITH_LOCK(::cs_main, return AcceptToMemoryPool(chainstate, tx_pool, tx, bypass_limits));[m
+[32m+[m[32m        const auto res = WITH_LOCK(::cs_main, return node.chainman->ProcessTransaction(tx));[m
+         const bool accepted = res.m_result_type == MempoolAcceptResult::ResultType::VALID;[m
+         SyncWithValidationInterfaceQueue();[m
+         UnregisterSharedValidationInterface(txr);[m
+[36m@@ -328,9 +327,8 @@[m [mFUZZ_TARGET_INIT(tx_pool, initialize_tx_pool)[m
+         }[m
+ [m
+         const auto tx = MakeTransactionRef(mut_tx);[m
+[31m-        const bool bypass_limits = fuzzed_data_provider.ConsumeBool();[m
+         ::fRequireStandard = fuzzed_data_provider.ConsumeBool();[m
+[31m-        const auto res = WITH_LOCK(::cs_main, return AcceptToMemoryPool(node.chainman->ActiveChainstate(), tx_pool, tx, bypass_limits));[m
+[32m+[m[32m        const auto res = WITH_LOCK(::cs_main, return node.chainman->ProcessTransaction(tx));[m
+         const bool accepted = res.m_result_type == MempoolAcceptResult::ResultType::VALID;[m
+         if (accepted) {[m
+             txids.push_back(tx->GetHash());[m
+[33mdiff --git a/src/test/txvalidation_tests.cpp b/src/test/txvalidation_tests.cpp[m
+[33mindex ade9e210f2..2e21c666ab 100644[m
+[33m--- a/src/test/txvalidation_tests.cpp[m
+[33m+++ b/src/test/txvalidation_tests.cpp[m
+[36m@@ -37,8 +37,7 @@[m [mBOOST_FIXTURE_TEST_CASE(tx_mempool_reject_coinbase, TestChain100Setup)[m
+     LOCK(cs_main);[m
+ [m
+     unsigned int initialPoolSize = m_node.mempool->size();[m
+[31m-    const MempoolAcceptResult result = AcceptToMemoryPool(m_node.chainman->ActiveChainstate(), *m_node.mempool, MakeTransactionRef(coinbaseTx),[m
+[31m-                true /* bypass_limits */);[m
+[32m+[m[32m    const MempoolAcceptResult result = m_node.chainman->ProcessTransaction(MakeTransactionRef(coinbaseTx));[m
+ [m
+     BOOST_CHECK(result.m_result_type == MempoolAcceptResult::ResultType::INVALID);[m
+ [m
+[33mdiff --git a/src/test/txvalidationcache_tests.cpp b/src/test/txvalidationcache_tests.cpp[m
+[33mindex afb3ad0cfd..8be64531c4 100644[m
+[33m--- a/src/test/txvalidationcache_tests.cpp[m
+[33m+++ b/src/test/txvalidationcache_tests.cpp[m
+[36m@@ -36,8 +36,7 @@[m [mBOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, Dersig100Setup)[m
+     const auto ToMemPool = [this](const CMutableTransaction& tx) {[m
+         LOCK(cs_main);[m
+ [m
+[31m-        const MempoolAcceptResult result = AcceptToMemoryPool(m_node.chainman->ActiveChainstate(), *m_node.mempool, MakeTransactionRef(tx),[m
+[31m-            true /* bypass_limits */);[m
+[32m+[m[32m        const MempoolAcceptResult result = m_node.chainman->ProcessTransaction(MakeTransactionRef(tx));[m
+         return result.m_result_type == MempoolAcceptResult::ResultType::VALID;[m
+     };[m
+ [m
+[33mdiff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp[m
+[33mindex 97e614379c..13f99bf719 100644[m
+[33m--- a/src/test/util/setup_common.cpp[m
+[33m+++ b/src/test/util/setup_common.cpp[m
+[36m@@ -315,7 +315,7 @@[m [mCMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(CTransactio[m
+     // If submit=true, add transaction to the mempool.[m
+     if (submit) {[m
+         LOCK(cs_main);[m
+[31m-        const MempoolAcceptResult result = AcceptToMemoryPool(m_node.chainman->ActiveChainstate(), *m_node.mempool.get(), MakeTransactionRef(mempool_txn), /* bypass_limits */ false);[m
+[32m+[m[32m        const MempoolAcceptResult result = m_node.chainman->ProcessTransaction(MakeTransactionRef(mempool_txn));[m
+         assert(result.m_result_type == MempoolAcceptResult::ResultType::VALID);[m
+     }[m
+ [m
+[33mdiff --git a/src/test/validation_block_tests.cpp b/src/test/validation_block_tests.cpp[m
+[33mindex 8f4ff6815b..8a48d539f8 100644[m
+[33m--- a/src/test/validation_block_tests.cpp[m
+[33m+++ b/src/test/validation_block_tests.cpp[m
+[36m@@ -273,7 +273,7 @@[m [mBOOST_AUTO_TEST_CASE(mempool_locks_reorg)[m
+         {[m
+             LOCK(cs_main);[m
+             for (const auto& tx : txs) {[m
+[31m-                const MempoolAcceptResult result = AcceptToMemoryPool(m_node.chainman->ActiveChainstate(), *m_node.mempool, tx, false /* bypass_limits */);[m
+[32m+[m[32m                const MempoolAcceptResult result = m_node.chainman->ProcessTransaction(tx);[m
+                 BOOST_REQUIRE(result.m_result_type == MempoolAcceptResult::ResultType::VALID);[m
+             }[m
+         }[m
+[33mdiff --git a/src/util/error.cpp b/src/util/error.cpp[m
+[33mindex 48c81693f3..69a4ec28ac 100644[m
+[33m--- a/src/util/error.cpp[m
+[33m+++ b/src/util/error.cpp[m
+[36m@@ -20,9 +20,9 @@[m [mbilingual_str TransactionErrorString(const TransactionError err)[m
+         case TransactionError::P2P_DISABLED:[m
+             return Untranslated("Peer-to-peer functionality missing or disabled");[m
+         case TransactionError::MEMPOOL_REJECTED:[m
+[31m-            return Untranslated("Transaction rejected by AcceptToMemoryPool");[m
+[32m+[m[32m            return Untranslated("Transaction rejected by mempool");[m
+         case TransactionError::MEMPOOL_ERROR:[m
+[31m-            return Untranslated("AcceptToMemoryPool failed");[m
+[32m+[m[32m            return Untranslated("Mempool acceptance failed");[m
+         case TransactionError::INVALID_PSBT:[m
+             return Untranslated("PSBT is not well-formed");[m
+         case TransactionError::PSBT_MISMATCH:[m
+[33mdiff --git a/src/validation.cpp b/src/validation.cpp[m
+[33mindex 4504d2ca0a..dc29273808 100644[m
+[33m--- a/src/validation.cpp[m
+[33m+++ b/src/validation.cpp[m
+[36m@@ -108,10 +108,10 @@[m [mbool CBlockIndexWorkComparator::operator()(const CBlockIndex *pa, const CBlockIn[m
+  * Mutex to guard access to validation specific variables, such as reading[m
+  * or changing the chainstate.[m
+  *[m
+[31m- * This may also need to be locked when updating the transaction pool, e.g. on[m
+[31m- * AcceptToMemoryPool. See CTxMemPool::cs comment for details.[m
+[32m+[m[32m * This may also need to be locked when updating the mempool. See[m
+[32m+[m[32m * CTxMemPool::cs comment for details.[m
+  *[m
+[31m- * The transaction pool has a separate lock to allow reading from it and the[m
+[32m+[m[32m * The mempool has a separate lock to allow reading from it and the[m
+  * chainstate at the same time.[m
+  */[m
+ RecursiveMutex cs_main;[m
+[36m@@ -329,54 +329,6 @@[m [mstatic bool IsCurrentForFeeEstimation(CChainState& active_chainstate) EXCLUSIVE_[m
+     return true;[m
+ }[m
+ [m
+[2m-void CChainState::MaybeUpdateMempoolForReorg([m
+[2m-    DisconnectedBlockTransactions& disconnectpool,[m
+[2m-    bool fAddToMempool)[m
+[2m-{[m
+[2m-    if (!m_mempool) return;[m
+[2m-[m
+[2m-    AssertLockHeld(cs_main);[m
+[2m-    AssertLockHeld(m_mempool->cs);[m
+[2m-    std::vector<uint256> vHashUpdate;[m
+[2m-    // disconnectpool's insertion_order index sorts the entries from[m
+[2m-    // oldest to newest, but the oldest entry will be the last tx from the[m
+[2m-    // latest mined block that was disconnected.[m
+[2m-    // Iterate disconnectpool in reverse, so that we add transactions[m
+[2m-    // back to the mempool starting with the earliest transaction that had[m
+[2m-    // been previously seen in a block.[m
+[2m-    auto it = disconnectpool.queuedTx.get<insertion_order>().rbegin();[m
+[2m-    while (it != disconnectpool.queuedTx.get<insertion_order>().rend()) {[m
+[2m-        // ignore validation errors in resurrected transactions[m
+[2m-        if (!fAddToMempool || (*it)->IsCoinBase() ||[m
+[2m-            AcceptToMemoryPool([m
+[31m-                *this, *m_mempool, *it, true /* bypass_limits */).m_result_type !=[m
+[2;3m-                    MempoolAcceptResult::ResultType::VALID) {[m
+[2;3m-            // If the transaction doesn't make it in to the mempool, remove any[m
+[2;3m-            // transactions that depend on it (which would now be orphans).[m
+[2;3m-            m_mempool->removeRecursive(**it, MemPoolRemovalReason::REORG);[m
+[2;3m-        } else if (m_mempool->exists((*it)->GetHash())) {[m
+[2;3m-            vHashUpdate.push_back((*it)->GetHash());[m
+[2;3m-        }[m
+[2;3m-        ++it;[m
+[2;3m-    }[m
+[2;3m-    disconnectpool.queuedTx.clear();[m
+[2;3m-    // AcceptToMemoryPool/addUnchecked all assume that new mempool entries have[m
+[2;3m-    // no in-mempool children, which is generally not true when adding[m
+[2;3m-    // previously-confirmed transactions back to the mempool.[m
+[2;3m-    // UpdateTransactionsFromBlock finds descendants of any transactions in[m
+[2;3m-    // the disconnectpool that were added back and cleans up the mempool state.[m
+[2;3m-    m_mempool->UpdateTransactionsFromBlock(vHashUpdate);[m
+[2;3m-[m
+[2;3m-    // We also need to remove any now-immature transactions[m
+[2;3m-    m_mempool->removeForReorg(*this, STANDARD_LOCKTIME_VERIFY_FLAGS);[m
+[2;3m-    // Re-limit mempool size, in case we added any transactions[m
+[2;3m-    LimitMempoolSize([m
+[2;3m-        *m_mempool,[m
+[2;3m-        this->CoinsTip(),[m
+[2;3m-        gArgs.GetIntArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000,[m
+[2;3m-        std::chrono::hours{gArgs.GetIntArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY)});[m
+[2;3m-}[m
+[2;3m-[m
+ /**[m
+ * Checks to avoid mempool polluting consensus critical paths since cached[m
+ * signature and script validity results will be reused if we validate this[m
+[36m@@ -1042,8 +994,9 @@[m [mstatic MempoolAcceptResult AcceptToMemoryPoolWithTime(const CChainParams& chainp[m
+     return result;[m
+ }[m
+ [m
+[31m-MempoolAcceptResult AcceptToMemoryPool(CChainState& active_chainstate, CTxMemPool& pool, const CTransactionRef& tx,[m
+[31m-                                       bool bypass_limits, bool test_accept)[m
+[32m+[m[32mstatic MempoolAcceptResult AcceptToMemoryPool(CChainState& active_chainstate, CTxMemPool& pool, const CTransactionRef& tx,[m
+[32m+[m[32m                                              bool bypass_limits, bool test_accept)[m
+[32m+[m[32m    EXCLUSIVE_LOCKS_REQUIRED(cs_main)[m
+ {[m
+     return AcceptToMemoryPoolWithTime(Params(), pool, active_chainstate, tx, GetTime(), bypass_limits, test_accept);[m
+ }[m
+[36m@@ -1225,6 +1178,54 @@[m [mvoid CChainState::InvalidBlockFound(CBlockIndex* pindex, const BlockValidationSt[m
+     }[m
+ }[m
+ [m
+[2m+[m[2mvoid CChainState::MaybeUpdateMempoolForReorg([m
+[2m+[m[2m    DisconnectedBlockTransactions& disconnectpool,[m
+[2m+[m[2m    bool fAddToMempool)[m
+[2m+[m[2m{[m
+[2m+[m[2m    if (!m_mempool) return;[m
+[2m+[m
+[2m+[m[2m    AssertLockHeld(cs_main);[m
+[2m+[m[2m    AssertLockHeld(m_mempool->cs);[m
+[2m+[m[2m    std::vector<uint256> vHashUpdate;[m
+[2m+[m[2m    // disconnectpool's insertion_order index sorts the entries from[m
+[2m+[m[2m    // oldest to newest, but the oldest entry will be the last tx from the[m
+[2m+[m[2m    // latest mined block that was disconnected.[m
+[2m+[m[2m    // Iterate disconnectpool in reverse, so that we add transactions[m
+[2m+[m[2m    // back to the mempool starting with the earliest transaction that had[m
+[2m+[m[2m    // been previously seen in a block.[m
+[2m+[m[2m    auto it = disconnectpool.queuedTx.get<insertion_order>().rbegin();[m
+[2m+[m[2m    while (it != disconnectpool.queuedTx.get<insertion_order>().rend()) {[m
+[2m+[m[2m        // ignore validation errors in resurrected transactions[m
+[2m+[m[2m        if (!fAddToMempool || (*it)->IsCoinBase() ||[m
+[2m+[m[2m            AcceptToMemoryPool([m
+[32m+[m[32m                *this, *m_mempool, *it, true /* bypass_limits */, /* test_accept= */ false).m_result_type !=[m
+[2;3m+[m[2;3m                    MempoolAcceptResult::ResultType::VALID) {[m
+[2;3m+[m[2;3m            // If the transaction doesn't make it in to the mempool, remove any[m
+[2;3m+[m[2;3m            // transactions that depend on it (which would now be orphans).[m
+[2;3m+[m[2;3m            m_mempool->removeRecursive(**it, MemPoolRemovalReason::REORG);[m
+[2;3m+[m[2;3m        } else if (m_mempool->exists((*it)->GetHash())) {[m
+[2;3m+[m[2;3m            vHashUpdate.push_back((*it)->GetHash());[m
+[2;3m+[m[2;3m        }[m
+[2;3m+[m[2;3m        ++it;[m
+[2;3m+[m[2;3m    }[m
+[2;3m+[m[2;3m    disconnectpool.queuedTx.clear();[m
+[2;3m+[m[2;3m    // AcceptToMemoryPool/addUnchecked all assume that new mempool entries have[m
+[2;3m+[m[2;3m    // no in-mempool children, which is generally not true when adding[m
+[2;3m+[m[2;3m    // previously-confirmed transactions back to the mempool.[m
+[2;3m+[m[2;3m    // UpdateTransactionsFromBlock finds descendants of any transactions in[m
+[2;3m+[m[2;3m    // the disconnectpool that were added back and cleans up the mempool state.[m
+[2;3m+[m[2;3m    m_mempool->UpdateTransactionsFromBlock(vHashUpdate);[m
+[2;3m+[m
+[2;3m+[m[2;3m    // We also need to remove any now-immature transactions[m
+[2;3m+[m[2;3m    m_mempool->removeForReorg(*this, STANDARD_LOCKTIME_VERIFY_FLAGS);[m
+[2;3m+[m[2;3m    // Re-limit mempool size, in case we added any transactions[m
+[2;3m+[m[2;3m    LimitMempoolSize([m
+[2;3m+[m[2;3m        *m_mempool,[m
+[2;3m+[m[2;3m        this->CoinsTip(),[m
+[2;3m+[m[2;3m        gArgs.GetIntArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000,[m
+[2;3m+[m[2;3m        std::chrono::hours{gArgs.GetIntArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY)});[m
+[2;3m+[m[2;3m}[m
+[2;3m+[m
+ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)[m
+ {[m
+     // mark inputs spent[m
+[36m@@ -3432,6 +3433,20 @@[m [mbool ChainstateManager::ProcessNewBlock(const CChainParams& chainparams, const s[m
+     return true;[m
+ }[m
+ [m
+[32m+[m[32mMempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef& tx,[m
+[32m+[m[32m                                                          bool test_accept)[m
+[32m+[m[32m{[m
+[32m+[m[32m    CChainState& active_chainstate = ActiveChainstate();[m
+[32m+[m[32m    if (!active_chainstate.m_mempool) {[m
+[32m+[m[32m        TxValidationState state;[m
+[32m+[m[32m        state.Invalid(TxValidationResult::TX_NO_MEMPOOL);[m
+[32m+[m[32m        return MempoolAcceptResult::Failure(state);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    auto result = AcceptToMemoryPool(active_chainstate, *active_chainstate.m_mempool, tx, /* bypass_limits= */ false, test_accept);[m
+[32m+[m[32m    active_chainstate.m_mempool->check(active_chainstate);[m
+[32m+[m[32m    return result;[m
+[32m+[m[32m}[m
+[32m+[m
+ bool TestBlockValidity(BlockValidationState& state,[m
+                        const CChainParams& chainparams,[m
+                        CChainState& chainstate,[m
+[33mdiff --git a/src/validation.h b/src/validation.h[m
+[33mindex b2282828ce..04787ad7ae 100644[m
+[33m--- a/src/validation.h[m
+[33m+++ b/src/validation.h[m
+[36m@@ -205,14 +205,6 @@[m [mstruct PackageMempoolAcceptResult[m
+         : m_tx_results{ {wtxid, result} } {}[m
+ };[m
+ [m
+[31m-/**[m
+[31m- * (Try to) add a transaction to the memory pool.[m
+[31m- * @param[in]  bypass_limits   When true, don't enforce mempool fee limits.[m
+[31m- * @param[in]  test_accept     When true, run validation checks but don't submit to mempool.[m
+[31m- */[m
+[31m-MempoolAcceptResult AcceptToMemoryPool(CChainState& active_chainstate, CTxMemPool& pool, const CTransactionRef& tx,[m
+[31m-                                       bool bypass_limits, bool test_accept=false) EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[31m-[m
+ /**[m
+ * Atomically test acceptance of a package. If the package only contains one tx, package rules still[m
+ * apply. Package validation does not allow BIP125 replacements, so the transaction(s) cannot spend[m
+[36m@@ -997,6 +989,14 @@[m [mpublic:[m
+      */[m
+     bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& block, BlockValidationState& state, const CChainParams& chainparams, const CBlockIndex** ppindex = nullptr) LOCKS_EXCLUDED(cs_main);[m
+ [m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * (Try to) add a transaction to the memory pool.[m
+[32m+[m[32m     *[m
+[32m+[m[32m     * @param[in]  test_accept     When true, run validation checks but don't submit to mempool.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    MempoolAcceptResult ProcessTransaction(const CTransactionRef& tx, bool test_accept=false)[m
+[32m+[m[32m        EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+[32m+[m
+     //! Load the block tree and coins database from disk, initializing state if we're running with -reindex[m
+     bool LoadBlockIndex() EXCLUSIVE_LOCKS_REQUIRED(cs_main);[m
+ [m

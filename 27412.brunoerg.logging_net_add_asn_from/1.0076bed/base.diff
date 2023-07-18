@@ -1,0 +1,68 @@
+[33mdiff --git a/src/net.cpp b/src/net.cpp[m
+[33mindex 7023cb0f49..d020fe9ea0 100644[m
+[33m--- a/src/net.cpp[m
+[33m+++ b/src/net.cpp[m
+[36m@@ -2598,6 +2598,11 @@[m [msize_t CConnman::GetNodeCount(ConnectionDirection flags) const[m
+     return nNum;[m
+ }[m
+ [m
+[32m+[m[32muint32_t CConnman::GetMappedAS(const CNetAddr& addr) const[m
+[32m+[m[32m{[m
+[32m+[m[32m    return m_netgroupman.GetMappedAS(addr);[m
+[32m+[m[32m}[m
+[32m+[m
+ void CConnman::GetNodeStats(std::vector<CNodeStats>& vstats) const[m
+ {[m
+     vstats.clear();[m
+[36m@@ -2606,7 +2611,7 @@[m [mvoid CConnman::GetNodeStats(std::vector<CNodeStats>& vstats) const[m
+     for (CNode* pnode : m_nodes) {[m
+         vstats.emplace_back();[m
+         pnode->CopyStats(vstats.back());[m
+[31m-        vstats.back().m_mapped_as = m_netgroupman.GetMappedAS(pnode->addr);[m
+[32m+[m[32m        vstats.back().m_mapped_as = GetMappedAS(pnode->addr);[m
+     }[m
+ }[m
+ [m
+[33mdiff --git a/src/net.h b/src/net.h[m
+[33mindex 9b939aea5c..908b16f35e 100644[m
+[33m--- a/src/net.h[m
+[33m+++ b/src/net.h[m
+[36m@@ -851,6 +851,7 @@[m [mpublic:[m
+     bool AddConnection(const std::string& address, ConnectionType conn_type) EXCLUSIVE_LOCKS_REQUIRED(!m_unused_i2p_sessions_mutex);[m
+ [m
+     size_t GetNodeCount(ConnectionDirection) const;[m
+[32m+[m[32m    uint32_t GetMappedAS(const CNetAddr& addr) const;[m
+     void GetNodeStats(std::vector<CNodeStats>& vstats) const;[m
+     bool DisconnectNode(const std::string& node);[m
+     bool DisconnectNode(const CSubNet& subnet);[m
+[33mdiff --git a/src/net_processing.cpp b/src/net_processing.cpp[m
+[33mindex 2348f6c059..2d75c67345 100644[m
+[33m--- a/src/net_processing.cpp[m
+[33m+++ b/src/net_processing.cpp[m
+[36m@@ -3367,10 +3367,11 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+         if (fLogIPs)[m
+             remoteAddr = ", peeraddr=" + pfrom.addr.ToStringAddrPort();[m
+ [m
+[31m-        LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, txrelay=%d, peer=%d%s\n",[m
+[32m+[m[32m        const auto mapped_as{m_connman.GetMappedAS(pfrom.addr)};[m
+[32m+[m[32m        LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, txrelay=%d, peer=%d%s%s\n",[m
+                   cleanSubVer, pfrom.nVersion,[m
+                   peer->m_starting_height, addrMe.ToStringAddrPort(), fRelay, pfrom.GetId(),[m
+[31m-                  remoteAddr);[m
+[32m+[m[32m                  remoteAddr, (mapped_as ? strprintf(", mapped_as=%d", mapped_as) : ""));[m
+ [m
+         int64_t nTimeOffset = nTime - GetTime();[m
+         pfrom.nTimeOffset = nTimeOffset;[m
+[36m@@ -3410,9 +3411,11 @@[m [mvoid PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,[m
+         }[m
+ [m
+         if (!pfrom.IsInboundConn()) {[m
+[31m-            LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",[m
+[32m+[m[32m            const auto mapped_as{m_connman.GetMappedAS(pfrom.addr)};[m
+[32m+[m[32m            LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s%s (%s)\n",[m
+                       pfrom.nVersion.load(), peer->m_starting_height,[m
+                       pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToStringAddrPort()) : ""),[m
+[32m+[m[32m                      (mapped_as ? strprintf(", mapped_as=%d", mapped_as) : ""),[m
+                       pfrom.ConnectionTypeAsString());[m
+         }[m
+ [m

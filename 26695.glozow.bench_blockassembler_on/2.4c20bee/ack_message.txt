@@ -1,0 +1,6 @@
+ACK 4c20bee65009bd2c95c2a3426030b042f55007ad ([`jamesob/ackr/26695.2.glozow.bench_blockassembler_on`](https://github.com/jamesob/bitcoin/tree/ackr/26695.2.glozow.bench_blockassembler_on))
+
+Nice! Good thing to have.
+
+Could possibly later populate the mempool with a more stressful load, something
+like 10,000 transactions? 

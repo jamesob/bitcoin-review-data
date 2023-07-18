@@ -1,0 +1,13 @@
+ACK 52804f7ad0da32bc4d7be726e08e0b1e34619acb ([`jamesob/ackr/25064.1.dongcarl.kernel_2b_n_add_chainst`](https://github.com/jamesob/bitcoin/tree/ackr/25064.1.dongcarl.kernel_2b_n_add_chainst))
+
+Built, reviewed, unittested locally. Change looks good and is very simple. A few minor points:
+
+- there's a lingering comment in `validation.cpp` that could use updating: https://github.com/jamesob/bitcoin/blob/52804f7ad0da32bc4d7be726e08e0b1e34619acb/src/validation.cpp#L2008
+- can't use designated initializers (yet?) because of a VS Code/CI issue:
+
+```
+10:42 <_aj_> jamesob: #24531 -- VS 2019 (which CI uses) doesn't support them, and figuring out how to fix that isn't trivial
+10:42 <@gribble> https://github.com/bitcoin/bitcoin/issues/24531 | Use designated initializers by MarcoFalke · Pull Request #24531 · bitcoin/bitcoin · GitHub
+10:45 <sipsorcery> _aj_: in fairness VS2019 does seem support them it just seems to want to use a massive amount of memory to compile them...
+10:47 <_aj_> sipsorcery: doesn't support them with the amount of memory we currently allocate for those CI jobs :-P
+```

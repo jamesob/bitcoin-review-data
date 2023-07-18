@@ -1,0 +1,5 @@
+ACK fa84adab8c64fd626b111cfea220bf7606fa4d53 ([`jamesob/ackr/22270.1.MarcoFalke.add_missing_bitcoin_util`](https://github.com/jamesob/bitcoin/tree/ackr/22270.1.MarcoFalke.add_missing_bitcoin_util))
+
+Built locally and ran ./test/util/bitcoin-util-test.py and played with `./src/bitcoin-util grind`. 
+
+Changes look fine. Some nice import cleanups and minor code simplification.

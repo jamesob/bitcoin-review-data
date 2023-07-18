@@ -1,0 +1,3 @@
+- [ ] f8bd13f85a net: add new method Sock::Accept() that wraps accept()
+- [ ] 9e3cbfca7c net: use Sock in CConnman::ListenSocket
+- [ ] 6bf6e9fd9d net: change CreateNodeFromAcceptedSocket() to take Sock

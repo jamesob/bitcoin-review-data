@@ -1,0 +1,2 @@
+- [ ] fa27f03b4 Move LoadBlockIndexDB to BlockManager
+- [ ] faa54e375 Move pblocktree global to BlockManager

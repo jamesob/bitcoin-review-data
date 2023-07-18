@@ -1,0 +1,2 @@
+- [ ] 095aa6ca37 build: Add example bitcoin-chainstate executable
+- [ ] 2c03cec2ff ci: Build bitcoin-chainstate

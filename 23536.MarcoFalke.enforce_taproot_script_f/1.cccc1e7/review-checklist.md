@@ -1,0 +1,3 @@
+- [ ] faadc606c7 refactor: Pass const reference instead of pointer to GetBlockScriptFlags
+- [ ] fa42299411 Remove nullptr check in GetBlockScriptFlags
+- [ ] cccc1e70b8 Enforce Taproot script flags whenever WITNESS is set

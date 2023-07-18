@@ -1,0 +1,323 @@
+[33mdiff --git a/src/net.cpp b/src/net.cpp[m
+[33mindex 6f9f17ed4e..751a844c06 100644[m
+[33m--- a/src/net.cpp[m
+[33m+++ b/src/net.cpp[m
+[36m@@ -1046,10 +1046,10 @@[m [mbool CConnman::AttemptToEvictConnection()[m
+ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {[m
+     struct sockaddr_storage sockaddr;[m
+     socklen_t len = sizeof(sockaddr);[m
+[31m-    SOCKET hSocket = accept(hListenSocket.socket, (struct sockaddr*)&sockaddr, &len);[m
+[32m+[m[32m    auto sock = hListenSocket.sock->Accept((struct sockaddr*)&sockaddr, &len);[m
+     CAddress addr;[m
+ [m
+[31m-    if (hSocket == INVALID_SOCKET) {[m
+[32m+[m[32m    if (!sock) {[m
+         const int nErr = WSAGetLastError();[m
+         if (nErr != WSAEWOULDBLOCK) {[m
+             LogPrintf("socket error accept failed: %s\n", NetworkErrorString(nErr));[m
+[36m@@ -1061,15 +1061,15 @@[m [mvoid CConnman::AcceptConnection(const ListenSocket& hListenSocket) {[m
+         LogPrintf("Warning: Unknown socket family\n");[m
+     }[m
+ [m
+[31m-    const CAddress addr_bind = GetBindAddress(hSocket);[m
+[32m+[m[32m    const CAddress addr_bind = GetBindAddress(sock->Get());[m
+ [m
+     NetPermissionFlags permissionFlags = NetPermissionFlags::None;[m
+     hListenSocket.AddSocketPermissionFlags(permissionFlags);[m
+ [m
+[31m-    CreateNodeFromAcceptedSocket(hSocket, permissionFlags, addr_bind, addr);[m
+[32m+[m[32m    CreateNodeFromAcceptedSocket(std::move(sock), permissionFlags, addr_bind, addr);[m
+ }[m
+ [m
+[31m-void CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,[m
+[32m+[m[32mvoid CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock> sock,[m
+                                             NetPermissionFlags permissionFlags,[m
+                                             const CAddress& addr_bind,[m
+                                             const CAddress& addr)[m
+[36m@@ -1095,27 +1095,24 @@[m [mvoid CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,[m
+ [m
+     if (!fNetworkActive) {[m
+         LogPrint(BCLog::NET, "connection from %s dropped: not accepting new connections\n", addr.ToString());[m
+[31m-        CloseSocket(hSocket);[m
+         return;[m
+     }[m
+ [m
+[31m-    if (!IsSelectableSocket(hSocket))[m
+[32m+[m[32m    if (!IsSelectableSocket(sock->Get()))[m
+     {[m
+         LogPrintf("connection from %s dropped: non-selectable socket\n", addr.ToString());[m
+[31m-        CloseSocket(hSocket);[m
+         return;[m
+     }[m
+ [m
+     // According to the internet TCP_NODELAY is not carried into accepted sockets[m
+     // on all platforms.  Set it again here just to be sure.[m
+[31m-    SetSocketNoDelay(hSocket);[m
+[32m+[m[32m    SetSocketNoDelay(sock->Get());[m
+ [m
+     // Don't accept connections from banned peers.[m
+     bool banned = m_banman && m_banman->IsBanned(addr);[m
+     if (!NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::NoBan) && banned)[m
+     {[m
+         LogPrint(BCLog::NET, "connection from %s dropped (banned)\n", addr.ToString());[m
+[31m-        CloseSocket(hSocket);[m
+         return;[m
+     }[m
+ [m
+[36m@@ -1124,7 +1121,6 @@[m [mvoid CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,[m
+     if (!NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::NoBan) && nInbound + 1 >= nMaxInbound && discouraged)[m
+     {[m
+         LogPrint(BCLog::NET, "connection from %s dropped (discouraged)\n", addr.ToString());[m
+[31m-        CloseSocket(hSocket);[m
+         return;[m
+     }[m
+ [m
+[36m@@ -1133,7 +1129,6 @@[m [mvoid CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,[m
+         if (!AttemptToEvictConnection()) {[m
+             // No connection to evict, disconnect the new connection[m
+             LogPrint(BCLog::NET, "failed to find an eviction candidate - connection dropped (full)\n");[m
+[31m-            CloseSocket(hSocket);[m
+             return;[m
+         }[m
+     }[m
+[36m@@ -1147,7 +1142,7 @@[m [mvoid CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,[m
+     }[m
+ [m
+     const bool inbound_onion = std::find(m_onion_binds.begin(), m_onion_binds.end(), addr_bind) != m_onion_binds.end();[m
+[31m-    CNode* pnode = new CNode(id, nodeServices, hSocket, addr, CalculateKeyedNetGroup(addr), nonce, addr_bind, "", ConnectionType::INBOUND, inbound_onion);[m
+[32m+[m[32m    CNode* pnode = new CNode(id, nodeServices, sock->Release(), addr, CalculateKeyedNetGroup(addr), nonce, addr_bind, "", ConnectionType::INBOUND, inbound_onion);[m
+     pnode->AddRef();[m
+     pnode->m_permissionFlags = permissionFlags;[m
+     pnode->m_prefer_evict = discouraged;[m
+[36m@@ -1289,7 +1284,7 @@[m [mbool CConnman::InactivityCheck(const CNode& node) const[m
+ bool CConnman::GenerateSelectSet(std::set<SOCKET> &recv_set, std::set<SOCKET> &send_set, std::set<SOCKET> &error_set)[m
+ {[m
+     for (const ListenSocket& hListenSocket : vhListenSocket) {[m
+[31m-        recv_set.insert(hListenSocket.socket);[m
+[32m+[m[32m        recv_set.insert(hListenSocket.sock->Get());[m
+     }[m
+ [m
+     {[m
+[36m@@ -1462,8 +1457,7 @@[m [mvoid CConnman::SocketHandler()[m
+     //[m
+     for (const ListenSocket& hListenSocket : vhListenSocket)[m
+     {[m
+[31m-        if (hListenSocket.socket != INVALID_SOCKET && recv_set.count(hListenSocket.socket) > 0)[m
+[31m-        {[m
+[32m+[m[32m        if (hListenSocket.sock->Get() != INVALID_SOCKET && recv_set.count(hListenSocket.sock->Get()) > 0) {[m
+             AcceptConnection(hListenSocket);[m
+         }[m
+     }[m
+[36m@@ -2254,7 +2248,7 @@[m [mvoid CConnman::ThreadI2PAcceptIncoming()[m
+             continue;[m
+         }[m
+ [m
+[31m-        CreateNodeFromAcceptedSocket(conn.sock->Release(), NetPermissionFlags::None,[m
+[32m+[m[32m        CreateNodeFromAcceptedSocket(std::move(conn.sock), NetPermissionFlags::None,[m
+                                      CAddress{conn.me, NODE_NONE}, CAddress{conn.peer, NODE_NONE});[m
+     }[m
+ }[m
+[36m@@ -2316,7 +2310,7 @@[m [mbool CConnman::BindListenPort(const CService& addrBind, bilingual_str& strError,[m
+         return false;[m
+     }[m
+ [m
+[31m-    vhListenSocket.push_back(ListenSocket(sock->Release(), permissions));[m
+[32m+[m[32m    vhListenSocket.emplace_back(std::move(sock), permissions);[m
+     return true;[m
+ }[m
+ [m
+[36m@@ -2638,16 +2632,6 @@[m [mvoid CConnman::StopNodes()[m
+         pnode->CloseSocketDisconnect();[m
+         DeleteNode(pnode);[m
+     }[m
+[31m-[m
+[31m-    // Close listening sockets.[m
+[31m-    for (ListenSocket& hListenSocket : vhListenSocket) {[m
+[31m-        if (hListenSocket.socket != INVALID_SOCKET) {[m
+[31m-            if (!CloseSocket(hListenSocket.socket)) {[m
+[31m-                LogPrintf("CloseSocket(hListenSocket) failed with error %s\n", NetworkErrorString(WSAGetLastError()));[m
+[31m-            }[m
+[31m-        }[m
+[31m-    }[m
+[31m-[m
+     for (CNode* pnode : vNodesDisconnected) {[m
+         DeleteNode(pnode);[m
+     }[m
+[33mdiff --git a/src/net.h b/src/net.h[m
+[33mindex b43916c55e..1f2bbfc708 100644[m
+[33m--- a/src/net.h[m
+[33m+++ b/src/net.h[m
+[36m@@ -27,6 +27,7 @@[m
+ #include <threadinterrupt.h>[m
+ #include <uint256.h>[m
+ #include <util/check.h>[m
+[32m+[m[32m#include <util/sock.h>[m
+ [m
+ #include <atomic>[m
+ #include <condition_variable>[m
+[36m@@ -953,9 +954,13 @@[m [mpublic:[m
+ private:[m
+     struct ListenSocket {[m
+     public:[m
+[31m-        SOCKET socket;[m
+[32m+[m[32m        std::shared_ptr<Sock> sock;[m
+         inline void AddSocketPermissionFlags(NetPermissionFlags& flags) const { NetPermissions::AddFlag(flags, m_permissions); }[m
+[31m-        ListenSocket(SOCKET socket_, NetPermissionFlags permissions_) : socket(socket_), m_permissions(permissions_) {}[m
+[32m+[m[32m        ListenSocket(std::shared_ptr<Sock> sock_, NetPermissionFlags permissions_)[m
+[32m+[m[32m            : sock(sock_), m_permissions(permissions_)[m
+[32m+[m[32m        {[m
+[32m+[m[32m        }[m
+[32m+[m
+     private:[m
+         NetPermissionFlags m_permissions;[m
+     };[m
+[36m@@ -978,12 +983,12 @@[m [mprivate:[m
+     /**[m
+      * Create a `CNode` object from a socket that has just been accepted and add the node to[m
+      * the `vNodes` member.[m
+[31m-     * @param[in] hSocket Connected socket to communicate with the peer.[m
+[32m+[m[32m     * @param[in] sock Connected socket to communicate with the peer.[m
+      * @param[in] permissionFlags The peer's permissions.[m
+      * @param[in] addr_bind The address and port at our side of the connection.[m
+      * @param[in] addr The address and port at the peer's side of the connection.[m
+      */[m
+[31m-    void CreateNodeFromAcceptedSocket(SOCKET hSocket,[m
+[32m+[m[32m    void CreateNodeFromAcceptedSocket(std::unique_ptr<Sock> sock,[m
+                                       NetPermissionFlags permissionFlags,[m
+                                       const CAddress& addr_bind,[m
+                                       const CAddress& addr);[m
+[33mdiff --git a/src/test/fuzz/util.cpp b/src/test/fuzz/util.cpp[m
+[33mindex bcf0b0ce72..23a6800f32 100644[m
+[33m--- a/src/test/fuzz/util.cpp[m
+[33m+++ b/src/test/fuzz/util.cpp[m
+[36m@@ -8,6 +8,8 @@[m
+ #include <util/time.h>[m
+ #include <version.h>[m
+ [m
+[32m+[m[32m#include <memory>[m
+[32m+[m
+ FuzzedSock::FuzzedSock(FuzzedDataProvider& fuzzed_data_provider)[m
+     : m_fuzzed_data_provider{fuzzed_data_provider}[m
+ {[m
+[36m@@ -153,6 +155,20 @@[m [mint FuzzedSock::Connect(const sockaddr*, socklen_t) const[m
+     return 0;[m
+ }[m
+ [m
+[32m+[m[32mstd::unique_ptr<Sock> FuzzedSock::Accept(sockaddr* addr, socklen_t* addr_len) const[m
+[32m+[m[32m{[m
+[32m+[m[32m    constexpr std::array accept_errnos{[m
+[32m+[m[32m        ECONNABORTED,[m
+[32m+[m[32m        EINTR,[m
+[32m+[m[32m        ENOMEM,[m
+[32m+[m[32m    };[m
+[32m+[m[32m    if (m_fuzzed_data_provider.ConsumeBool()) {[m
+[32m+[m[32m        SetFuzzedErrNo(m_fuzzed_data_provider, accept_errnos);[m
+[32m+[m[32m        return std::unique_ptr<FuzzedSock>();[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return std::make_unique<FuzzedSock>(m_fuzzed_data_provider);[m
+[32m+[m[32m}[m
+[32m+[m
+ int FuzzedSock::GetSockOpt(int level, int opt_name, void* opt_val, socklen_t* opt_len) const[m
+ {[m
+     constexpr std::array getsockopt_errnos{[m
+[33mdiff --git a/src/test/fuzz/util.h b/src/test/fuzz/util.h[m
+[33mindex 36b1d5035c..9a2ee2b2c1 100644[m
+[33m--- a/src/test/fuzz/util.h[m
+[33m+++ b/src/test/fuzz/util.h[m
+[36m@@ -577,6 +577,8 @@[m [mpublic:[m
+ [m
+     int Connect(const sockaddr*, socklen_t) const override;[m
+ [m
+[32m+[m[32m    std::unique_ptr<Sock> Accept(sockaddr* addr, socklen_t* addr_len) const override;[m
+[32m+[m
+     int GetSockOpt(int level, int opt_name, void* opt_val, socklen_t* opt_len) const override;[m
+ [m
+     bool Wait(std::chrono::milliseconds timeout, Event requested, Event* occurred = nullptr) const override;[m
+[33mdiff --git a/src/test/util/net.h b/src/test/util/net.h[m
+[33mindex 71685d437a..8947183cc7 100644[m
+[33m--- a/src/test/util/net.h[m
+[33m+++ b/src/test/util/net.h[m
+[36m@@ -11,6 +11,7 @@[m
+ [m
+ #include <cassert>[m
+ #include <cstring>[m
+[32m+[m[32m#include <memory>[m
+ #include <string>[m
+ [m
+ struct ConnmanTestMsg : public CConnman {[m
+[36m@@ -108,6 +109,22 @@[m [mpublic:[m
+ [m
+     int Connect(const sockaddr*, socklen_t) const override { return 0; }[m
+ [m
+[32m+[m[32m    std::unique_ptr<Sock> Accept(sockaddr* addr, socklen_t* addr_len) const override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (addr != nullptr) {[m
+[32m+[m[32m            // Pretend all connections come from 5.5.5.5:6789[m
+[32m+[m[32m            memset(addr, 0x00, *addr_len);[m
+[32m+[m[32m            if (*addr_len >= sizeof(sockaddr_in)) {[m
+[32m+[m[32m                *addr_len = sizeof(sockaddr_in);[m
+[32m+[m[32m                sockaddr_in* addr_in = reinterpret_cast<sockaddr_in*>(addr);[m
+[32m+[m[32m                addr_in->sin_family = AF_INET;[m
+[32m+[m[32m                memset(&addr_in->sin_addr, 0x05, sizeof(addr_in->sin_addr));[m
+[32m+[m[32m                addr_in->sin_port = htons(6789);[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return std::make_unique<StaticContentsSock>("");[m
+[32m+[m[32m    };[m
+[32m+[m
+     int GetSockOpt(int level, int opt_name, void* opt_val, socklen_t* opt_len) const override[m
+     {[m
+         std::memset(opt_val, 0x0, *opt_len);[m
+[33mdiff --git a/src/util/sock.cpp b/src/util/sock.cpp[m
+[33mindex b6c2a47434..9a92fd1b5f 100644[m
+[33m--- a/src/util/sock.cpp[m
+[33m+++ b/src/util/sock.cpp[m
+[36m@@ -71,6 +71,21 @@[m [mint Sock::Connect(const sockaddr* addr, socklen_t addr_len) const[m
+     return connect(m_socket, addr, addr_len);[m
+ }[m
+ [m
+[32m+[m[32mstd::unique_ptr<Sock> Sock::Accept(sockaddr* addr, socklen_t* addr_len) const[m
+[32m+[m[32m{[m
+[32m+[m[32m#ifdef WIN32[m
+[32m+[m[32m    static constexpr auto ERR = INVALID_SOCKET;[m
+[32m+[m[32m#else[m
+[32m+[m[32m    static constexpr auto ERR = SOCKET_ERROR;[m
+[32m+[m[32m#endif[m
+[32m+[m
+[32m+[m[32m    const auto socket = accept(m_socket, addr, addr_len);[m
+[32m+[m[32m    if (socket == ERR) {[m
+[32m+[m[32m        return nullptr;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return std::make_unique<Sock>(socket);[m
+[32m+[m[32m}[m
+[32m+[m
+ int Sock::GetSockOpt(int level, int opt_name, void* opt_val, socklen_t* opt_len) const[m
+ {[m
+     return getsockopt(m_socket, level, opt_name, static_cast<char*>(opt_val), opt_len);[m
+[33mdiff --git a/src/util/sock.h b/src/util/sock.h[m
+[33mindex 59cc8c0b1d..7510482857 100644[m
+[33m--- a/src/util/sock.h[m
+[33m+++ b/src/util/sock.h[m
+[36m@@ -10,6 +10,7 @@[m
+ #include <util/time.h>[m
+ [m
+ #include <chrono>[m
+[32m+[m[32m#include <memory>[m
+ #include <string>[m
+ [m
+ /**[m
+[36m@@ -96,6 +97,14 @@[m [mpublic:[m
+      */[m
+     [[nodiscard]] virtual int Connect(const sockaddr* addr, socklen_t addr_len) const;[m
+ [m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * accept(2) wrapper. Equivalent to `std::make_unique<Sock>(accept(this->Get(), addr, addr_len))`.[m
+[32m+[m[32m     * Code that uses this wrapper can be unit tested if this method is overridden by a mock Sock[m
+[32m+[m[32m     * implementation.[m
+[32m+[m[32m     * The returned unique_ptr is empty if `accept()` failed in which case errno will be set.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    [[nodiscard]] virtual std::unique_ptr<Sock> Accept(sockaddr* addr, socklen_t* addr_len) const;[m
+[32m+[m
+     /**[m
+      * getsockopt(2) wrapper. Equivalent to[m
+      * `getsockopt(this->Get(), level, opt_name, opt_val, opt_len)`. Code that uses this[m

@@ -1,0 +1,123 @@
+[33mdiff --git a/src/interfaces/chain.h b/src/interfaces/chain.h[m
+[33mindex 3395741b1b..96c64a3cb1 100644[m
+[33m--- a/src/interfaces/chain.h[m
+[33m+++ b/src/interfaces/chain.h[m
+[36m@@ -262,11 +262,18 @@[m [mpublic:[m
+     //! Current RPC serialization flags.[m
+     virtual int rpcSerializationFlags() = 0;[m
+ [m
+[32m+[m[32m    //! Get settings value.[m
+[32m+[m[32m    virtual util::SettingsValue getSetting(const std::string& arg) = 0;[m
+[32m+[m
+[32m+[m[32m    //! Get list of settings values.[m
+[32m+[m[32m    virtual std::vector<util::SettingsValue> getSettingsList(const std::string& arg) = 0;[m
+[32m+[m
+     //! Return <datadir>/settings.json setting value.[m
+     virtual util::SettingsValue getRwSetting(const std::string& name) = 0;[m
+ [m
+[31m-    //! Write a setting to <datadir>/settings.json.[m
+[31m-    virtual bool updateRwSetting(const std::string& name, const util::SettingsValue& value) = 0;[m
+[32m+[m[32m    //! Write a setting to <datadir>/settings.json. Optionally just update the[m
+[32m+[m[32m    //! setting in memory and do not write the file.[m
+[32m+[m[32m    virtual bool updateRwSetting(const std::string& name, const util::SettingsValue& value, bool write=true) = 0;[m
+ [m
+     //! Synchronously send transactionAddedToMempool notifications about all[m
+     //! current mempool transactions to the specified handler and return after[m
+[33mdiff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp[m
+[33mindex 171f15d4fb..cc74eec57c 100644[m
+[33m--- a/src/node/interfaces.cpp[m
+[33m+++ b/src/node/interfaces.cpp[m
+[36m@@ -690,6 +690,14 @@[m [mpublic:[m
+         RPCRunLater(name, std::move(fn), seconds);[m
+     }[m
+     int rpcSerializationFlags() override { return RPCSerializationFlags(); }[m
+[32m+[m[32m    util::SettingsValue getSetting(const std::string& name) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return gArgs.GetSetting(name);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    std::vector<util::SettingsValue> getSettingsList(const std::string& name) override[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return gArgs.GetSettingsList(name);[m
+[32m+[m[32m    }[m
+     util::SettingsValue getRwSetting(const std::string& name) override[m
+     {[m
+         util::SettingsValue result;[m
+[36m@@ -700,7 +708,7 @@[m [mpublic:[m
+         });[m
+         return result;[m
+     }[m
+[31m-    bool updateRwSetting(const std::string& name, const util::SettingsValue& value) override[m
+[32m+[m[32m    bool updateRwSetting(const std::string& name, const util::SettingsValue& value, bool write) override[m
+     {[m
+         gArgs.LockSettings([&](util::Settings& settings) {[m
+             if (value.isNull()) {[m
+[36m@@ -709,7 +717,7 @@[m [mpublic:[m
+                 settings.rw_settings[name] = value;[m
+             }[m
+         });[m
+[31m-        return gArgs.WriteSettingsFile();[m
+[32m+[m[32m        return !write || gArgs.WriteSettingsFile();[m
+     }[m
+     void requestMempoolTransactions(Notifications& notifications) override[m
+     {[m
+[33mdiff --git a/src/util/system.h b/src/util/system.h[m
+[33mindex c4317c62d0..55c16bafef 100644[m
+[33m--- a/src/util/system.h[m
+[33m+++ b/src/util/system.h[m
+[36m@@ -207,6 +207,7 @@[m [mprotected:[m
+      */[m
+     bool UseDefaultSection(const std::string& arg) const EXCLUSIVE_LOCKS_REQUIRED(cs_args);[m
+ [m
+[32m+[m[32m public:[m
+     /**[m
+      * Get setting value.[m
+      *[m
+[36m@@ -221,7 +222,6 @@[m [mprotected:[m
+      */[m
+     std::vector<util::SettingsValue> GetSettingsList(const std::string& arg) const;[m
+ [m
+[31m-public:[m
+     ArgsManager();[m
+     ~ArgsManager();[m
+ [m
+[33mdiff --git a/src/wallet/load.cpp b/src/wallet/load.cpp[m
+[33mindex dbf9fd46b6..5b3fccd54b 100644[m
+[33m--- a/src/wallet/load.cpp[m
+[33m+++ b/src/wallet/load.cpp[m
+[36m@@ -50,18 +50,20 @@[m [mbool VerifyWallets(interfaces::Chain& chain)[m
+         options.require_existing = true;[m
+         options.verify = false;[m
+         if (MakeWalletDatabase("", options, status, error_string)) {[m
+[31m-            gArgs.LockSettings([&](util::Settings& settings) {[m
+[31m-                util::SettingsValue wallets(util::SettingsValue::VARR);[m
+[31m-                wallets.push_back(""); // Default wallet name is ""[m
+[31m-                settings.rw_settings["wallet"] = wallets;[m
+[31m-            });[m
+[32m+[m[32m            util::SettingsValue wallets(util::SettingsValue::VARR);[m
+[32m+[m[32m            wallets.push_back(""); // Default wallet name is ""[m
+[32m+[m[32m            // Pass write=false because no need to write file and probably[m
+[32m+[m[32m            // better not to. If unnamed wallet needs to be added next startup[m
+[32m+[m[32m            // and the setting is empty, this code will just run again.[m
+[32m+[m[32m            chain.updateRwSetting("wallet", wallets, /* write= */ false);[m
+         }[m
+     }[m
+ [m
+     // Keep track of each wallet absolute path to detect duplicates.[m
+     std::set<fs::path> wallet_paths;[m
+ [m
+[31m-    for (const auto& wallet_file : gArgs.GetArgs("-wallet")) {[m
+[32m+[m[32m    for (const auto& wallet : chain.getSettingsList("wallet")) {[m
+[32m+[m[32m        const auto& wallet_file = wallet.get_str();[m
+         const fs::path path = fsbridge::AbsPathJoin(GetWalletDir(), wallet_file);[m
+ [m
+         if (!wallet_paths.insert(path).second) {[m
+[36m@@ -91,7 +93,8 @@[m [mbool LoadWallets(interfaces::Chain& chain)[m
+ {[m
+     try {[m
+         std::set<fs::path> wallet_paths;[m
+[31m-        for (const std::string& name : gArgs.GetArgs("-wallet")) {[m
+[32m+[m[32m        for (const auto& wallet : chain.getSettingsList("wallet")) {[m
+[32m+[m[32m            const auto& name = wallet.get_str();[m
+             if (!wallet_paths.insert(name).second) {[m
+                 continue;[m
+             }[m
