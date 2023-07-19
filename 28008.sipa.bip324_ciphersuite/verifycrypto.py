@@ -83,3 +83,48 @@ assert res2.hex() == (
 "a6ad5cb4022b02709beead9d67890cbb22392336fea1851f38"
 )
 print("✓ test replicates A.5 vector")
+
+
+def int_to_hex(value, n):
+    # Each byte has 2 hex characters. So, the number of hex characters should be n*2
+    return hex(value)[2:].zfill(n*2)
+
+def rev_byte_order(hexstr: str):
+    # Reversing the byte order
+    return ''.join(reversed([hexstr[i:i+2] for i in range(0, len(hexstr), 2)]))
+
+
+def do_encrypt(plaintext: str, aad: str, key: str, nonce_tuple: tuple[int, int]) -> str:
+    nonce = rev_byte_order(int_to_hex(nonce_tuple[0], 4)) + rev_byte_order(int_to_hex(nonce_tuple[1], 8))
+    # print(nonce)
+    cip = ChaCha20Poly1305(fh(key))
+    return cip.encrypt(fh(nonce), fh(plaintext), fh(aad) if aad else None)
+
+
+def TestChaCha20Poly1305(
+        plaintext: str,
+        aad: str,
+        key: str,
+        nonce_tuple: tuple[int, int],
+        expected_cipher: str):
+    """Perform test vectors as they appear in Core, but with an unrelated Python implementation of ChaCha20Poly1305."""
+    result = do_encrypt(plaintext, aad, key, nonce_tuple)
+    assert result.hex() == expected_cipher
+
+
+print("non-RFC vectors")
+TestChaCha20Poly1305("8d2d6a8befd9716fab35819eaac83b33269afb9f1a00fddf66095a6c0cd91951"
+                     "a6b7ad3db580be0674c3f0b55f618e34",
+                     "",
+                     "72ddc73f07101282bbbcf853b9012a9f9695fc5d36b303a97fd0845d0314e0c3",
+                     [0x3432b75f, 0xb3585537eb7f4024],
+                     "f760b8224fb2a317b1b07875092606131232a5b86ae142df5df1c846a7f6341a"
+                     "f2564483dd77f836be45e6230808ffe402a6f0a3e8be074b3d1f4ea8a7b09451");
+TestChaCha20Poly1305("",
+                     "36970d8a704c065de16250c18033de5a400520ac1b5842b24551e5823a3314f3"
+                     "946285171e04a81ebfbe3566e312e74ab80e94c7dd2ff4e10de0098a58d0f503",
+                     "77adda51d6730b9ad6c995658cbd49f581b2547e7c0c08fcc24ceec797461021",
+                     [0x1f90da88, 0x75dafa3ef84471a4],
+                     "aaae5bb81e8407c94b2ae86ae0c7efbe");
+
+print("✓ test replicates non-RFC vectors")
