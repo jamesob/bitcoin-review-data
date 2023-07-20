@@ -1,0 +1,1 @@
+- [ ] fa5d27d7e9 ci: Set DEBUG=1 for valgrind tasks

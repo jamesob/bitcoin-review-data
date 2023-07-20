@@ -1,0 +1,1 @@
+- [ ] fa2f18ad8e ci: Use DOCKER_BUILDKIT for lint image

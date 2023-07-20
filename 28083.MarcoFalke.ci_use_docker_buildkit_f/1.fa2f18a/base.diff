@@ -1,0 +1,169 @@
+[33mdiff --git a/.cirrus.yml b/.cirrus.yml[m
+[33mindex 5010bc9433..1a5d94dcfe 100644[m
+[33m--- a/.cirrus.yml[m
+[33m+++ b/.cirrus.yml[m
+[36m@@ -70,7 +70,7 @@[m [mtask:[m
+   # For faster CI feedback, immediately schedule the linters[m
+   << : *CREDITS_TEMPLATE[m
+   python_cache:[m
+[31m-    folder: "/tmp/python"[m
+[32m+[m[32m    folder: "/python_build"[m
+     fingerprint_script: cat .python-version /etc/os-release[m
+   unshallow_script:[m
+     - git fetch --unshallow --no-tags[m
+[33mdiff --git a/.python-version b/.python-version[m
+[33mindex eee6392d5c..e29d80998a 100644[m
+[33m--- a/.python-version[m
+[33m+++ b/.python-version[m
+[36m@@ -1 +1 @@[m
+[31m-3.8.16[m
+[32m+[m[32m3.8.17[m
+[33mdiff --git a/ci/lint/04_install.sh b/ci/lint/04_install.sh[m
+[33mindex b3b1c91ee0..148819f468 100755[m
+[33m--- a/ci/lint/04_install.sh[m
+[33m+++ b/ci/lint/04_install.sh[m
+[36m@@ -13,32 +13,31 @@[m [m${CI_RETRY_EXE} apt-get update[m
+ # - gpg (used by verify-commits)[m
+ ${CI_RETRY_EXE} apt-get install -y curl xz-utils git gpg[m
+ [m
+[31m-if [ -z "${SKIP_PYTHON_INSTALL}" ]; then[m
+[31m-    PYTHON_PATH=/tmp/python[m
+[31m-    if [ ! -d "${PYTHON_PATH}/bin" ]; then[m
+[31m-      ([m
+[31m-        git clone https://github.com/pyenv/pyenv.git[m
+[31m-        cd pyenv/plugins/python-build || exit 1[m
+[31m-        ./install.sh[m
+[31m-      )[m
+[31m-      # For dependencies see https://github.com/pyenv/pyenv/wiki#suggested-build-environment[m
+[31m-      ${CI_RETRY_EXE} apt-get install -y build-essential libssl-dev zlib1g-dev \[m
+[31m-        libbz2-dev libreadline-dev libsqlite3-dev curl llvm \[m
+[31m-        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \[m
+[31m-        clang[m
+[31m-      env CC=clang python-build "$(cat "${BASE_ROOT_DIR}/.python-version")" "${PYTHON_PATH}"[m
+[31m-    fi[m
+[31m-    export PATH="${PYTHON_PATH}/bin:${PATH}"[m
+[31m-    command -v python3[m
+[31m-    python3 --version[m
+[32m+[m[32mPYTHON_PATH="/python_build"[m
+[32m+[m[32mif [ ! -d "${PYTHON_PATH}/bin" ]; then[m
+[32m+[m[32m  ([m
+[32m+[m[32m    git clone https://github.com/pyenv/pyenv.git[m
+[32m+[m[32m    cd pyenv/plugins/python-build || exit 1[m
+[32m+[m[32m    ./install.sh[m
+[32m+[m[32m  )[m
+[32m+[m[32m  # For dependencies see https://github.com/pyenv/pyenv/wiki#suggested-build-environment[m
+[32m+[m[32m  ${CI_RETRY_EXE} apt-get install -y build-essential libssl-dev zlib1g-dev \[m
+[32m+[m[32m    libbz2-dev libreadline-dev libsqlite3-dev curl llvm \[m
+[32m+[m[32m    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \[m
+[32m+[m[32m    clang[m
+[32m+[m[32m  env CC=clang python-build "$(cat "./.python-version")" "${PYTHON_PATH}"[m
+ fi[m
+[32m+[m[32mexport PATH="${PYTHON_PATH}/bin:${PATH}"[m
+[32m+[m[32mcommand -v python3[m
+[32m+[m[32mpython3 --version[m
+ [m
+[31m-${CI_RETRY_EXE} pip3 install codespell==2.2.5[m
+[31m-${CI_RETRY_EXE} pip3 install flake8==6.0.0[m
+[31m-${CI_RETRY_EXE} pip3 install lief==0.13.2[m
+[31m-${CI_RETRY_EXE} pip3 install mypy==1.4.1[m
+[31m-${CI_RETRY_EXE} pip3 install pyzmq==25.1.0[m
+[31m-${CI_RETRY_EXE} pip3 install vulture==2.6[m
+[32m+[m[32m${CI_RETRY_EXE} pip3 install \[m
+[32m+[m[32m  codespell==2.2.5 \[m
+[32m+[m[32m  flake8==6.0.0 \[m
+[32m+[m[32m  lief==0.13.2 \[m
+[32m+[m[32m  mypy==1.4.1 \[m
+[32m+[m[32m  pyzmq==25.1.0 \[m
+[32m+[m[32m  vulture==2.6[m
+ [m
+ SHELLCHECK_VERSION=v0.8.0[m
+ curl -sL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | \[m
+[33mdiff --git a/ci/lint/Dockerfile b/ci/lint/Dockerfile[m
+[33mdeleted file mode 100644[m
+[33mindex a0a4516480..0000000000[m
+[33m--- a/ci/lint/Dockerfile[m
+[33m+++ /dev/null[m
+[36m@@ -1,29 +0,0 @@[m
+[2m-# See test/lint/README.md for usage.[m
+[31m-#[m
+[31m-# This container basically has to live in this directory in order to pull in the CI[m
+[31m-# install scripts. If it lived in the root directory, it would have to pull in the[m
+[31m-# entire repo as docker context during build; if it lived elsewhere, it wouldn't be[m
+[31m-# able to make back-references to pull in the install scripts. So here it lives.[m
+[31m-[m
+[31m-FROM python:3.8-buster[m
+[2m-[m
+[2m-ENV DEBIAN_FRONTEND=noninteractive[m
+[2m-ENV LC_ALL=C.UTF-8[m
+[2m-[m
+[31m-# This is used by the 04_install.sh script; we can't read the Python version from[m
+[31m-# .python-version for the same reasons as above, and it's more efficient to pull a[m
+[31m-# preexisting Python image than it is to build from source.[m
+[31m-ENV SKIP_PYTHON_INSTALL=1[m
+[31m-[m
+[31m-# Must be built from ./ci/lint/ for these paths to work.[m
+[31m-COPY ./docker-entrypoint.sh /entrypoint.sh[m
+[31m-COPY ./04_install.sh /install.sh[m
+[2m-[m
+[2m-RUN /install.sh && \[m
+[2m-  echo 'alias lint="./ci/lint/06_script.sh"' >> ~/.bashrc && \[m
+[2m-  chmod 755 /entrypoint.sh && \[m
+[2m-  rm -rf /var/lib/apt/lists/*[m
+[2m-[m
+[2m-[m
+[2m-WORKDIR /bitcoin[m
+[2m-ENTRYPOINT ["/entrypoint.sh"][m
+[33mdiff --git a/ci/lint/docker-entrypoint.sh b/ci/lint/docker-entrypoint.sh[m
+[33mindex 3fdbbb0761..63bd2d4298 100755[m
+[33m--- a/ci/lint/docker-entrypoint.sh[m
+[33m+++ b/ci/lint/docker-entrypoint.sh[m
+[36m@@ -5,6 +5,8 @@[m [mexport LC_ALL=C[m
+ # of the mounted bitcoin src dir.[m
+ git config --global --add safe.directory /bitcoin[m
+ [m
+[32m+[m[32mexport PATH="/python_build/bin:${PATH}"[m
+[32m+[m
+ if [ -z "$1" ]; then[m
+   LOCAL_BRANCH=1 bash -ic "./ci/lint/06_script.sh"[m
+ else[m
+[33mdiff --git a/ci/lint_imagefile b/ci/lint_imagefile[m
+[33mnew file mode 100644[m
+[33mindex 0000000000..20047ea391[m
+[33m--- /dev/null[m
+[33m+++ b/ci/lint_imagefile[m
+[36m@@ -0,0 +1,19 @@[m
+[2m+[m[2m# See test/lint/README.md for usage.[m
+[32m+[m
+[32m+[m[32mFROM debian:bookworm[m
+[2m+[m
+[2m+[m[2mENV DEBIAN_FRONTEND=noninteractive[m
+[2m+[m[2mENV LC_ALL=C.UTF-8[m
+[2m+[m
+[32m+[m[32mCOPY ./.python-version /.python-version[m
+[32m+[m[32mCOPY ./ci/lint/docker-entrypoint.sh /entrypoint.sh[m
+[32m+[m[32mCOPY ./ci/lint/04_install.sh /install.sh[m
+[2m+[m
+[2m+[m[2mRUN /install.sh && \[m
+[2m+[m[2m  echo 'alias lint="./ci/lint/06_script.sh"' >> ~/.bashrc && \[m
+[2m+[m[2m  chmod 755 /entrypoint.sh && \[m
+[2m+[m[2m  rm -rf /var/lib/apt/lists/*[m
+[2m+[m
+[2m+[m
+[2m+[m[2mWORKDIR /bitcoin[m
+[2m+[m[2mENTRYPOINT ["/entrypoint.sh"][m
+[33mdiff --git a/test/lint/README.md b/test/lint/README.md[m
+[33mindex 704922d7ab..d9cfeb50ed 100644[m
+[33m--- a/test/lint/README.md[m
+[33m+++ b/test/lint/README.md[m
+[36m@@ -7,10 +7,8 @@[m [mTo run linters locally with the same versions as the CI environment, use the inc[m
+ Dockerfile:[m
+ [m
+ ```sh[m
+[31m-cd ./ci/lint[m
+[31m-docker build -t bitcoin-linter .[m
+[32m+[m[32mDOCKER_BUILDKIT=1 docker build -t bitcoin-linter --file "./ci/lint_imagefile" ./[m
+ [m
+[31m-cd /root/of/bitcoin/repo[m
+ docker run --rm -v $(pwd):/bitcoin -it bitcoin-linter[m
+ ```[m
+ [m
