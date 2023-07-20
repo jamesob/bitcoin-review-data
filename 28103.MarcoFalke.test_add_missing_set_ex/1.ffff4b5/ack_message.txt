@@ -1,0 +1,4 @@
+ACK ffff4b5dc57c32bf759b705530c1368de4aa787e ([`jamesob/ackr/28103.1.MarcoFalke.test_add_missing_set_ex`](https://github.com/jamesob/bitcoin/tree/ackr/28103.1.MarcoFalke.test_add_missing_set_ex))
+
+Tested locally; lint errors surfaced through the lint container give non-zero error code as expected, which will allow local git hooks to e.g. stop pushes on error.
+
