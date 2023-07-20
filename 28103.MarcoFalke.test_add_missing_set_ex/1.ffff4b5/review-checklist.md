@@ -1,0 +1,2 @@
+- [ ] fadc5232f4 doc: Add doc comment to ci/test_imagefile
+- [ ] ffff4b5dc5 lint: Add missing `set -ex` to ci/lint/06_script.sh

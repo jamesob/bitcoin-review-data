@@ -1,0 +1,75 @@
+diff --git a/ci/lint/06_script.sh b/ci/lint/06_script.sh
+index fa28f6126c..ccde12a033 100755
+--- a/ci/lint/06_script.sh
++++ b/ci/lint/06_script.sh
+@@ -6,6 +6,8 @@
+ 
+ export LC_ALL=C
+ 
++set -ex
++
+ if [ -n "$LOCAL_BRANCH" ]; then
+   # To faithfully recreate CI linting locally, specify all commits on the current
+   # branch.
+diff --git a/ci/lint/docker-entrypoint.sh b/ci/lint/container-entrypoint.sh
+similarity index 66%
+rename from ci/lint/docker-entrypoint.sh
+rename to ci/lint/container-entrypoint.sh
+index 63bd2d4298..e94a75e22c 100755
+--- a/ci/lint/docker-entrypoint.sh
++++ b/ci/lint/container-entrypoint.sh
+@@ -1,4 +1,9 @@
+ #!/usr/bin/env bash
++#
++# Copyright (c) The Bitcoin Core developers
++# Distributed under the MIT software license, see the accompanying
++# file COPYING or https://opensource.org/license/mit/.
++
+ export LC_ALL=C
+ 
+ # Fixes permission issues when there is a container UID/GID mismatch with the owner
+diff --git a/ci/lint_imagefile b/ci/lint_imagefile
+index 20047ea391..4136a9bfde 100644
+--- a/ci/lint_imagefile
++++ b/ci/lint_imagefile
+@@ -1,3 +1,7 @@
++# Copyright (c) The Bitcoin Core developers
++# Distributed under the MIT software license, see the accompanying
++# file COPYING or https://opensource.org/license/mit/.
++
+ # See test/lint/README.md for usage.
+ 
+ FROM debian:bookworm
+@@ -6,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive
+ ENV LC_ALL=C.UTF-8
+ 
+ COPY ./.python-version /.python-version
+-COPY ./ci/lint/docker-entrypoint.sh /entrypoint.sh
++COPY ./ci/lint/container-entrypoint.sh /entrypoint.sh
+ COPY ./ci/lint/04_install.sh /install.sh
+ 
+ RUN /install.sh && \
+diff --git a/ci/lint_run_all.sh b/ci/lint_run_all.sh
+index 7adfe71674..b56ee0d303 100755
+--- a/ci/lint_run_all.sh
++++ b/ci/lint_run_all.sh
+@@ -8,4 +8,5 @@ export LC_ALL=C.UTF-8
+ 
+ set -o errexit; source ./ci/test/00_setup_env.sh
+ set -o errexit; source ./ci/lint/04_install.sh
+-set -o errexit; source ./ci/lint/06_script.sh
++set -o errexit
++./ci/lint/06_script.sh
+diff --git a/ci/test_imagefile b/ci/test_imagefile
+index 4854708d1a..8dfb5916b1 100644
+--- a/ci/test_imagefile
++++ b/ci/test_imagefile
+@@ -1,3 +1,9 @@
++# Copyright (c) The Bitcoin Core developers
++# Distributed under the MIT software license, see the accompanying
++# file COPYING or https://opensource.org/license/mit/.
++
++# See ci/README.md for usage.
++
+ ARG CI_IMAGE_NAME_TAG
+ FROM ${CI_IMAGE_NAME_TAG}
