@@ -1,0 +1,7 @@
+ACK 180909f2c859be3c79630d9705c26a457715b9ed ([`jamesob/ackr/28008.3.sipa.bip324_ciphersuite`](https://github.com/jamesob/bitcoin/tree/ackr/28008.3.sipa.bip324_ciphersuite))
+
+Looks great. I've spent about a week ramping up on BIP-324, reading the BIPs and underlying RFC 8439, asking @sipa stupid questions about the garbage terminator, and carefully reviewing the code in this pull request. I've verified the ChaCha20-Poly1305 test vectors against an unrelated implementation (Python's chacha20poly1305, in [this script](https://github.com/jamesob/bitcoin-review-data/blob/master/28008.sipa.bip324_ciphersuite/verifycrypto.py).
+
+I haven't hand-verified the BIP-325 test vectors, but I have at least verified that they are a faithful reproduction of the same vectors used to validate the example BIP-0325 Python implementation, included in the BIPs repo. So at the very least, I have verified that this implementation is a faithful reproduction of the one sketched by the BIP.
+
+The code looks very good, and is pretty easy to follow with minor cosmetic phrasing differences from the protocol flow described in the BIP. Outside of running tests, I haven't run this branch on mainnet simply because none of the changes really interface with live codepaths; this code will certainly be used in future BIP-325 related patches, which will merit live testing. I think it is sufficient to lean on the introduced test coverage to attest to the safety of this change.
