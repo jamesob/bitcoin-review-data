@@ -1,0 +1,2 @@
+- [ ] 526f6f62a1 contrib: add tool to convert compact-serialized UTXO set to SQLite database
+- [ ] 3ce180ac2d test: add test for utxo-to-sqlite conversion script
