@@ -1,0 +1,200 @@
+--- /home/james/.ackr/28008.sipa.bip324_ciphersuite/3.180909f/base.diff	2023-07-25 12:13:37.729520128 -0400
++++ /home/james/.ackr/28008.sipa.bip324_ciphersuite/4.1c7582e/base.diff	2023-07-27 11:07:44.760607799 -0400
+@@ -1,5 +1,5 @@
+ diff --git a/src/Makefile.am b/src/Makefile.am
+-index e1ae049b15..7aa4fb24d9 100644
++index dfea7146aa..fecf86498f 100644
+ --- a/src/Makefile.am
+ +++ b/src/Makefile.am
+ @@ -124,6 +124,7 @@ BITCOIN_CORE_H = \
+@@ -10,7 +10,7 @@
+    blockencodings.h \
+    blockfilter.h \
+    chain.h \
+-@@ -375,6 +376,7 @@ libbitcoin_node_a_SOURCES = \
++@@ -376,6 +377,7 @@ libbitcoin_node_a_SOURCES = \
+    addrdb.cpp \
+    addrman.cpp \
+    banman.cpp \
+@@ -18,7 +18,7 @@
+    blockencodings.cpp \
+    blockfilter.cpp \
+    chain.cpp \
+-@@ -544,10 +546,10 @@ crypto_libbitcoin_crypto_base_la_LDFLAGS = $(AM_LDFLAGS) -static
++@@ -546,10 +548,10 @@ crypto_libbitcoin_crypto_base_la_LDFLAGS = $(AM_LDFLAGS) -static
+  crypto_libbitcoin_crypto_base_la_SOURCES = \
+    crypto/aes.cpp \
+    crypto/aes.h \
+@@ -620,7 +620,7 @@
+  #endif // BITCOIN_CRYPTO_CHACHA20_H
+ diff --git a/src/crypto/chacha20poly1305.cpp b/src/crypto/chacha20poly1305.cpp
+ new file mode 100644
+-index 0000000000..a0a6decbc2
++index 0000000000..c936dd2265
+ --- /dev/null
+ +++ b/src/crypto/chacha20poly1305.cpp
+ @@ -0,0 +1,142 @@
+@@ -668,7 +668,7 @@
+ +
+ +#endif
+ +
+-+/** Compute poly1305 thag. chacha20 must be set to the right nonce, block 0. Will be at block 1 after. */
+++/** Compute poly1305 tag. chacha20 must be set to the right nonce, block 0. Will be at block 1 after. */
+ +void ComputeTag(ChaCha20& chacha20, Span<const std::byte> aad, Span<const std::byte> cipher, Span<std::byte> tag) noexcept
+ +{
+ +    static const std::byte PADDING[16] = {{}};
+@@ -1227,10 +1227,10 @@
+          m_pubkey(ellswift) {}
+ diff --git a/src/test/bip324_tests.cpp b/src/test/bip324_tests.cpp
+ new file mode 100644
+-index 0000000000..4a6684cd30
++index 0000000000..ccb9e59e58
+ --- /dev/null
+ +++ b/src/test/bip324_tests.cpp
+-@@ -0,0 +1,300 @@
++@@ -0,0 +1,304 @@
+ +// Copyright (c) 2023 The Bitcoin Core developers
+ +// Distributed under the MIT software license, see the accompanying
+ +// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+@@ -1268,22 +1268,22 @@
+ +    const std::string& out_ciphertext_endswith_hex)
+ +{
+ +    // Convert input from hex to char/byte vectors/arrays.
+-+    auto in_priv_ours = ParseHex(in_priv_ours_hex);
+-+    auto in_ellswift_ours_vec = ParseHex<std::byte>(in_ellswift_ours_hex);
+++    const auto in_priv_ours = ParseHex(in_priv_ours_hex);
+++    const auto in_ellswift_ours_vec = ParseHex<std::byte>(in_ellswift_ours_hex);
+ +    assert(in_ellswift_ours_vec.size() == 64);
+ +    std::array<std::byte, 64> in_ellswift_ours;
+ +    std::copy(in_ellswift_ours_vec.begin(), in_ellswift_ours_vec.end(), in_ellswift_ours.begin());
+-+    auto in_ellswift_theirs_vec = ParseHex<std::byte>(in_ellswift_theirs_hex);
+++    const auto in_ellswift_theirs_vec = ParseHex<std::byte>(in_ellswift_theirs_hex);
+ +    assert(in_ellswift_theirs_vec.size() == 64);
+ +    std::array<std::byte, 64> in_ellswift_theirs;
+ +    std::copy(in_ellswift_theirs_vec.begin(), in_ellswift_theirs_vec.end(), in_ellswift_theirs.begin());
+-+    auto in_contents = ParseHex<std::byte>(in_contents_hex);
+-+    auto in_aad = ParseHex<std::byte>(in_aad_hex);
+-+    auto mid_send_garbage = ParseHex<std::byte>(mid_send_garbage_hex);
+-+    auto mid_recv_garbage = ParseHex<std::byte>(mid_recv_garbage_hex);
+-+    auto out_session_id = ParseHex<std::byte>(out_session_id_hex);
+-+    auto out_ciphertext = ParseHex<std::byte>(out_ciphertext_hex);
+-+    auto out_ciphertext_endswith = ParseHex<std::byte>(out_ciphertext_endswith_hex);
+++    const auto in_contents = ParseHex<std::byte>(in_contents_hex);
+++    const auto in_aad = ParseHex<std::byte>(in_aad_hex);
+++    const auto mid_send_garbage = ParseHex<std::byte>(mid_send_garbage_hex);
+++    const auto mid_recv_garbage = ParseHex<std::byte>(mid_recv_garbage_hex);
+++    const auto out_session_id = ParseHex<std::byte>(out_session_id_hex);
+++    const auto out_ciphertext = ParseHex<std::byte>(out_ciphertext_hex);
+++    const auto out_ciphertext_endswith = ParseHex<std::byte>(out_ciphertext_endswith_hex);
+ +
+ +    // Load keys
+ +    CKey key;
+@@ -1320,10 +1320,14 @@
+ +    std::vector<std::byte> ciphertext(contents.size() + cipher.EXPANSION);
+ +    cipher.Encrypt(contents, in_aad, in_ignore, ciphertext);
+ +
+-+    // Verify ciphertext.
+-+    if (!out_ciphertext.empty()) BOOST_CHECK(out_ciphertext == ciphertext);
+-+    BOOST_CHECK(ciphertext.size() >= out_ciphertext_endswith.size());
+-+    BOOST_CHECK(Span{out_ciphertext_endswith} == Span{ciphertext}.last(out_ciphertext_endswith.size()));
+++    // Verify ciphertext. Note that the test vectors specify either out_ciphertext (for short
+++    // messages) or out_ciphertext_endswith (for long messages), so only check the relevant one.
+++    if (!out_ciphertext.empty()) {
+++        BOOST_CHECK(out_ciphertext == ciphertext);
+++    } else {
+++        BOOST_CHECK(ciphertext.size() >= out_ciphertext_endswith.size());
+++        BOOST_CHECK(Span{out_ciphertext_endswith} == Span{ciphertext}.last(out_ciphertext_endswith.size()));
+++    }
+ +
+ +    for (unsigned error = 0; error <= 12; ++error) {
+ +        // error selects a type of error introduced:
+@@ -1532,7 +1536,7 @@
+ +
+ +BOOST_AUTO_TEST_SUITE_END()
+ diff --git a/src/test/crypto_tests.cpp b/src/test/crypto_tests.cpp
+-index 8332f54591..58a459151a 100644
++index 8332f54591..6663c914a9 100644
+ --- a/src/test/crypto_tests.cpp
+ +++ b/src/test/crypto_tests.cpp
+ @@ -4,7 +4,7 @@
+@@ -1632,7 +1636,7 @@
+ +    AEADChaCha20Poly1305 aead{key};
+ +    aead.Keystream(nonce, keystream);
+ +    for (size_t i = 0; i < plain.size(); ++i) {
+-+        BOOST_CHECK((plain[i] ^ keystream[i]) == expected_cipher[i]);
+++        BOOST_CHECK_EQUAL(plain[i] ^ keystream[i], expected_cipher[i]);
+ +    }
+ +}
+ +
+@@ -1716,12 +1720,15 @@
+      unsigned char b1[5], b2[7], b3[52];
+      c20 = ChaCha20{key.data()};
+      c20.Keystream(b1, 5);
+-@@ -819,6 +961,84 @@ BOOST_AUTO_TEST_CASE(poly1305_testvector)
++@@ -819,6 +961,87 @@ BOOST_AUTO_TEST_CASE(poly1305_testvector)
+                   "0e410fa9d7a40ac582e77546be9a72bb");
+  }
+  
+ +BOOST_AUTO_TEST_CASE(chacha20poly1305_testvectors)
+ +{
+++    // Note that in our implementation, the authentication is suffixed to the ciphertext.
+++    // The RFC test vectors specify them separately.
+++
+ +    // RFC 8439 Example from section 2.8.2
+ +    TestChaCha20Poly1305("4c616469657320616e642047656e746c656d656e206f662074686520636c6173"
+ +                         "73206f66202739393a204966204920636f756c64206f6666657220796f75206f"
+@@ -1801,7 +1808,7 @@
+  BOOST_AUTO_TEST_CASE(hkdf_hmac_sha256_l32_tests)
+  {
+      // Use rfc5869 test vectors but truncated to 32 bytes (our implementation only support length 32)
+-@@ -839,129 +1059,6 @@ BOOST_AUTO_TEST_CASE(hkdf_hmac_sha256_l32_tests)
++@@ -839,129 +1062,6 @@ BOOST_AUTO_TEST_CASE(hkdf_hmac_sha256_l32_tests)
+                  "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d");
+  }
+  
+@@ -1933,10 +1940,10 @@
+      FastRandomContext ctx;
+ diff --git a/src/test/fuzz/bip324.cpp b/src/test/fuzz/bip324.cpp
+ new file mode 100644
+-index 0000000000..5df279b7df
++index 0000000000..359de6c66a
+ --- /dev/null
+ +++ b/src/test/fuzz/bip324.cpp
+-@@ -0,0 +1,133 @@
++@@ -0,0 +1,137 @@
+ +// Copyright (c) 2023 The Bitcoin Core developers
+ +// Distributed under the MIT software license, see the accompanying
+ +// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+@@ -2030,9 +2037,13 @@
+ +        std::vector<std::byte> contents(length);
+ +        for (auto& val : contents) val = std::byte{(uint8_t)rng()};
+ +
+++        // Pick sides.
+++        auto& sender{from_init ? initiator : responder};
+++        auto& receiver{from_init ? responder : initiator};
+++
+ +        // Encrypt
+ +        std::vector<std::byte> ciphertext(length + initiator.EXPANSION);
+-+        (from_init ? initiator : responder).Encrypt(contents, aad, ignore, ciphertext);
+++        sender.Encrypt(contents, aad, ignore, ciphertext);
+ +
+ +        // Optionally damage 1 bit in either the ciphertext (corresponding to a change in transit)
+ +        // or the aad (to make sure that decryption will fail if the AAD mismatches).
+@@ -2049,7 +2060,7 @@
+ +        }
+ +
+ +        // Decrypt length
+-+        uint32_t dec_length = (from_init ? responder : initiator).DecryptLength(Span{ciphertext}.first(initiator.LENGTH_LEN));
+++        uint32_t dec_length = receiver.DecryptLength(Span{ciphertext}.first(initiator.LENGTH_LEN));
+ +        if (!damage) {
+ +            assert(dec_length == length);
+ +        } else {
+@@ -2062,7 +2073,7 @@
+ +        // Decrypt
+ +        std::vector<std::byte> decrypt(dec_length);
+ +        bool dec_ignore{false};
+-+        bool ok = (from_init ? responder : initiator).Decrypt(Span{ciphertext}.subspan(initiator.LENGTH_LEN), aad, dec_ignore, decrypt);
+++        bool ok = receiver.Decrypt(Span{ciphertext}.subspan(initiator.LENGTH_LEN), aad, dec_ignore, decrypt);
+ +        // Decryption *must* fail if the packet was damaged, and succeed if it wasn't.
+ +        assert(!ok == damage);
+ +        if (!ok) break;

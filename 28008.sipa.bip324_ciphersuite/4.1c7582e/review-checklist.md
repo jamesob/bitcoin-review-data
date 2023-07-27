@@ -1,0 +1,8 @@
+- [ ] 9fd085a1a4 crypto: remove outdated variant of ChaCha20Poly1305 AEAD
+- [ ] 9ff0768bdc crypto: add the ChaCha20Poly1305 AEAD as specified in RFC8439
+- [ ] 0fee267792 crypto: add FSChaCha20, a rekeying wrapper around ChaCha20
+- [ ] aa8cee9334 crypto: add FSChaCha20Poly1305, rekeying wrapper around ChaCha20Poly1305
+- [ ] af2b44c76e bench: add benchmark for FSChaCha20Poly1305
+- [ ] c91cedf281 crypto: support split plaintext in ChaCha20Poly1305 Encrypt/Decrypt
+- [ ] 990f0f8da9 Add BIP324Cipher, encapsulating key agreement, derivation, and stream/AEAD ciphers
+- [ ] 1c7582ead6 tests: add decryption test to bip324_tests
