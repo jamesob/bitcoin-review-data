@@ -1,0 +1,6 @@
+- [ ] dbe0b6ac85 refactor: merge transport serializer and deserializer into Transport class
+- [ ] 61d3dd3f29 net: add V1Transport lock protecting receive state
+- [ ] 78ee4aa690 net: abstract sending side of transport serialization further
+- [ ] d5f4a663b4 fuzz: add bidirectional fragmented transport test
+- [ ] 39615fdef6 net: measure send buffer fullness based on memory usage
+- [ ] 78c69f7728 net: move message serialization from PushMessage to SocketSendData

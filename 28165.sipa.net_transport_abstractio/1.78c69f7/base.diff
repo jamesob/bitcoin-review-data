@@ -1,0 +1,814 @@
+diff --git a/src/net.cpp b/src/net.cpp
+index 1eda51e9df..bb441daac7 100644
+--- a/src/net.cpp
++++ b/src/net.cpp
+@@ -19,6 +19,7 @@
+ #include <crypto/sha256.h>
+ #include <i2p.h>
+ #include <logging.h>
++#include <memusage.h>
+ #include <net_permissions.h>
+ #include <netaddress.h>
+ #include <netbase.h>
+@@ -113,6 +114,14 @@ std::map<CNetAddr, LocalServiceInfo> mapLocalHost GUARDED_BY(g_maplocalhost_mute
+ static bool vfLimited[NET_MAX] GUARDED_BY(g_maplocalhost_mutex) = {};
+ std::string strSubVersion;
+ 
++size_t CSerializedNetMsg::GetMemoryUsage() const noexcept
++{
++    // Don't count the dynamic memory used for the m_type string, by assuming it fits in the
++    // "small string" optimization area (which stores data inside the object itself, up to some
++    // size; 15 bytes in modern libstdc++).
++    return sizeof(*this) + memusage::DynamicUsage(data);
++}
++
+ void CConnman::AddAddrFetch(const std::string& strDest)
+ {
+     LOCK(m_addr_fetches_mutex);
+@@ -678,16 +687,16 @@ bool CNode::ReceiveMsgBytes(Span<const uint8_t> msg_bytes, bool& complete)
+     nRecvBytes += msg_bytes.size();
+     while (msg_bytes.size() > 0) {
+         // absorb network data
+-        int handled = m_deserializer->Read(msg_bytes);
++        int handled = m_transport->Read(msg_bytes);
+         if (handled < 0) {
+             // Serious header problem, disconnect from the peer.
+             return false;
+         }
+ 
+-        if (m_deserializer->Complete()) {
++        if (m_transport->Complete()) {
+             // decompose a transport agnostic CNetMessage from the deserializer
+             bool reject_message{false};
+-            CNetMessage msg = m_deserializer->GetMessage(time, reject_message);
++            CNetMessage msg = m_transport->GetMessage(time, reject_message);
+             if (reject_message) {
+                 // Message deserialization failed. Drop the message but don't disconnect the peer.
+                 // store the size of the corrupt message
+@@ -714,7 +723,7 @@ bool CNode::ReceiveMsgBytes(Span<const uint8_t> msg_bytes, bool& complete)
+     return true;
+ }
+ 
+-int V1TransportDeserializer::readHeader(Span<const uint8_t> msg_bytes)
++int V1Transport::readHeader(Span<const uint8_t> msg_bytes)
+ {
+     // copy data to temporary parsing buffer
+     unsigned int nRemaining = CMessageHeader::HEADER_SIZE - nHdrPos;
+@@ -754,7 +763,7 @@ int V1TransportDeserializer::readHeader(Span<const uint8_t> msg_bytes)
+     return nCopy;
+ }
+ 
+-int V1TransportDeserializer::readData(Span<const uint8_t> msg_bytes)
++int V1Transport::readData(Span<const uint8_t> msg_bytes)
+ {
+     unsigned int nRemaining = hdr.nMessageSize - nDataPos;
+     unsigned int nCopy = std::min<unsigned int>(nRemaining, msg_bytes.size());
+@@ -771,18 +780,20 @@ int V1TransportDeserializer::readData(Span<const uint8_t> msg_bytes)
+     return nCopy;
+ }
+ 
+-const uint256& V1TransportDeserializer::GetMessageHash() const
++const uint256& V1Transport::GetMessageHash() const
+ {
+-    assert(Complete());
++    assert(CompleteInternal());
+     if (data_hash.IsNull())
+         hasher.Finalize(data_hash);
+     return data_hash;
+ }
+ 
+-CNetMessage V1TransportDeserializer::GetMessage(const std::chrono::microseconds time, bool& reject_message)
++CNetMessage V1Transport::GetMessage(const std::chrono::microseconds time, bool& reject_message)
+ {
+     // Initialize out parameter
+     reject_message = false;
++
++    LOCK(m_cs_recv);
+     // decompose a single CNetMessage from the TransportDeserializer
+     CNetMessage msg(std::move(vRecv));
+ 
+@@ -816,7 +827,13 @@ CNetMessage V1TransportDeserializer::GetMessage(const std::chrono::microseconds
+     return msg;
+ }
+ 
+-void V1TransportSerializer::prepareForTransport(CSerializedNetMsg& msg, std::vector<unsigned char>& header) const
++bool V1Transport::DoneSendingMessage() const noexcept
++{
++    LOCK(m_cs_send);
++    return !m_sending_header && m_bytes_sent == m_message_to_send.data.size();
++}
++
++void V1Transport::SetMessageToSend(CSerializedNetMsg&& msg) noexcept
+ {
+     // create dbl-sha256 checksum
+     uint256 hash = Hash(msg.data);
+@@ -826,8 +843,53 @@ void V1TransportSerializer::prepareForTransport(CSerializedNetMsg& msg, std::vec
+     memcpy(hdr.pchChecksum, hash.begin(), CMessageHeader::CHECKSUM_SIZE);
+ 
+     // serialize header
+-    header.reserve(CMessageHeader::HEADER_SIZE);
+-    CVectorWriter{SER_NETWORK, INIT_PROTO_VERSION, header, 0, hdr};
++    LOCK(m_cs_send);
++    m_header_to_send.clear();
++    CVectorWriter{SER_NETWORK, INIT_PROTO_VERSION, m_header_to_send, 0, hdr};
++
++    // update state
++    m_message_to_send = std::move(msg);
++    m_sending_header = true;
++    m_bytes_sent = 0;
++}
++
++bool V1Transport::HaveBytesToSend() const noexcept
++{
++    LOCK(m_cs_send);
++    return m_sending_header || m_bytes_sent != m_message_to_send.data.size();
++}
++
++Transport::BytesToSend V1Transport::GetBytesToSend() const noexcept
++{
++    LOCK(m_cs_send);
++    if (m_sending_header) {
++        return {Span{m_header_to_send}.subspan(m_bytes_sent), !m_message_to_send.data.empty(), m_message_to_send.m_type};
++    } else {
++        return {Span{m_message_to_send.data}.subspan(m_bytes_sent), false, m_message_to_send.m_type};
++    }
++}
++
++void V1Transport::MarkBytesSent(size_t bytes_sent) noexcept
++{
++    LOCK(m_cs_send);
++    m_bytes_sent += bytes_sent;
++    if (m_sending_header && m_bytes_sent == m_header_to_send.size()) {
++        // We're done sending a message's header. Switch to sending its data bytes.
++        m_sending_header = false;
++        m_bytes_sent = 0;
++    } else if (!m_sending_header && m_bytes_sent == m_message_to_send.data.size()) {
++        // We're done sending a message's data. Wipe the data vector to reduce memory consumption.
++        m_message_to_send.data.clear();
++        m_message_to_send.data.shrink_to_fit();
++        m_bytes_sent = 0;
++    }
++}
++
++size_t V1Transport::GetSendMemoryUsage() const noexcept
++{
++    LOCK(m_cs_send);
++    // Don't count sending-side fields besides m_message_to_send, as they're all small and bounded.
++    return m_message_to_send.GetMemoryUsage();
+ }
+ 
+ size_t CConnman::SocketSendData(CNode& node) const
+@@ -835,38 +897,30 @@ size_t CConnman::SocketSendData(CNode& node) const
+     auto it = node.vSendMsg.begin();
+     size_t nSentSize = 0;
+ 
+-    while (it != node.vSendMsg.end()) {
+-        const auto& data = *it;
+-        assert(data.size() > node.nSendOffset);
++    while (true) {
++        const auto& [data, more, msg_type] = node.m_transport->GetBytesToSend();
+         int nBytes = 0;
+-        {
++        if (!data.empty()) {
+             LOCK(node.m_sock_mutex);
+             if (!node.m_sock) {
+                 break;
+             }
+             int flags = MSG_NOSIGNAL | MSG_DONTWAIT;
+ #ifdef MSG_MORE
+-            if (it + 1 != node.vSendMsg.end()) {
++            if (more || it != node.vSendMsg.end()) {
+                 flags |= MSG_MORE;
+             }
+ #endif
+-            nBytes = node.m_sock->Send(reinterpret_cast<const char*>(data.data()) + node.nSendOffset, data.size() - node.nSendOffset, flags);
++            nBytes = node.m_sock->Send(reinterpret_cast<const char*>(data.data()), data.size(), flags);
+         }
+         if (nBytes > 0) {
+             node.m_last_send = GetTime<std::chrono::seconds>();
+             node.nSendBytes += nBytes;
+-            node.nSendOffset += nBytes;
++            node.m_transport->MarkBytesSent(nBytes);
++            node.AccountForSentBytes(msg_type, nBytes);
+             nSentSize += nBytes;
+-            if (node.nSendOffset == data.size()) {
+-                node.nSendOffset = 0;
+-                node.nSendSize -= data.size();
+-                node.fPauseSend = node.nSendSize > nSendBufferMaxSize;
+-                it++;
+-            } else {
+-                // could not send full message; stop sending more
+-                break;
+-            }
+-        } else {
++        }
++        if (nBytes < (ssize_t)data.size()) {
+             if (nBytes < 0) {
+                 // error
+                 int nErr = WSAGetLastError();
+@@ -875,14 +929,23 @@ size_t CConnman::SocketSendData(CNode& node) const
+                     node.CloseSocketDisconnect();
+                 }
+             }
+-            // couldn't send anything at all
++            // could not send full message (or nothing at all); stop sending more
+             break;
+         }
++        if (node.m_transport->DoneSendingMessage()) {
++            // If neither the transport nor vSendMsg have anything to send, stop.
++            if (it == node.vSendMsg.end()) break;
++            // If instead there are messages left in vSendMsg, move one to the transport.
++            node.m_send_memusage -= it->GetMemoryUsage();
++            node.m_transport->SetMessageToSend(std::move(*it));
++            ++it;
++        }
+     }
+ 
++    node.fPauseSend = node.m_send_memusage + node.m_transport->GetSendMemoryUsage() > nSendBufferMaxSize;
++
+     if (it == node.vSendMsg.end()) {
+-        assert(node.nSendOffset == 0);
+-        assert(node.nSendSize == 0);
++        assert(node.m_send_memusage == 0);
+     }
+     node.vSendMsg.erase(node.vSendMsg.begin(), it);
+     return nSentSize;
+@@ -1235,7 +1298,9 @@ Sock::EventsPerSock CConnman::GenerateWaitSockets(Span<CNode* const> nodes)
+         bool select_send;
+         {
+             LOCK(pnode->cs_vSend);
+-            select_send = !pnode->vSendMsg.empty();
++            // This relies on optimistic send to make sure the transport always has a message to
++            // send if there are any.
++            select_send = pnode->m_transport->HaveBytesToSend();
+         }
+ 
+         LOCK(pnode->m_sock_mutex);
+@@ -2782,8 +2847,7 @@ CNode::CNode(NodeId idIn,
+              ConnectionType conn_type_in,
+              bool inbound_onion,
+              CNodeOptions&& node_opts)
+-    : m_deserializer{std::make_unique<V1TransportDeserializer>(V1TransportDeserializer(Params(), idIn, SER_NETWORK, INIT_PROTO_VERSION))},
+-      m_serializer{std::make_unique<V1TransportSerializer>(V1TransportSerializer())},
++    : m_transport{std::make_unique<V1Transport>(Params(), idIn, SER_NETWORK, INIT_PROTO_VERSION)},
+       m_permission_flags{node_opts.permission_flags},
+       m_sock{sock},
+       m_connected{GetTime<std::chrono::seconds>()},
+@@ -2866,23 +2930,14 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
+         msg.data.data()
+     );
+ 
+-    // make sure we use the appropriate network transport format
+-    std::vector<unsigned char> serializedHeader;
+-    pnode->m_serializer->prepareForTransport(msg, serializedHeader);
+-    size_t nTotalSize = nMessageSize + serializedHeader.size();
+-
+     size_t nBytesSent = 0;
+     {
+         LOCK(pnode->cs_vSend);
+-        bool optimisticSend(pnode->vSendMsg.empty());
+-
+-        //log total amount of bytes per message type
+-        pnode->AccountForSentBytes(msg.m_type, nTotalSize);
+-        pnode->nSendSize += nTotalSize;
++        bool optimisticSend{pnode->vSendMsg.empty() && pnode->m_transport->DoneSendingMessage()};
+ 
+-        if (pnode->nSendSize > nSendBufferMaxSize) pnode->fPauseSend = true;
+-        pnode->vSendMsg.push_back(std::move(serializedHeader));
+-        if (nMessageSize) pnode->vSendMsg.push_back(std::move(msg.data));
++        pnode->m_send_memusage += msg.GetMemoryUsage();
++        pnode->vSendMsg.push_back(std::move(msg));
++        if (pnode->m_send_memusage + pnode->m_transport->GetSendMemoryUsage() > nSendBufferMaxSize) pnode->fPauseSend = true;
+ 
+         // If write queue empty, attempt "optimistic write"
+         if (optimisticSend) nBytesSent = SocketSendData(*pnode);
+diff --git a/src/net.h b/src/net.h
+index 7427d0f45b..2cf10993c9 100644
+--- a/src/net.h
++++ b/src/net.h
+@@ -122,6 +122,9 @@ struct CSerializedNetMsg {
+ 
+     std::vector<unsigned char> data;
+     std::string m_type;
++
++    /** Compute total memory usage of this object (own memory + any dynamic memory). */
++    size_t GetMemoryUsage() const noexcept;
+ };
+ 
+ /**
+@@ -253,42 +256,68 @@ public:
+     }
+ };
+ 
+-/** The TransportDeserializer takes care of holding and deserializing the
+- * network receive buffer. It can deserialize the network buffer into a
+- * transport protocol agnostic CNetMessage (message type & payload)
+- */
+-class TransportDeserializer {
++/** The Transport deserializes received messages, and serializes sent messages. */
++class Transport {
+ public:
++    virtual ~Transport() {}
++
++    // 1. Receiver side functions, for deserializing the network buffer into a transport protocol
++    // agnostic CNetMessage (message type & payload). Callers must guarantee that none of these
++    // functions are called concurrently w.r.t. one another.
++
+     // returns true if the current deserialization is complete
+     virtual bool Complete() const = 0;
+-    // set the serialization context version
++    // set the deserialization context version
+     virtual void SetVersion(int version) = 0;
+     /** read and deserialize data, advances msg_bytes data pointer */
+     virtual int Read(Span<const uint8_t>& msg_bytes) = 0;
+     // decomposes a message from the context
+     virtual CNetMessage GetMessage(std::chrono::microseconds time, bool& reject_message) = 0;
+-    virtual ~TransportDeserializer() {}
++
++    // 2. Sending side functions, for serializing messages into bytes to be sent over the wire.
++    // Callers must guarantee that none of these functions are called concurrently w.r.t. one
++    // another.
++
++    /** Whether the last provided message has been sent, and a new one can be provided. */
++    virtual bool DoneSendingMessage() const noexcept = 0;
++    /** Set a message to send (only allowed if DoneSendingMessage()). */
++    virtual void SetMessageToSend(CSerializedNetMsg&& msg) noexcept = 0;
++    /** Whether there are bytes to send on the wire. */
++    virtual bool HaveBytesToSend() const noexcept = 0;
++    /** Return type for GetBytesToSend, consisting of:
++     *  - Span<const uint8_t>: span of bytes to be sent over the wire (empty if !HaveBytesToSend())
++     *  - bool: whether more bytes to be sent follow after the ones in the span have been sent
++     *  - const std::string&: message type on behalf of which this is being sent (or "" if n/a)
++     */
++    using BytesToSend = std::tuple<Span<const uint8_t>, bool, const std::string&>;
++    /** Get bytes to send on the wire. */
++    virtual BytesToSend GetBytesToSend() const noexcept = 0;
++    /** Report how many bytes returned by GetBytesToSend() have been sent. No effect if 0. */
++    virtual void MarkBytesSent(size_t bytes_sent) noexcept = 0;
++    /** Return the memory usage of this transport attributable to buffered data to send. */
++    virtual size_t GetSendMemoryUsage() const noexcept = 0;
+ };
+ 
+-class V1TransportDeserializer final : public TransportDeserializer
++class V1Transport final : public Transport
+ {
+ private:
+     const CChainParams& m_chain_params;
+     const NodeId m_node_id; // Only for logging
+-    mutable CHash256 hasher;
+-    mutable uint256 data_hash;
+-    bool in_data;                   // parsing header (false) or data (true)
+-    CDataStream hdrbuf;             // partially received header
+-    CMessageHeader hdr;             // complete header
+-    CDataStream vRecv;              // received message data
+-    unsigned int nHdrPos;
+-    unsigned int nDataPos;
+-
+-    const uint256& GetMessageHash() const;
+-    int readHeader(Span<const uint8_t> msg_bytes);
+-    int readData(Span<const uint8_t> msg_bytes);
+-
+-    void Reset() {
++    mutable Mutex m_cs_recv; //!< Lock for receive state
++    mutable CHash256 hasher GUARDED_BY(m_cs_recv);
++    mutable uint256 data_hash GUARDED_BY(m_cs_recv);
++    bool in_data GUARDED_BY(m_cs_recv); // parsing header (false) or data (true)
++    CDataStream hdrbuf GUARDED_BY(m_cs_recv); // partially received header
++    CMessageHeader hdr GUARDED_BY(m_cs_recv); // complete header
++    CDataStream vRecv GUARDED_BY(m_cs_recv); // received message data
++    unsigned int nHdrPos GUARDED_BY(m_cs_recv);
++    unsigned int nDataPos GUARDED_BY(m_cs_recv);
++
++    const uint256& GetMessageHash() const EXCLUSIVE_LOCKS_REQUIRED(m_cs_recv);
++    int readHeader(Span<const uint8_t> msg_bytes) EXCLUSIVE_LOCKS_REQUIRED(m_cs_recv);
++    int readData(Span<const uint8_t> msg_bytes) EXCLUSIVE_LOCKS_REQUIRED(m_cs_recv);
++
++    void Reset() EXCLUSIVE_LOCKS_REQUIRED(m_cs_recv) {
+         vRecv.clear();
+         hdrbuf.clear();
+         hdrbuf.resize(24);
+@@ -299,29 +328,49 @@ private:
+         hasher.Reset();
+     }
+ 
++    bool CompleteInternal() const noexcept EXCLUSIVE_LOCKS_REQUIRED(m_cs_recv)
++    {
++        if (!in_data) return false;
++        return hdr.nMessageSize == nDataPos;
++    }
++
++    /** Lock for sending state. */
++    mutable Mutex m_cs_send;
++    /** The header of the message currently being sent. */
++    std::vector<uint8_t> m_header_to_send GUARDED_BY(m_cs_send);
++    /** The data of the message currently being sent. */
++    CSerializedNetMsg m_message_to_send GUARDED_BY(m_cs_send);
++    /** Whether we're currently sending header bytes or message bytes. */
++    bool m_sending_header GUARDED_BY(m_cs_send) {false};
++    /** How many bytes have been sent so far (from m_header_to_send, or from m_message_to_send.data). */
++    size_t m_bytes_sent GUARDED_BY(m_cs_send) {0};
++
+ public:
+-    V1TransportDeserializer(const CChainParams& chain_params, const NodeId node_id, int nTypeIn, int nVersionIn)
++    V1Transport(const CChainParams& chain_params, const NodeId node_id, int nTypeIn, int nVersionIn)
+         : m_chain_params(chain_params),
+           m_node_id(node_id),
+           hdrbuf(nTypeIn, nVersionIn),
+           vRecv(nTypeIn, nVersionIn)
+     {
++        LOCK(m_cs_recv);
+         Reset();
+     }
+ 
+-    bool Complete() const override
++    bool Complete() const override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_recv)
+     {
+-        if (!in_data)
+-            return false;
+-        return (hdr.nMessageSize == nDataPos);
++        return WITH_LOCK(m_cs_recv, return CompleteInternal());
+     }
+-    void SetVersion(int nVersionIn) override
++
++    void SetVersion(int nVersionIn) override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_recv)
+     {
++        LOCK(m_cs_recv);
+         hdrbuf.SetVersion(nVersionIn);
+         vRecv.SetVersion(nVersionIn);
+     }
+-    int Read(Span<const uint8_t>& msg_bytes) override
++
++    int Read(Span<const uint8_t>& msg_bytes) override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_recv)
+     {
++        LOCK(m_cs_recv);
+         int ret = in_data ? readData(msg_bytes) : readHeader(msg_bytes);
+         if (ret < 0) {
+             Reset();
+@@ -330,21 +379,14 @@ public:
+         }
+         return ret;
+     }
+-    CNetMessage GetMessage(std::chrono::microseconds time, bool& reject_message) override;
+-};
+-
+-/** The TransportSerializer prepares messages for the network transport
+- */
+-class TransportSerializer {
+-public:
+-    // prepare message for transport (header construction, error-correction computation, payload encryption, etc.)
+-    virtual void prepareForTransport(CSerializedNetMsg& msg, std::vector<unsigned char>& header) const = 0;
+-    virtual ~TransportSerializer() {}
+-};
+-
+-class V1TransportSerializer : public TransportSerializer {
+-public:
+-    void prepareForTransport(CSerializedNetMsg& msg, std::vector<unsigned char>& header) const override;
++    CNetMessage GetMessage(std::chrono::microseconds time, bool& reject_message) override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_recv);
++
++    bool DoneSendingMessage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_send);
++    void SetMessageToSend(CSerializedNetMsg&& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_send);
++    bool HaveBytesToSend() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_send);
++    BytesToSend GetBytesToSend() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_send);
++    void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_send);
++    size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_cs_send);
+ };
+ 
+ struct CNodeOptions
+@@ -359,8 +401,9 @@ struct CNodeOptions
+ class CNode
+ {
+ public:
+-    const std::unique_ptr<TransportDeserializer> m_deserializer; // Used only by SocketHandler thread
+-    const std::unique_ptr<const TransportSerializer> m_serializer;
++    /** Transport serializer/deserializer. The receive side functions are only called under cs_vRecv, while
++     * the sending side functions are only called under cs_vSend. */
++    const std::unique_ptr<Transport> m_transport;
+ 
+     const NetPermissionFlags m_permission_flags;
+ 
+@@ -374,12 +417,12 @@ public:
+      */
+     std::shared_ptr<Sock> m_sock GUARDED_BY(m_sock_mutex);
+ 
+-    /** Total size of all vSendMsg entries */
+-    size_t nSendSize GUARDED_BY(cs_vSend){0};
+-    /** Offset inside the first vSendMsg already sent */
+-    size_t nSendOffset GUARDED_BY(cs_vSend){0};
++    /** Sum of GetMemoryUsage of all vSendMsg entries. */
++    size_t m_send_memusage GUARDED_BY(cs_vSend){0};
++    /** Total number of bytes sent on the wire to this peer. */
+     uint64_t nSendBytes GUARDED_BY(cs_vSend){0};
+-    std::deque<std::vector<unsigned char>> vSendMsg GUARDED_BY(cs_vSend);
++    /** Messages still to be fed to m_transport->SetMessageToSend. */
++    std::deque<CSerializedNetMsg> vSendMsg GUARDED_BY(cs_vSend);
+     Mutex cs_vSend;
+     Mutex m_sock_mutex;
+     Mutex cs_vRecv;
+diff --git a/src/test/denialofservice_tests.cpp b/src/test/denialofservice_tests.cpp
+index 9193d9a8b3..0cd84698cd 100644
+--- a/src/test/denialofservice_tests.cpp
++++ b/src/test/denialofservice_tests.cpp
+@@ -87,8 +87,15 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
+ 
+     {
+         LOCK(dummyNode1.cs_vSend);
+-        BOOST_CHECK(dummyNode1.vSendMsg.size() > 0);
++        BOOST_CHECK(!dummyNode1.vSendMsg.empty() || dummyNode1.m_transport->HaveBytesToSend());
++        // Clear messages in vSendMsg.
+         dummyNode1.vSendMsg.clear();
++        dummyNode1.m_send_memusage = 0;
++        // Clear data from m_transport.
++        while (dummyNode1.m_transport->HaveBytesToSend()) {
++            const auto& [data, _more, _msg_type] = dummyNode1.m_transport->GetBytesToSend();
++            dummyNode1.m_transport->MarkBytesSent(data.size());
++        }
+     }
+ 
+     int64_t nStartTime = GetTime();
+@@ -97,7 +104,7 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
+     BOOST_CHECK(peerman.SendMessages(&dummyNode1)); // should result in getheaders
+     {
+         LOCK(dummyNode1.cs_vSend);
+-        BOOST_CHECK(dummyNode1.vSendMsg.size() > 0);
++        BOOST_CHECK(!dummyNode1.vSendMsg.empty() || dummyNode1.m_transport->HaveBytesToSend());
+     }
+     // Wait 3 more minutes
+     SetMockTime(nStartTime+24*60);
+diff --git a/src/test/fuzz/p2p_transport_serialization.cpp b/src/test/fuzz/p2p_transport_serialization.cpp
+index 78350a600e..5b33eef830 100644
+--- a/src/test/fuzz/p2p_transport_serialization.cpp
++++ b/src/test/fuzz/p2p_transport_serialization.cpp
+@@ -9,6 +9,7 @@
+ #include <protocol.h>
+ #include <test/fuzz/FuzzedDataProvider.h>
+ #include <test/fuzz/fuzz.h>
++#include <test/util/xoroshiro128plusplus.h>
+ #include <util/chaintype.h>
+ 
+ #include <cassert>
+@@ -24,9 +25,10 @@ void initialize_p2p_transport_serialization()
+ 
+ FUZZ_TARGET(p2p_transport_serialization, .init = initialize_p2p_transport_serialization)
+ {
+-    // Construct deserializer, with a dummy NodeId
+-    V1TransportDeserializer deserializer{Params(), NodeId{0}, SER_NETWORK, INIT_PROTO_VERSION};
+-    V1TransportSerializer serializer{};
++    // Construct transports for both sides, with dummy NodeIds.
++    V1Transport recv_transport{Params(), NodeId{0}, SER_NETWORK, INIT_PROTO_VERSION};
++    V1Transport send_transport{Params(), NodeId{1}, SER_NETWORK, INIT_PROTO_VERSION};
++
+     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
+ 
+     auto checksum_assist = fuzzed_data_provider.ConsumeBool();
+@@ -63,14 +65,14 @@ FUZZ_TARGET(p2p_transport_serialization, .init = initialize_p2p_transport_serial
+     mutable_msg_bytes.insert(mutable_msg_bytes.end(), payload_bytes.begin(), payload_bytes.end());
+     Span<const uint8_t> msg_bytes{mutable_msg_bytes};
+     while (msg_bytes.size() > 0) {
+-        const int handled = deserializer.Read(msg_bytes);
++        const int handled = recv_transport.Read(msg_bytes);
+         if (handled < 0) {
+             break;
+         }
+-        if (deserializer.Complete()) {
++        if (recv_transport.Complete()) {
+             const std::chrono::microseconds m_time{std::numeric_limits<int64_t>::max()};
+             bool reject_message{false};
+-            CNetMessage msg = deserializer.GetMessage(m_time, reject_message);
++            CNetMessage msg = recv_transport.GetMessage(m_time, reject_message);
+             assert(msg.m_type.size() <= CMessageHeader::COMMAND_SIZE);
+             assert(msg.m_raw_message_size <= mutable_msg_bytes.size());
+             assert(msg.m_raw_message_size == CMessageHeader::HEADER_SIZE + msg.m_message_size);
+@@ -78,7 +80,154 @@ FUZZ_TARGET(p2p_transport_serialization, .init = initialize_p2p_transport_serial
+ 
+             std::vector<unsigned char> header;
+             auto msg2 = CNetMsgMaker{msg.m_recv.GetVersion()}.Make(msg.m_type, Span{msg.m_recv});
+-            serializer.prepareForTransport(msg2, header);
++            assert(send_transport.DoneSendingMessage());
++            send_transport.SetMessageToSend(std::move(msg2));
++            while (true) {
++                bool have_bytes = send_transport.HaveBytesToSend();
++                const auto& [to_send, more, _msg_type] = send_transport.GetBytesToSend();
++                assert(have_bytes == !to_send.empty());
++                if (to_send.empty()) break;
++                send_transport.MarkBytesSent(to_send.size());
++                if (!more) assert(send_transport.HaveBytesToSend() == 0);
++            }
++            assert(send_transport.DoneSendingMessage());
++        }
++    }
++}
++
++FUZZ_TARGET(p2p_transport_bidirectional, .init = initialize_p2p_transport_serialization)
++{
++    // Simulation test with two V1Transport objects, which send messages to each other, with
++    // sending and receiving fragmented into multiple pieces that may be interleaved. It primarily
++    // verifies that the sending and receiving side are compatible with each other, plus a few
++    // sanity checks.
++
++    FuzzedDataProvider provider{buffer.data(), buffer.size()};
++    XoRoShiRo128PlusPlus rng(provider.ConsumeIntegral<uint64_t>());
++
++    // Construct two transports, each representing one side.
++    std::array<V1Transport, 2> transports = {
++        V1Transport{Params(), NodeId{0}, SER_NETWORK, INIT_PROTO_VERSION},
++        V1Transport{Params(), NodeId{1}, SER_NETWORK, INIT_PROTO_VERSION}
++    };
++
++    // Two deques representing in-flight bytes. inflight[i] is from transport[i] to transport[!i].
++    std::array<std::vector<uint8_t>, 2> in_flight;
++
++    // Two deques with expected messages. expected[i] is expected to arrive in transport[!i].
++    std::array<std::deque<CSerializedNetMsg>, 2> expected;
++
++    // Function to consume a message type.
++    auto msg_type_fn = [&]() {
++        std::string ret;
++        while (ret.size() < CMessageHeader::COMMAND_SIZE) {
++            char c = provider.ConsumeIntegral<char>();
++            if (c < ' ' || c > 0x7E) break;
++            ret += c;
++        }
++        return ret;
++    };
++
++    // Function to make side send a new message.
++    auto new_msg_fn = [&](int side) {
++        // Don't do anything if there is an enqueued message already.
++        if (!transports[side].DoneSendingMessage()) return false;
++        // Don't do anything if there are too many unreceived messages already.
++        if (expected[side].size() >= 16) return false;
++        // Determine size of message to send.
++        size_t size = provider.ConsumeIntegralInRange<uint32_t>(0, 75000); // Limit to 75 KiB for performance reasons
++        // Construct a message to send.
++        CSerializedNetMsg msg;
++        msg.m_type = msg_type_fn();
++        msg.data.resize(size);
++        for (auto& v : msg.data) v = uint8_t(rng());
++        expected[side].emplace_back(msg.Copy());
++        transports[side].SetMessageToSend(std::move(msg));
++        return true;
++    };
++
++    // Function to make side send out bytes (if any).
++    auto send_fn = [&](int side, bool everything = false) {
++        bool have_any = transports[side].HaveBytesToSend();
++        const auto& [bytes, more, msg_type] = transports[side].GetBytesToSend();
++        assert(have_any == !bytes.empty());
++        // Don't do anything if no bytes to send.
++        if (!have_any) return false;
++        size_t send_now = everything ? bytes.size() : provider.ConsumeIntegralInRange<size_t>(0, bytes.size());
++        if (send_now == 0) return false;
++        in_flight[side].insert(in_flight[side].end(), bytes.begin(), bytes.begin() + send_now);
++        transports[side].MarkBytesSent(send_now);
++        return send_now > 0;
++    };
++
++    // Function to make !side receive bytes (if any).
++    auto recv_fn = [&](int side, bool everything = false) {
++        // Don't do anything if no bytes in flight.
++        if (in_flight[side].empty()) return false;
++        // Decide span to receive
++        size_t to_recv_len = in_flight[side].size();
++        if (!everything) to_recv_len = provider.ConsumeIntegralInRange<size_t>(0, to_recv_len);
++        Span<const uint8_t> to_recv = Span{in_flight[side]}.first(to_recv_len);
++        // Process those bytes
++        while (!to_recv.empty()) {
++            int ret = transports[!side].Read(to_recv);
++            assert(ret >= 0);
++            bool progress = ret > 0;
++            if (transports[!side].Complete()) {
++                bool reject{false};
++                auto received = transports[!side].GetMessage({}, reject);
++                // Receiving must succeed.
++                assert(!reject);
++                // There must be a corresponding expected message.
++                assert(!expected[side].empty());
++                // The m_message_size field must be correct.
++                assert(received.m_message_size == received.m_recv.size());
++                // The m_type must match what is expected.
++                assert(received.m_type == expected[side].front().m_type);
++                // The data must match what is expected.
++                assert(MakeByteSpan(received.m_recv) == MakeByteSpan(expected[side].front().data));
++                expected[side].pop_front();
++                progress = true;
++            }
++            assert(progress);
+         }
++        // Remove those bytes from the in_flight buffer.
++        in_flight[side].erase(in_flight[side].begin(), in_flight[side].begin() + to_recv_len);
++        return to_recv_len > 0;
++    };
++
++    // Main loop, interleaving new messages, sends, and receives.
++    unsigned iter = 0;
++    while (iter < 1000) {
++        uint8_t ops = provider.ConsumeIntegral<uint8_t>();
++        // Stop at 0.
++        if (ops == 0) break;
++        // The first 6 bits of ops identify which operations are attempted.
++        if (ops & 0x01) new_msg_fn(0);
++        if (ops & 0x02) new_msg_fn(1);
++        if (ops & 0x04) send_fn(0);
++        if (ops & 0x08) send_fn(1);
++        if (ops & 0x10) recv_fn(0);
++        if (ops & 0x20) recv_fn(1);
++        ++iter;
++    }
++
++    // When we're done, perform sends and receives of existing messages to flush anything already
++    // in flight.
++    while (true) {
++        bool any = false;
++        if (send_fn(0, true)) any = true;
++        if (send_fn(1, true)) any = true;
++        if (recv_fn(0, true)) any = true;
++        if (recv_fn(1, true)) any = true;
++        if (!any) break;
+     }
++
++    // Make sure nothing is left in flight.
++    assert(in_flight[0].empty());
++    assert(in_flight[1].empty());
++
++    // Make sure all expected messages were received.
++    assert(expected[0].empty());
++    assert(expected[1].empty());
+ }
+diff --git a/src/test/fuzz/process_messages.cpp b/src/test/fuzz/process_messages.cpp
+index 58e023956c..4155281f1f 100644
+--- a/src/test/fuzz/process_messages.cpp
++++ b/src/test/fuzz/process_messages.cpp
+@@ -67,7 +67,7 @@ FUZZ_TARGET(process_messages, .init = initialize_process_messages)
+ 
+         CNode& random_node = *PickValue(fuzzed_data_provider, peers);
+ 
+-        (void)connman.ReceiveMsgFrom(random_node, net_msg);
++        (void)connman.ReceiveMsgFrom(random_node, std::move(net_msg));
+         random_node.fPauseSend = false;
+ 
+         try {
+diff --git a/src/test/util/net.cpp b/src/test/util/net.cpp
+index 3f72384b3b..0147fca9c8 100644
+--- a/src/test/util/net.cpp
++++ b/src/test/util/net.cpp
+@@ -41,7 +41,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
+                 relay_txs),
+     };
+ 
+-    (void)connman.ReceiveMsgFrom(node, msg_version);
++    (void)connman.ReceiveMsgFrom(node, std::move(msg_version));
+     node.fPauseSend = false;
+     connman.ProcessMessagesOnce(node);
+     peerman.SendMessages(&node);
+@@ -54,7 +54,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
+     assert(statestats.their_services == remote_services);
+     if (successfully_connected) {
+         CSerializedNetMsg msg_verack{mm.Make(NetMsgType::VERACK)};
+-        (void)connman.ReceiveMsgFrom(node, msg_verack);
++        (void)connman.ReceiveMsgFrom(node, std::move(msg_verack));
+         node.fPauseSend = false;
+         connman.ProcessMessagesOnce(node);
+         peerman.SendMessages(&node);
+@@ -70,14 +70,23 @@ void ConnmanTestMsg::NodeReceiveMsgBytes(CNode& node, Span<const uint8_t> msg_by
+     }
+ }
+ 
+-bool ConnmanTestMsg::ReceiveMsgFrom(CNode& node, CSerializedNetMsg& ser_msg) const
++bool ConnmanTestMsg::ReceiveMsgFrom(CNode& node, CSerializedNetMsg&& ser_msg) const
+ {
+-    std::vector<uint8_t> ser_msg_header;
+-    node.m_serializer->prepareForTransport(ser_msg, ser_msg_header);
++    /* Flush out any unsent bytes from previous messages. */
++    while (node.m_transport->HaveBytesToSend()) {
++        const auto& [data, _more, _msg_type] = node.m_transport->GetBytesToSend();
++        node.m_transport->MarkBytesSent(data.size());
++    }
++
++    assert(node.m_transport->DoneSendingMessage());
++    node.m_transport->SetMessageToSend(std::move(ser_msg));
+ 
+-    bool complete;
+-    NodeReceiveMsgBytes(node, ser_msg_header, complete);
+-    NodeReceiveMsgBytes(node, ser_msg.data, complete);
++    bool complete{false};
++    while (node.m_transport->HaveBytesToSend()) {
++        const auto& [to_send, _more, _msg_type] = node.m_transport->GetBytesToSend();
++        NodeReceiveMsgBytes(node, to_send, complete);
++        node.m_transport->MarkBytesSent(to_send.size());
++    }
+     return complete;
+ }
+ 
+diff --git a/src/test/util/net.h b/src/test/util/net.h
+index e6506b0d08..efab0dc07a 100644
+--- a/src/test/util/net.h
++++ b/src/test/util/net.h
+@@ -51,7 +51,7 @@ struct ConnmanTestMsg : public CConnman {
+ 
+     void NodeReceiveMsgBytes(CNode& node, Span<const uint8_t> msg_bytes, bool& complete) const;
+ 
+-    bool ReceiveMsgFrom(CNode& node, CSerializedNetMsg& ser_msg) const;
++    bool ReceiveMsgFrom(CNode& node, CSerializedNetMsg&& ser_msg) const;
+ };
+ 
+ constexpr ServiceFlags ALL_SERVICE_FLAGS[]{
