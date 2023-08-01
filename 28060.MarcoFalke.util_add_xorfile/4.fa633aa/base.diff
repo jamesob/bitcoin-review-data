@@ -1,0 +1,503 @@
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 4e9c161c57..cdf2df4f2e 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -715,6 +715,7 @@ libbitcoin_util_a_SOURCES = \
+   logging.cpp \
+   random.cpp \
+   randomenv.cpp \
++  streams.cpp \
+   support/cleanse.cpp \
+   sync.cpp \
+   util/asmap.cpp \
+@@ -958,6 +959,7 @@ libbitcoinkernel_la_SOURCES = \
+   script/standard.cpp \
+   shutdown.cpp \
+   signet.cpp \
++  streams.cpp \
+   support/cleanse.cpp \
+   support/lockedpool.cpp \
+   sync.cpp \
+diff --git a/src/Makefile.bench.include b/src/Makefile.bench.include
+index 10c8389c80..51bfb1e459 100644
+--- a/src/Makefile.bench.include
++++ b/src/Makefile.bench.include
+@@ -52,7 +52,8 @@ bench_bench_bitcoin_SOURCES = \
+   bench/streams_findbyte.cpp \
+   bench/strencodings.cpp \
+   bench/util_time.cpp \
+-  bench/verify_script.cpp
++  bench/verify_script.cpp \
++  bench/xor.cpp
+ 
+ nodist_bench_bench_bitcoin_SOURCES = $(GENERATED_BENCH_FILES)
+ 
+diff --git a/src/bench/bench.h b/src/bench/bench.h
+index 78196134e7..6065ddf3fc 100644
+--- a/src/bench/bench.h
++++ b/src/bench/bench.h
+@@ -14,7 +14,7 @@
+ #include <string>
+ #include <vector>
+ 
+-#include <bench/nanobench.h>
++#include <bench/nanobench.h> // IWYU pragma: export
+ 
+ /*
+  * Usage:
+diff --git a/src/bench/xor.cpp b/src/bench/xor.cpp
+new file mode 100644
+index 0000000000..edda74214a
+--- /dev/null
++++ b/src/bench/xor.cpp
+@@ -0,0 +1,24 @@
++// Copyright (c) The Bitcoin Core developers
++// Distributed under the MIT software license, see the accompanying
++// file COPYING or https://opensource.org/license/mit/.
++
++#include <bench/bench.h>
++
++#include <random.h>
++#include <streams.h>
++
++#include <cstddef>
++#include <vector>
++
++static void Xor(benchmark::Bench& bench)
++{
++    FastRandomContext frc{/*fDeterministic=*/true};
++    auto data{frc.randbytes<std::byte>(1024)};
++    auto key{frc.randbytes<std::byte>(31)};
++
++    bench.batch(data.size()).unit("byte").run([&] {
++        util::Xor(data, key);
++    });
++}
++
++BENCHMARK(Xor, benchmark::PriorityLevel::HIGH);
+diff --git a/src/hash.h b/src/hash.h
+index 2e3ed11b43..89c6f0dab9 100644
+--- a/src/hash.h
++++ b/src/hash.h
+@@ -160,7 +160,6 @@ public:
+ 
+     template<typename T>
+     CHashWriter& operator<<(const T& obj) {
+-        // Serialize to this stream
+         ::Serialize(*this, obj);
+         return (*this);
+     }
+@@ -228,7 +227,6 @@ public:
+     template<typename T>
+     CHashVerifier<Source>& operator>>(T&& obj)
+     {
+-        // Unserialize from this stream
+         ::Unserialize(*this, obj);
+         return (*this);
+     }
+diff --git a/src/streams.cpp b/src/streams.cpp
+new file mode 100644
+index 0000000000..6921dad677
+--- /dev/null
++++ b/src/streams.cpp
+@@ -0,0 +1,66 @@
++// Copyright (c) 2009-present The Bitcoin Core developers
++// Distributed under the MIT software license, see the accompanying
++// file COPYING or https://opensource.org/license/mit/.
++
++#include <span.h>
++#include <streams.h>
++
++#include <array>
++
++std::size_t AutoFile::detail_fread(Span<std::byte> dst)
++{
++    if (!m_file) throw std::ios_base::failure("AutoFile::read: file handle is nullptr");
++    if (m_xor.empty()) {
++        return std::fread(dst.data(), 1, dst.size(), m_file);
++    } else {
++        const auto init_pos{std::ftell(m_file)};
++        if (init_pos < 0) throw std::ios_base::failure("AutoFile::read: ftell failed");
++        std::size_t ret{std::fread(dst.data(), 1, dst.size(), m_file)};
++        util::Xor(dst.subspan(0, ret), m_xor, init_pos);
++        return ret;
++    }
++}
++
++void AutoFile::read(Span<std::byte> dst)
++{
++    if (detail_fread(dst) != dst.size()) {
++        throw std::ios_base::failure(feof() ? "AutoFile::read: end of file" : "AutoFile::read: fread failed");
++    }
++}
++
++void AutoFile::ignore(size_t nSize)
++{
++    if (!m_file) throw std::ios_base::failure("AutoFile::ignore: file handle is nullptr");
++    unsigned char data[4096];
++    while (nSize > 0) {
++        size_t nNow = std::min<size_t>(nSize, sizeof(data));
++        if (std::fread(data, 1, nNow, m_file) != nNow) {
++            throw std::ios_base::failure(feof() ? "AutoFile::ignore: end of file" : "AutoFile::ignore: fread failed");
++        }
++        nSize -= nNow;
++    }
++}
++
++void AutoFile::write(Span<const std::byte> src)
++{
++    if (!m_file) throw std::ios_base::failure("AutoFile::write: file handle is nullptr");
++    if (m_xor.empty()) {
++        if (std::fwrite(src.data(), 1, src.size(), m_file) != src.size()) {
++            throw std::ios_base::failure("AutoFile::write: write failed");
++        }
++    } else {
++        auto current_pos{std::ftell(m_file)};
++        if (current_pos < 0) throw std::ios_base::failure("AutoFile::write: ftell failed");
++        std::array<std::byte, 4096> buf;
++        while (src.size() > 0) {
++            auto buf_now{Span{buf}.first(std::min<size_t>(src.size(), buf.size()))};
++            std::copy(src.begin(), src.begin() + buf_now.size(), buf_now.begin());
++            util::Xor(buf_now, m_xor, current_pos);
++            if (std::fwrite(buf_now.data(), 1, buf_now.size(), m_file) != buf_now.size()) {
++                throw std::ios_base::failure{"XorFile::write: failed"};
++            }
++            src = src.subspan(buf_now.size());
++            current_pos += buf_now.size();
++        }
++    }
++}
+diff --git a/src/streams.h b/src/streams.h
+index 03df20b5db..5ff952be76 100644
+--- a/src/streams.h
++++ b/src/streams.h
+@@ -13,6 +13,7 @@
+ 
+ #include <algorithm>
+ #include <assert.h>
++#include <cstddef>
+ #include <cstdio>
+ #include <ios>
+ #include <limits>
+@@ -23,6 +24,27 @@
+ #include <utility>
+ #include <vector>
+ 
++namespace util {
++inline void Xor(Span<std::byte> write, Span<const std::byte> key, size_t key_offset = 0)
++{
++    if (key.size() == 0) {
++        return;
++    }
++    key_offset %= key.size();
++
++    for (size_t i = 0, j = key_offset; i != write.size(); i++) {
++        write[i] ^= key[j++];
++
++        // This potentially acts on very many bytes of data, so it's
++        // important that we calculate `j`, i.e. the `key` index in this
++        // way instead of doing a %, which would effectively be a division
++        // for each byte Xor'd -- much slower than need be.
++        if (j == key.size())
++            j = 0;
++    }
++}
++} // namespace util
++
+ template<typename Stream>
+ class OverrideStream
+ {
+@@ -37,7 +59,6 @@ public:
+     template<typename T>
+     OverrideStream<Stream>& operator<<(const T& obj)
+     {
+-        // Serialize to this stream
+         ::Serialize(*this, obj);
+         return (*this);
+     }
+@@ -45,7 +66,6 @@ public:
+     template<typename T>
+     OverrideStream<Stream>& operator>>(T&& obj)
+     {
+-        // Unserialize from this stream
+         ::Unserialize(*this, obj);
+         return (*this);
+     }
+@@ -110,7 +130,6 @@ class CVectorWriter
+     template<typename T>
+     CVectorWriter& operator<<(const T& obj)
+     {
+-        // Serialize to this stream
+         ::Serialize(*this, obj);
+         return (*this);
+     }
+@@ -151,7 +170,6 @@ public:
+     template<typename T>
+     SpanReader& operator>>(T&& obj)
+     {
+-        // Unserialize from this stream
+         ::Unserialize(*this, obj);
+         return (*this);
+     }
+@@ -296,7 +314,6 @@ public:
+     template<typename T>
+     DataStream& operator<<(const T& obj)
+     {
+-        // Serialize to this stream
+         ::Serialize(*this, obj);
+         return (*this);
+     }
+@@ -304,7 +321,6 @@ public:
+     template<typename T>
+     DataStream& operator>>(T&& obj)
+     {
+-        // Unserialize from this stream
+         ::Unserialize(*this, obj);
+         return (*this);
+     }
+@@ -316,20 +332,7 @@ public:
+      */
+     void Xor(const std::vector<unsigned char>& key)
+     {
+-        if (key.size() == 0) {
+-            return;
+-        }
+-
+-        for (size_type i = 0, j = 0; i != size(); i++) {
+-            vch[i] ^= std::byte{key[j++]};
+-
+-            // This potentially acts on very many bytes of data, so it's
+-            // important that we calculate `j`, i.e. the `key` index in this
+-            // way instead of doing a %, which would effectively be a division
+-            // for each byte Xor'd -- much slower than need be.
+-            if (j == key.size())
+-                j = 0;
+-        }
++        util::Xor(MakeWritableByteSpan(*this), MakeByteSpan(key));
+     }
+ };
+ 
+@@ -469,7 +472,6 @@ public:
+     }
+ };
+ 
+-
+ /** Non-refcounted RAII wrapper for FILE*
+  *
+  * Will automatically close the file when it goes out of scope if not null.
+@@ -479,81 +481,60 @@ public:
+ class AutoFile
+ {
+ protected:
+-    FILE* file;
++    std::FILE* m_file;
++    const std::vector<std::byte> m_xor;
+ 
+ public:
+-    explicit AutoFile(FILE* filenew) : file{filenew} {}
++    explicit AutoFile(std::FILE* file, std::vector<std::byte> data_xor={}) : m_file{file}, m_xor{std::move(data_xor)} {}
+ 
+-    ~AutoFile()
+-    {
+-        fclose();
+-    }
++    ~AutoFile() { fclose(); }
+ 
+     // Disallow copies
+     AutoFile(const AutoFile&) = delete;
+     AutoFile& operator=(const AutoFile&) = delete;
+ 
++    bool feof() const { return std::feof(m_file); }
++
+     int fclose()
+     {
+-        int retval{0};
+-        if (file) {
+-            retval = ::fclose(file);
+-            file = nullptr;
+-        }
+-        return retval;
++        if (auto rel{release()}) return std::fclose(rel);
++        return 0;
+     }
+ 
+     /** Get wrapped FILE* with transfer of ownership.
+      * @note This will invalidate the AutoFile object, and makes it the responsibility of the caller
+      * of this function to clean up the returned FILE*.
+      */
+-    FILE* release()             { FILE* ret = file; file = nullptr; return ret; }
++    std::FILE* release()
++    {
++        std::FILE* ret{m_file};
++        m_file = nullptr;
++        return ret;
++    }
+ 
+     /** Get wrapped FILE* without transfer of ownership.
+      * @note Ownership of the FILE* will remain with this class. Use this only if the scope of the
+      * AutoFile outlives use of the passed pointer.
+      */
+-    FILE* Get() const           { return file; }
++    std::FILE* Get() const { return m_file; }
+ 
+     /** Return true if the wrapped FILE* is nullptr, false otherwise.
+      */
+-    bool IsNull() const         { return (file == nullptr); }
++    bool IsNull() const { return m_file == nullptr; }
++
++    /** Implementation detail, only used internally. */
++    std::size_t detail_fread(Span<std::byte> dst);
+ 
+     //
+     // Stream subset
+     //
+-    void read(Span<std::byte> dst)
+-    {
+-        if (!file) throw std::ios_base::failure("AutoFile::read: file handle is nullptr");
+-        if (fread(dst.data(), 1, dst.size(), file) != dst.size()) {
+-            throw std::ios_base::failure(feof(file) ? "AutoFile::read: end of file" : "AutoFile::read: fread failed");
+-        }
+-    }
+-
+-    void ignore(size_t nSize)
+-    {
+-        if (!file) throw std::ios_base::failure("AutoFile::ignore: file handle is nullptr");
+-        unsigned char data[4096];
+-        while (nSize > 0) {
+-            size_t nNow = std::min<size_t>(nSize, sizeof(data));
+-            if (fread(data, 1, nNow, file) != nNow)
+-                throw std::ios_base::failure(feof(file) ? "AutoFile::ignore: end of file" : "AutoFile::read: fread failed");
+-            nSize -= nNow;
+-        }
+-    }
+-
+-    void write(Span<const std::byte> src)
+-    {
+-        if (!file) throw std::ios_base::failure("AutoFile::write: file handle is nullptr");
+-        if (fwrite(src.data(), 1, src.size(), file) != src.size()) {
+-            throw std::ios_base::failure("AutoFile::write: write failed");
+-        }
+-    }
++    void read(Span<std::byte> dst);
++    void ignore(size_t nSize);
++    void write(Span<const std::byte> src);
+ 
+     template <typename T>
+     AutoFile& operator<<(const T& obj)
+     {
+-        if (!file) throw std::ios_base::failure("AutoFile::operator<<: file handle is nullptr");
+         ::Serialize(*this, obj);
+         return *this;
+     }
+@@ -561,7 +542,6 @@ public:
+     template <typename T>
+     AutoFile& operator>>(T&& obj)
+     {
+-        if (!file) throw std::ios_base::failure("AutoFile::operator>>: file handle is nullptr");
+         ::Unserialize(*this, obj);
+         return *this;
+     }
+@@ -574,16 +554,13 @@ private:
+     const int nVersion;
+ 
+ public:
+-    CAutoFile(FILE* filenew, int nTypeIn, int nVersionIn) : AutoFile{filenew}, nType(nTypeIn), nVersion(nVersionIn) {}
++    explicit CAutoFile(std::FILE* file, int type, int version, std::vector<std::byte> data_xor = {}) : AutoFile{file, std::move(data_xor)}, nType{type}, nVersion{version} {}
+     int GetType() const          { return nType; }
+     int GetVersion() const       { return nVersion; }
+ 
+     template<typename T>
+     CAutoFile& operator<<(const T& obj)
+     {
+-        // Serialize to this stream
+-        if (!file)
+-            throw std::ios_base::failure("CAutoFile::operator<<: file handle is nullptr");
+         ::Serialize(*this, obj);
+         return (*this);
+     }
+@@ -591,9 +568,6 @@ public:
+     template<typename T>
+     CAutoFile& operator>>(T&& obj)
+     {
+-        // Unserialize from this stream
+-        if (!file)
+-            throw std::ios_base::failure("CAutoFile::operator>>: file handle is nullptr");
+         ::Unserialize(*this, obj);
+         return (*this);
+     }
+@@ -742,7 +716,6 @@ public:
+ 
+     template<typename T>
+     CBufferedFile& operator>>(T&& obj) {
+-        // Unserialize from this stream
+         ::Unserialize(*this, obj);
+         return (*this);
+     }
+diff --git a/src/test/streams_tests.cpp b/src/test/streams_tests.cpp
+index 55e4f200b1..5232175824 100644
+--- a/src/test/streams_tests.cpp
++++ b/src/test/streams_tests.cpp
+@@ -6,6 +6,7 @@
+ #include <test/util/random.h>
+ #include <test/util/setup_common.h>
+ #include <util/fs.h>
++#include <util/strencodings.h>
+ 
+ #include <boost/test/unit_test.hpp>
+ 
+@@ -13,6 +14,55 @@ using namespace std::string_literals;
+ 
+ BOOST_FIXTURE_TEST_SUITE(streams_tests, BasicTestingSetup)
+ 
++BOOST_AUTO_TEST_CASE(xor_file)
++{
++    fs::path xor_path{m_args.GetDataDirBase() / "test_xor.bin"};
++    auto raw_file{[&](const auto& mode) { return fsbridge::fopen(xor_path, mode); }};
++    const std::vector<uint8_t> test1{1, 2, 3};
++    const std::vector<uint8_t> test2{4, 5};
++    const std::vector<std::byte> xor_pat{std::byte{0xff}, std::byte{0x00}};
++    {
++        // Check errors for missing file
++        AutoFile xor_file{raw_file("rb"), xor_pat};
++        BOOST_CHECK_EXCEPTION(xor_file << std::byte{}, std::ios_base::failure, HasReason{"AutoFile::write: file handle is nullpt"});
++        BOOST_CHECK_EXCEPTION(xor_file >> std::byte{}, std::ios_base::failure, HasReason{"AutoFile::read: file handle is nullpt"});
++        BOOST_CHECK_EXCEPTION(xor_file.ignore(1), std::ios_base::failure, HasReason{"AutoFile::ignore: file handle is nullpt"});
++    }
++    {
++        AutoFile xor_file{raw_file("wbx"), xor_pat};
++        xor_file << test1 << test2;
++    }
++    {
++        // Read raw from disk
++        AutoFile non_xor_file{raw_file("rb")};
++        std::vector<std::byte> raw(7);
++        non_xor_file >> Span{raw};
++        BOOST_CHECK_EQUAL(HexStr(raw), "fc01fd03fd04fa");
++        // Check that no padding exists
++        BOOST_CHECK_EXCEPTION(non_xor_file.ignore(1), std::ios_base::failure, HasReason{"AutoFile::ignore: end of file"});
++    }
++    {
++        AutoFile xor_file{raw_file("rb"), xor_pat};
++        std::vector<std::byte> read1, read2;
++        xor_file >> read1 >> read2;
++        BOOST_CHECK_EQUAL(HexStr(read1), HexStr(test1));
++        BOOST_CHECK_EQUAL(HexStr(read2), HexStr(test2));
++        // Check that eof was reached
++        BOOST_CHECK_EXCEPTION(xor_file >> std::byte{}, std::ios_base::failure, HasReason{"AutoFile::read: end of file"});
++    }
++    {
++        AutoFile xor_file{raw_file("rb"), xor_pat};
++        std::vector<std::byte> read2;
++        // Check that ignore works
++        xor_file.ignore(4);
++        xor_file >> read2;
++        BOOST_CHECK_EQUAL(HexStr(read2), HexStr(test2));
++        // Check that ignore and read fail now
++        BOOST_CHECK_EXCEPTION(xor_file.ignore(1), std::ios_base::failure, HasReason{"AutoFile::ignore: end of file"});
++        BOOST_CHECK_EXCEPTION(xor_file >> std::byte{}, std::ios_base::failure, HasReason{"AutoFile::read: end of file"});
++    }
++}
++
+ BOOST_AUTO_TEST_CASE(streams_vector_writer)
+ {
+     unsigned char a(1);
