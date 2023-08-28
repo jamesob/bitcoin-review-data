@@ -1,0 +1,8 @@
+- [ ] cba141f1ba net: add have_next_message argument to Transport::GetBytesToSend()
+- [ ] f41a1a0ae4 net: add V2Transport class with subset of BIP324 functionality
+- [ ] e3fc70ed4c net: make V2Transport send uniformly random number garbage bytes
+- [ ] 7d5cc856ed net: make V2Transport auto-detect incoming V1 and fallback to it
+- [ ] 45d27a8002 net: optimization: add lock-free dispatch to V1Transport in V2Transport
+- [ ] 45d2606f62 net: add short message encoding support to V2Transport
+- [ ] bb3c517f3c net: make V2Transport preallocate receive buffer space
+- [ ] ec39432a67 test: add unit tests for V2Transport
