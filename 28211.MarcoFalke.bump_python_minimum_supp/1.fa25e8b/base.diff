@@ -1,0 +1,119 @@
+diff --git a/.python-version b/.python-version
+index e29d80998a..2739029233 100644
+--- a/.python-version
++++ b/.python-version
+@@ -1 +1 @@
+-3.8.17
++3.9.17
+diff --git a/ci/test/00_setup_env_i686_multiprocess.sh b/ci/test/00_setup_env_i686_multiprocess.sh
+index b11a387660..2cecf8510e 100755
+--- a/ci/test/00_setup_env_i686_multiprocess.sh
++++ b/ci/test/00_setup_env_i686_multiprocess.sh
+@@ -8,7 +8,7 @@ export LC_ALL=C.UTF-8
+ 
+ export HOST=i686-pc-linux-gnu
+ export CONTAINER_NAME=ci_i686_multiprocess
+-export CI_IMAGE_NAME_TAG="docker.io/amd64/ubuntu:20.04"
++export CI_IMAGE_NAME_TAG="docker.io/amd64/ubuntu:22.04"
+ export PACKAGES="cmake llvm clang g++-multilib"
+ export DEP_OPTS="DEBUG=1 MULTIPROCESS=1"
+ export GOAL="install"
+diff --git a/ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh b/ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh
+index 454a4b8dff..2d181f1bb8 100755
+--- a/ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh
++++ b/ci/test/00_setup_env_native_nowallet_libbitcoinkernel.sh
+@@ -7,9 +7,9 @@
+ export LC_ALL=C.UTF-8
+ 
+ export CONTAINER_NAME=ci_native_nowallet_libbitcoinkernel
+-export CI_IMAGE_NAME_TAG="docker.io/ubuntu:20.04"
+-# Use minimum supported python3.8 and clang-10, see doc/dependencies.md
+-export PACKAGES="python3-zmq clang-10 llvm-10 libc++abi-10-dev libc++-10-dev"
+-export DEP_OPTS="NO_WALLET=1 CC=clang-10 CXX='clang++-10 -stdlib=libc++'"
++export CI_IMAGE_NAME_TAG="docker.io/debian:bullseye"
++# Use minimum supported python3.9 and clang-10 (or best-effort clang-11), see doc/dependencies.md
++export PACKAGES="python3-zmq clang-11 llvm-11 libc++abi-11-dev libc++-11-dev"
++export DEP_OPTS="NO_WALLET=1 CC=clang-11 CXX='clang++-11 -stdlib=libc++'"
+ export GOAL="install"
+ export BITCOIN_CONFIG="--enable-reduce-exports --enable-experimental-util-chainstate --with-experimental-kernel-lib --enable-shared"
+diff --git a/ci/test/00_setup_env_native_qt5.sh b/ci/test/00_setup_env_native_qt5.sh
+index 0fad95e2cb..32c8557eeb 100755
+--- a/ci/test/00_setup_env_native_qt5.sh
++++ b/ci/test/00_setup_env_native_qt5.sh
+@@ -7,8 +7,8 @@
+ export LC_ALL=C.UTF-8
+ 
+ export CONTAINER_NAME=ci_native_qt5
+-export CI_IMAGE_NAME_TAG="docker.io/ubuntu:20.04"
+-# Use minimum supported python3.8 and gcc-9, see doc/dependencies.md
++export CI_IMAGE_NAME_TAG="docker.io/debian:bullseye"
++# Use minimum supported python3.9 and gcc-9, see doc/dependencies.md
+ export PACKAGES="gcc-9 g++-9 python3-zmq qtbase5-dev qttools5-dev-tools libdbus-1-dev libharfbuzz-dev"
+ export DEP_OPTS="NO_QT=1 NO_UPNP=1 NO_NATPMP=1 DEBUG=1 ALLOW_HOST_PACKAGES=1 CC=gcc-9 CXX=g++-9"
+ export TEST_RUNNER_EXTRA="--previous-releases --coverage --extended --exclude feature_dbcrash"  # Run extended tests so that coverage does not fail, but exclude the very slow dbcrash
+diff --git a/configure.ac b/configure.ac
+index f0ebc50623..3693a76ea2 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -128,8 +128,8 @@ AC_PATH_TOOL([AR], [ar])
+ AC_PATH_TOOL([GCOV], [gcov])
+ AC_PATH_TOOL([LLVM_COV], [llvm-cov])
+ AC_PATH_PROG([LCOV], [lcov])
+-dnl Python 3.8 is specified in .python-version and should be used if available, see doc/dependencies.md
+-AC_PATH_PROGS([PYTHON], [python3.8 python3.9 python3.10 python3.11 python3.12 python3 python])
++dnl The minimum supported version is specified in .python-version and should be used if available, see doc/dependencies.md
++AC_PATH_PROGS([PYTHON], [python3.9 python3.10 python3.11 python3.12 python3 python])
+ AC_PATH_PROG([GENHTML], [genhtml])
+ AC_PATH_PROG([GIT], [git])
+ AC_PATH_PROG([CCACHE], [ccache])
+diff --git a/doc/dependencies.md b/doc/dependencies.md
+index 804f796abe..af2621652c 100644
+--- a/doc/dependencies.md
++++ b/doc/dependencies.md
+@@ -10,7 +10,7 @@ You can find installation instructions in the `build-*.md` file for your platfor
+ | [Automake](https://www.gnu.org/software/automake/) | [1.13](https://github.com/bitcoin/bitcoin/pull/18290) |
+ | [Clang](https://clang.llvm.org) | [10.0](https://github.com/bitcoin/bitcoin/pull/27682) |
+ | [GCC](https://gcc.gnu.org) | [9.1](https://github.com/bitcoin/bitcoin/pull/27662) |
+-| [Python](https://www.python.org) (scripts, tests) | [3.8](https://github.com/bitcoin/bitcoin/pull/27483) |
++| [Python](https://www.python.org) (scripts, tests) | [3.9](https://github.com/bitcoin/bitcoin/pull/28211) |
+ | [systemtap](https://sourceware.org/systemtap/) ([tracing](tracing.md))| N/A |
+ 
+ ## Required
+diff --git a/test/functional/test_framework/util.py b/test/functional/test_framework/util.py
+index 9143397042..54361a3aab 100644
+--- a/test/functional/test_framework/util.py
++++ b/test/functional/test_framework/util.py
+@@ -287,10 +287,10 @@ def sha256sum_file(filename):
+     return h.digest()
+ 
+ 
+-# TODO: Remove and use random.randbytes(n) instead, available in Python 3.9
++# TODO: Remove and use random.randbytes(n) directly
+ def random_bytes(n):
+     """Return a random bytes object of length n."""
+-    return bytes(random.getrandbits(8) for i in range(n))
++    return random.randbytes(n)
+ 
+ 
+ # RPC/P2P connection constants and functions
+diff --git a/test/lint/README.md b/test/lint/README.md
+index d9cfeb50ed..c0889b59af 100644
+--- a/test/lint/README.md
++++ b/test/lint/README.md
+@@ -7,13 +7,11 @@ To run linters locally with the same versions as the CI environment, use the inc
+ Dockerfile:
+ 
+ ```sh
+-DOCKER_BUILDKIT=1 docker build -t bitcoin-linter --file "./ci/lint_imagefile" ./
+-
+-docker run --rm -v $(pwd):/bitcoin -it bitcoin-linter
++DOCKER_BUILDKIT=1 docker build -t bitcoin-linter --file "./ci/lint_imagefile" ./ && docker run --rm -v $(pwd):/bitcoin -it bitcoin-linter
+ ```
+ 
+-After building the container once, you can simply run the last command any time you
+-want to lint.
++Building the container can be done every time, because it is fast when the
++result is cached and it prevents issues when the image changes.
+ 
+ 
+ check-doc.py

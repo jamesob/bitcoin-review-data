@@ -1,0 +1,3 @@
+- [ ] fa8996b930 ci: Bump i686_multiprocess.sh to latest Ubuntu LTS
+- [ ] faf70c1f33 Bump python minimum version to 3.9
+- [ ] fa25e8b0a1 doc: Recommend lint image build on every call
