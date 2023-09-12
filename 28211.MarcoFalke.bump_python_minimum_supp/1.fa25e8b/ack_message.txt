@@ -1,0 +1,3 @@
+ACK fa25e8b0a1610553014c786428f146ef9c694678 ([`jamesob/ackr/28211.1.MarcoFalke.bump_python_minimum_supp`](https://github.com/jamesob/bitcoin/tree/ackr/28211.1.MarcoFalke.bump_python_minimum_supp))
+
+Ran new lint (+ build) command, ran functional tests.

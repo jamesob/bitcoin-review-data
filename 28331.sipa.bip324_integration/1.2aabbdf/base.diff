@@ -1,0 +1,1395 @@
+diff --git a/src/init.cpp b/src/init.cpp
+index f0847bd4f7..36309c3177 100644
+--- a/src/init.cpp
++++ b/src/init.cpp
+@@ -498,6 +498,7 @@ void SetupServerArgs(ArgsManager& argsman)
+     argsman.AddArg("-i2psam=<ip:port>", "I2P SAM proxy to reach I2P peers and accept I2P connections (default: none)", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
+     argsman.AddArg("-i2pacceptincoming", strprintf("Whether to accept inbound I2P connections (default: %i). Ignored if -i2psam is not set. Listening for inbound I2P connections is done through the SAM proxy, not by binding to a local address and port.", DEFAULT_I2P_ACCEPT_INCOMING), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
+     argsman.AddArg("-onlynet=<net>", "Make automatic outbound connections only to network <net> (" + Join(GetNetworkNames(), ", ") + "). Inbound and manual connections are not affected by this option. It can be specified multiple times to allow multiple networks.", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
++    argsman.AddArg("-v2transport", strprintf("Support v2 transport (default: %u)", DEFAULT_V2_TRANSPORT), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
+     argsman.AddArg("-peerbloomfilters", strprintf("Support filtering of blocks and transaction with bloom filters (default: %u)", DEFAULT_PEERBLOOMFILTERS), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
+     argsman.AddArg("-peerblockfilters", strprintf("Serve compact block filters to peers per BIP 157 (default: %u)", DEFAULT_PEERBLOCKFILTERS), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
+     argsman.AddArg("-txreconciliation", strprintf("Enable transaction reconciliations per BIP 330 (default: %d)", DEFAULT_TXRECONCILIATION_ENABLE), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CONNECTION);
+@@ -893,6 +894,11 @@ bool AppInitParameterInteraction(const ArgsManager& args)
+         }
+     }
+ 
++    // Signal NODE_P2P_V2 if BIP324 v2 transport is enabled.
++    if (args.GetBoolArg("-v2transport", DEFAULT_V2_TRANSPORT)) {
++        nLocalServices = ServiceFlags(nLocalServices | NODE_P2P_V2);
++    }
++
+     // Signal NODE_COMPACT_FILTERS if peerblockfilters and basic filters index are both enabled.
+     if (args.GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS)) {
+         if (g_enabled_filter_types.count(BlockFilterType::BASIC) != 1) {
+diff --git a/src/net.cpp b/src/net.cpp
+index af2855932d..23756f85ae 100644
+--- a/src/net.cpp
++++ b/src/net.cpp
+@@ -465,7 +465,11 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
+         }
+     }
+ 
+-    LogPrintLevel(BCLog::NET, BCLog::Level::Debug, "trying connection %s lastseen=%.1fhrs\n",
++    // Use v2 transport when both us and them signal NODE_P2P_V2.
++    const bool use_p2p_v2 = !!(addrConnect.nServices & GetLocalServices() & NODE_P2P_V2);
++
++    LogPrintLevel(BCLog::NET, BCLog::Level::Debug, "trying %s connection %s lastseen=%.1fhrs\n",
++        use_p2p_v2 ? "v2" : "v1",
+         pszDest ? pszDest : addrConnect.ToStringAddrPort(),
+         Ticks<HoursDouble>(pszDest ? 0h : Now<NodeSeconds>() - addrConnect.nTime));
+ 
+@@ -476,7 +480,7 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
+         const std::vector<CService> resolved{Lookup(pszDest, default_port, fNameLookup && !HaveNameProxy(), 256)};
+         if (!resolved.empty()) {
+             const CService& rnd{resolved[GetRand(resolved.size())]};
+-            addrConnect = CAddress{MaybeFlipIPv6toCJDNS(rnd), NODE_NONE};
++            addrConnect = CAddress{MaybeFlipIPv6toCJDNS(rnd), addrConnect.nServices};
+             if (!addrConnect.IsValid()) {
+                 LogPrint(BCLog::NET, "Resolver returned invalid address %s for %s\n", addrConnect.ToStringAddrPort(), pszDest);
+                 return nullptr;
+@@ -576,6 +580,7 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
+     if (!addr_bind.IsValid()) {
+         addr_bind = GetBindAddress(*sock);
+     }
++
+     CNode* pnode = new CNode(id,
+                              std::move(sock),
+                              addrConnect,
+@@ -588,6 +593,8 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
+                              CNodeOptions{
+                                  .i2p_sam_session = std::move(i2p_transient_session),
+                                  .recv_flood_size = nReceiveFloodSize,
++                                 .use_v2_transport = use_p2p_v2,
++                                 .count_failure_after_reconnect = fCountFailure,
+                              });
+     pnode->AddRef();
+ 
+@@ -668,6 +675,9 @@ void CNode::CopyStats(CNodeStats& stats)
+         LOCK(cs_vRecv);
+         X(mapRecvBytesPerMsgType);
+         X(nRecvBytes);
++        Transport::Info info = m_transport->GetInfo();
++        stats.m_transport_type = info.transport_type;
++        if (info.session_id) stats.m_session_id = HexStr(*info.session_id);
+     }
+     X(m_permission_flags);
+ 
+@@ -735,6 +745,11 @@ V1Transport::V1Transport(const NodeId node_id, int nTypeIn, int nVersionIn) noex
+     Reset();
+ }
+ 
++Transport::Info V1Transport::GetInfo() const noexcept
++{
++    return {.transport_type = TransportProtocolType::V1, .session_id = {}};
++}
++
+ int V1Transport::readHeader(Span<const uint8_t> msg_bytes)
+ {
+     AssertLockHeld(m_recv_mutex);
+@@ -1123,8 +1138,10 @@ void V2Transport::ProcessReceivedMaybeV1Bytes() noexcept
+         SetReceiveState(RecvState::V1);
+         SetSendState(SendState::V1);
+         // Reset v2 transport buffers to save memory.
+-        m_recv_buffer = {};
+-        m_send_buffer = {};
++        m_recv_buffer.clear();
++        m_recv_buffer.shrink_to_fit();
++        m_send_buffer.clear();
++        m_send_buffer.shrink_to_fit();
+     } else {
+         // We have not received enough to distinguish v1 from v2 yet. Wait until more bytes come.
+     }
+@@ -1275,7 +1292,8 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
+             // Ignore flag does not matter for garbage authentication. Any valid packet functions
+             // as authentication. Receive and process the version packet next.
+             SetReceiveState(RecvState::VERSION);
+-            m_recv_garbage = {};
++            m_recv_garbage.clear();
++            m_recv_garbage.shrink_to_fit();
+             break;
+         case RecvState::VERSION:
+             if (!ignore) {
+@@ -1295,9 +1313,13 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
+             Assume(false);
+         }
+         // Wipe the receive buffer where the next packet will be received into.
+-        m_recv_buffer = {};
++        m_recv_buffer.clear();
++        m_recv_buffer.shrink_to_fit();
+         // In all but APP_READY state, we can wipe the decoded contents.
+-        if (m_recv_state != RecvState::APP_READY) m_recv_decode_buffer = {};
++        if (m_recv_state != RecvState::APP_READY) {
++            m_recv_decode_buffer.clear();
++            m_recv_decode_buffer.shrink_to_fit();
++        }
+     } else {
+         // We either have less than 3 bytes, so we don't know the packet's length yet, or more
+         // than 3 bytes but less than the packet's full ciphertext. Wait until those arrive.
+@@ -1511,7 +1533,8 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
+         LogPrint(BCLog::NET, "V2 transport error: invalid message type (%u bytes contents), peer=%d\n", m_recv_decode_buffer.size(), m_nodeid);
+         reject_message = true;
+     }
+-    m_recv_decode_buffer = {};
++    m_recv_decode_buffer.clear();
++    m_recv_decode_buffer.shrink_to_fit();
+     SetReceiveState(RecvState::APP);
+ 
+     return msg;
+@@ -1545,7 +1568,8 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
+     m_cipher.Encrypt(MakeByteSpan(contents), {}, false, MakeWritableByteSpan(m_send_buffer));
+     m_send_type = msg.m_type;
+     // Release memory
+-    msg.data = {};
++    msg.data.clear();
++    msg.data.shrink_to_fit();
+     return true;
+ }
+ 
+@@ -1572,15 +1596,41 @@ void V2Transport::MarkBytesSent(size_t bytes_sent) noexcept
+     LOCK(m_send_mutex);
+     if (m_send_state == SendState::V1) return m_v1_fallback.MarkBytesSent(bytes_sent);
+ 
++    if (m_send_state == SendState::AWAITING_KEY && m_send_pos == 0 && bytes_sent > 0) {
++        LogPrint(BCLog::NET, "start sending v2 handshake to peer=%d\n", m_nodeid);
++    }
++
+     m_send_pos += bytes_sent;
+     Assume(m_send_pos <= m_send_buffer.size());
++    if (m_send_pos >= CMessageHeader::HEADER_SIZE) {
++        m_sent_v1_header_worth = true;
++    }
+     // Wipe the buffer when everything is sent.
+     if (m_send_pos == m_send_buffer.size()) {
+         m_send_pos = 0;
+-        m_send_buffer = {};
++        m_send_buffer.clear();
++        m_send_buffer.shrink_to_fit();
+     }
+ }
+ 
++bool V2Transport::ShouldReconnectV1() const noexcept
++{
++    AssertLockNotHeld(m_send_mutex);
++    AssertLockNotHeld(m_recv_mutex);
++    // Only outgoing connections need reconnection.
++    if (!m_initiating) return false;
++
++    LOCK(m_recv_mutex);
++    // Only in the very first state (where m_recv_buffer.empty() means nothing received) do
++    // we reconnect.
++    if (m_recv_state != RecvState::KEY) return false;
++    // Only when nothing has been received do we reconnect.
++    if (!m_recv_buffer.empty()) return false;
++    // Check if we've sent enough for the other side to disconnect us (if it was V1).
++    LOCK(m_send_mutex);
++    return m_sent_v1_header_worth;
++}
++
+ size_t V2Transport::GetSendMemoryUsage() const noexcept
+ {
+     AssertLockNotHeld(m_send_mutex);
+@@ -1590,6 +1640,28 @@ size_t V2Transport::GetSendMemoryUsage() const noexcept
+     return sizeof(m_send_buffer) + memusage::DynamicUsage(m_send_buffer);
+ }
+ 
++Transport::Info V2Transport::GetInfo() const noexcept
++{
++    AssertLockNotHeld(m_recv_mutex);
++    LOCK(m_recv_mutex);
++    if (m_recv_state == RecvState::V1) return m_v1_fallback.GetInfo();
++
++    Transport::Info info;
++
++    // Report DETECTING as transport type if we don't know whether the peer is V1 or V2.
++    info.transport_type = m_recv_state ==
++        RecvState::KEY_MAYBE_V1 ? TransportProtocolType::DETECTING : TransportProtocolType::V2;
++
++    // Do not report the session ID until the garbage authentication packet has been received and
++    // verified (confirming that the other side very likely has the same keys as us).
++    if (m_recv_state != RecvState::KEY_MAYBE_V1 && m_recv_state != RecvState::KEY &&
++        m_recv_state != RecvState::GARB_GARBTERM && m_recv_state != RecvState::GARBAUTH) {
++        info.session_id = uint256(MakeUCharSpan(m_cipher.GetSessionID()));
++    }
++
++    return info;
++}
++
+ std::pair<size_t, bool> CConnman::SocketSendData(CNode& node) const
+ {
+     auto it = node.vSendMsg.begin();
+@@ -1822,6 +1894,10 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
+     }
+ 
+     const bool inbound_onion = std::find(m_onion_binds.begin(), m_onion_binds.end(), addr_bind) != m_onion_binds.end();
++    // The V2Transport transparently falls back to V1 behavior when an incoming V1 connection is
++    // detected, so use it whenever we signal NODE_P2P_V2.
++    const bool use_p2p_v2 = !!(nodeServices & NODE_P2P_V2);
++
+     CNode* pnode = new CNode(id,
+                              std::move(sock),
+                              addr,
+@@ -1835,6 +1911,7 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
+                                  .permission_flags = permission_flags,
+                                  .prefer_evict = discouraged,
+                                  .recv_flood_size = nReceiveFloodSize,
++                                 .use_v2_transport = use_p2p_v2,
+                              });
+     pnode->AddRef();
+     m_msgproc->InitializeNode(*pnode, nodeServices);
+@@ -1889,6 +1966,11 @@ bool CConnman::AddConnection(const std::string& address, ConnectionType conn_typ
+ 
+ void CConnman::DisconnectNodes()
+ {
++    AssertLockNotHeld(m_nodes_mutex);
++    AssertLockNotHeld(m_reconnections_mutex);
++
++    decltype(m_reconnections) reconnections_to_add;
++
+     {
+         LOCK(m_nodes_mutex);
+ 
+@@ -1911,6 +1993,19 @@ void CConnman::DisconnectNodes()
+                 // remove from m_nodes
+                 m_nodes.erase(remove(m_nodes.begin(), m_nodes.end(), pnode), m_nodes.end());
+ 
++                // Add to reconnection list if appropriate. We don't reconnect right here, because
++                // the creation of a connection is a blocking operation (up to several seconds),
++                // and we don't want to hold up the socket handler thread for that long.
++                if (pnode->m_transport->ShouldReconnectV1()) {
++                    reconnections_to_add.emplace_back(
++                        /*addr_connect=*/CAddress{pnode->addr, ServiceFlags{pnode->addr.nServices & ~NODE_P2P_V2}},
++                        /*count_failure=*/pnode->m_count_failure_after_reconnect,
++                        /*grant=*/std::move(pnode->grantOutbound),
++                        /*dest=*/pnode->m_dest,
++                        /*conn_type=*/pnode->m_conn_type);
++                    LogPrint(BCLog::NET, "retrying with v1 transport protocol for peer=%d\n", pnode->GetId());
++                }
++
+                 // release outbound grant (if any)
+                 pnode->grantOutbound.Release();
+ 
+@@ -1938,6 +2033,11 @@ void CConnman::DisconnectNodes()
+             }
+         }
+     }
++    {
++        // Move entries from reconnections_to_add to m_reconnections.
++        LOCK(m_reconnections_mutex);
++        m_reconnections.splice(m_reconnections.end(), std::move(reconnections_to_add));
++    }
+ }
+ 
+ void CConnman::NotifyNumConnectionsChanged()
+@@ -2410,6 +2510,7 @@ bool CConnman::MaybePickPreferredNetwork(std::optional<Network>& network)
+ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
+ {
+     AssertLockNotHeld(m_unused_i2p_sessions_mutex);
++    AssertLockNotHeld(m_reconnections_mutex);
+     FastRandomContext rng;
+     // Connect to specific addresses
+     if (!connect.empty())
+@@ -2453,6 +2554,8 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
+         if (!interruptNet.sleep_for(std::chrono::milliseconds(500)))
+             return;
+ 
++        PerformReconnections();
++
+         CSemaphoreGrant grant(*semOutbound);
+         if (interruptNet)
+             return;
+@@ -2744,7 +2847,7 @@ std::vector<AddedNodeInfo> CConnman::GetAddedNodeInfo() const
+ {
+     std::vector<AddedNodeInfo> ret;
+ 
+-    std::list<std::string> lAddresses(0);
++    std::list<AddedNodeParams> lAddresses(0);
+     {
+         LOCK(m_added_nodes_mutex);
+         ret.reserve(m_added_nodes.size());
+@@ -2768,9 +2871,9 @@ std::vector<AddedNodeInfo> CConnman::GetAddedNodeInfo() const
+         }
+     }
+ 
+-    for (const std::string& strAddNode : lAddresses) {
+-        CService service(LookupNumeric(strAddNode, Params().GetDefaultPort(strAddNode)));
+-        AddedNodeInfo addedNode{strAddNode, CService(), false, false};
++    for (const auto& addr : lAddresses) {
++        CService service(LookupNumeric(addr.m_added_node, Params().GetDefaultPort(addr.m_added_node)));
++        AddedNodeInfo addedNode{addr, CService(), false, false};
+         if (service.IsValid()) {
+             // strAddNode is an IP:port
+             auto it = mapConnected.find(service);
+@@ -2781,7 +2884,7 @@ std::vector<AddedNodeInfo> CConnman::GetAddedNodeInfo() const
+             }
+         } else {
+             // strAddNode is a name
+-            auto it = mapConnectedByName.find(strAddNode);
++            auto it = mapConnectedByName.find(addr.m_added_node);
+             if (it != mapConnectedByName.end()) {
+                 addedNode.resolvedAddress = it->second.second;
+                 addedNode.fConnected = true;
+@@ -2797,6 +2900,7 @@ std::vector<AddedNodeInfo> CConnman::GetAddedNodeInfo() const
+ void CConnman::ThreadOpenAddedConnections()
+ {
+     AssertLockNotHeld(m_unused_i2p_sessions_mutex);
++    AssertLockNotHeld(m_reconnections_mutex);
+     while (true)
+     {
+         CSemaphoreGrant grant(*semAddnode);
+@@ -2811,7 +2915,12 @@ void CConnman::ThreadOpenAddedConnections()
+                 }
+                 tried = true;
+                 CAddress addr(CService(), NODE_NONE);
+-                OpenNetworkConnection(addr, false, &grant, info.strAddedNode.c_str(), ConnectionType::MANUAL);
++
++                if (info.m_params.m_use_p2p_v2) {
++                    addr.nServices = ServiceFlags(addr.nServices | NODE_P2P_V2);
++                }
++
++                OpenNetworkConnection(addr, false, &grant, info.m_params.m_added_node.c_str(), ConnectionType::MANUAL);
+                 if (!interruptNet.sleep_for(std::chrono::milliseconds(500)))
+                     return;
+             }
+@@ -2819,6 +2928,8 @@ void CConnman::ThreadOpenAddedConnections()
+         // Retry every 60 seconds if a connection was attempted, otherwise two seconds
+         if (!interruptNet.sleep_for(std::chrono::seconds(tried ? 60 : 2)))
+             return;
++        // See if any reconnections are desired.
++        PerformReconnections();
+     }
+ }
+ 
+@@ -2849,8 +2960,9 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
+ 
+     if (!pnode)
+         return;
+-    if (grantOutbound)
+-        grantOutbound->MoveTo(pnode->grantOutbound);
++    if (grantOutbound) {
++        pnode->grantOutbound = std::move(*grantOutbound);
++    }
+ 
+     m_msgproc->InitializeNode(*pnode, nLocalServices);
+     {
+@@ -3392,22 +3504,22 @@ std::vector<CAddress> CConnman::GetAddresses(CNode& requestor, size_t max_addres
+     return cache_entry.m_addrs_response_cache;
+ }
+ 
+-bool CConnman::AddNode(const std::string& strNode)
++bool CConnman::AddNode(const AddedNodeParams& added_node_params)
+ {
+     LOCK(m_added_nodes_mutex);
+-    for (const std::string& it : m_added_nodes) {
+-        if (strNode == it) return false;
++    for (const auto& it : m_added_nodes) {
++        if (added_node_params.m_added_node == it.m_added_node) return false;
+     }
+ 
+-    m_added_nodes.push_back(strNode);
++    m_added_nodes.push_back(added_node_params);
+     return true;
+ }
+ 
+ bool CConnman::RemoveAddedNode(const std::string& strNode)
+ {
+     LOCK(m_added_nodes_mutex);
+-    for(std::vector<std::string>::iterator it = m_added_nodes.begin(); it != m_added_nodes.end(); ++it) {
+-        if (strNode == *it) {
++    for (auto it = m_added_nodes.begin(); it != m_added_nodes.end(); ++it) {
++        if (strNode == it->m_added_node) {
+             m_added_nodes.erase(it);
+             return true;
+         }
+@@ -3596,6 +3708,15 @@ ServiceFlags CConnman::GetLocalServices() const
+     return nLocalServices;
+ }
+ 
++static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2_transport, bool inbound) noexcept
++{
++    if (use_v2_transport) {
++        return std::make_unique<V2Transport>(id, !inbound, SER_NETWORK, INIT_PROTO_VERSION);
++    } else {
++        return std::make_unique<V1Transport>(id, SER_NETWORK, INIT_PROTO_VERSION);
++    }
++}
++
+ CNode::CNode(NodeId idIn,
+              std::shared_ptr<Sock> sock,
+              const CAddress& addrIn,
+@@ -3606,14 +3727,16 @@ CNode::CNode(NodeId idIn,
+              ConnectionType conn_type_in,
+              bool inbound_onion,
+              CNodeOptions&& node_opts)
+-    : m_transport{std::make_unique<V1Transport>(idIn, SER_NETWORK, INIT_PROTO_VERSION)},
++    : m_transport{MakeTransport(idIn, node_opts.use_v2_transport, conn_type_in == ConnectionType::INBOUND)},
+       m_permission_flags{node_opts.permission_flags},
+       m_sock{sock},
+       m_connected{GetTime<std::chrono::seconds>()},
+       addr{addrIn},
+       addrBind{addrBindIn},
+       m_addr_name{addrNameIn.empty() ? addr.ToStringAddrPort() : addrNameIn},
++      m_dest(addrNameIn),
+       m_inbound_onion{inbound_onion},
++      m_count_failure_after_reconnect{node_opts.count_failure_after_reconnect},
+       m_prefer_evict{node_opts.prefer_evict},
+       nKeyedNetGroup{nKeyedNetGroupIn},
+       m_conn_type{conn_type_in},
+@@ -3743,6 +3866,24 @@ uint64_t CConnman::CalculateKeyedNetGroup(const CAddress& address) const
+     return GetDeterministicRandomizer(RANDOMIZER_ID_NETGROUP).Write(vchNetGroup).Finalize();
+ }
+ 
++void CConnman::PerformReconnections()
++{
++    AssertLockNotHeld(m_reconnections_mutex);
++    AssertLockNotHeld(m_unused_i2p_sessions_mutex);
++    while (true) {
++        // Move first element of m_reconnections to todo (avoiding an allocation inside the lock).
++        decltype(m_reconnections) todo;
++        {
++            LOCK(m_reconnections_mutex);
++            if (m_reconnections.empty()) break;
++            todo.splice(todo.end(), m_reconnections, m_reconnections.begin());
++        }
++
++        auto& [addr_connect, count_failure, grant, dest, conn_type] = *todo.begin();
++        OpenNetworkConnection(addr_connect, count_failure, &grant, dest.empty() ? nullptr : dest.c_str(), conn_type);
++    }
++}
++
+ void CaptureMessageToFile(const CAddress& addr,
+                           const std::string& msg_type,
+                           Span<const unsigned char> data,
+diff --git a/src/net.h b/src/net.h
+index e1d8995a8e..8dda32ed77 100644
+--- a/src/net.h
++++ b/src/net.h
+@@ -92,11 +92,17 @@ static constexpr bool DEFAULT_FIXEDSEEDS{true};
+ static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
+ static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
+ 
++static constexpr bool DEFAULT_V2_TRANSPORT{false};
++
+ typedef int64_t NodeId;
+ 
+-struct AddedNodeInfo
+-{
+-    std::string strAddedNode;
++struct AddedNodeParams {
++    std::string m_added_node;
++    bool m_use_p2p_v2;
++};
++
++struct AddedNodeInfo {
++    AddedNodeParams m_params;
+     CService resolvedAddress;
+     bool fConnected;
+     bool fInbound;
+@@ -226,6 +232,10 @@ public:
+     Network m_network;
+     uint32_t m_mapped_as;
+     ConnectionType m_conn_type;
++    /** Transport protocol type. */
++    TransportProtocolType m_transport_type;
++    /** BIP324 session id string in hex, if any. */
++    std::string m_session_id;
+ };
+ 
+ 
+@@ -262,6 +272,20 @@ class Transport {
+ public:
+     virtual ~Transport() {}
+ 
++    struct Info
++    {
++        TransportProtocolType transport_type;
++        std::optional<uint256> session_id;
++
++        friend bool operator==(const Info& a, const Info& b) noexcept
++        {
++            return std::tie(a.transport_type, a.session_id) == std::tie(b.transport_type, b.session_id);
++        }
++    };
++
++    /** Retrieve information about this transport. */
++    virtual Info GetInfo() const noexcept = 0;
++
+     // 1. Receiver side functions, for decoding bytes received on the wire into transport protocol
+     // agnostic CNetMessage (message type & payload) objects.
+ 
+@@ -355,6 +379,11 @@ public:
+ 
+     /** Return the memory usage of this transport attributable to buffered data to send. */
+     virtual size_t GetSendMemoryUsage() const noexcept = 0;
++
++    // 3. Miscellaneous functions.
++
++    /** Whether upon disconnections, a reconnect with V1 is warranted. */
++    virtual bool ShouldReconnectV1() const noexcept = 0;
+ };
+ 
+ class V1Transport final : public Transport
+@@ -415,6 +444,8 @@ public:
+         return WITH_LOCK(m_recv_mutex, return CompleteInternal());
+     }
+ 
++    Info GetInfo() const noexcept override;
++
+     bool ReceivedBytes(Span<const uint8_t>& msg_bytes) override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex)
+     {
+         AssertLockNotHeld(m_recv_mutex);
+@@ -434,6 +465,7 @@ public:
+     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
++    bool ShouldReconnectV1() const noexcept override { return false; }
+ };
+ 
+ class V2Transport final : public Transport
+@@ -607,6 +639,8 @@ private:
+     std::string m_send_type GUARDED_BY(m_send_mutex);
+     /** Current sender state. */
+     SendState m_send_state GUARDED_BY(m_send_mutex);
++    /** Whether we've sent at least 24 bytes (which would trigger disconnect for V1 peers). */
++    bool m_sent_v1_header_worth GUARDED_BY(m_send_mutex) {false};
+ 
+     /** Change the receive state. */
+     void SetReceiveState(RecvState recv_state) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
+@@ -652,6 +686,10 @@ public:
+     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
++
++    // Miscellaneous functions.
++    bool ShouldReconnectV1() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex, !m_send_mutex);
++    Info GetInfo() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex);
+ };
+ 
+ struct CNodeOptions
+@@ -660,6 +698,8 @@ struct CNodeOptions
+     std::unique_ptr<i2p::sam::Session> i2p_sam_session = nullptr;
+     bool prefer_evict = false;
+     size_t recv_flood_size{DEFAULT_MAXRECEIVEBUFFER * 1000};
++    bool use_v2_transport = false;
++    bool count_failure_after_reconnect = false;
+ };
+ 
+ /** Information about a peer */
+@@ -704,8 +744,12 @@ public:
+     // Bind address of our side of the connection
+     const CAddress addrBind;
+     const std::string m_addr_name;
++    /** The pszDest argument provided ConnectNode(). Only used for reconnections. */
++    const std::string m_dest;
+     //! Whether this peer is an inbound onion, i.e. connected via our Tor onion service.
+     const bool m_inbound_onion;
++    //! Whether (reconnections of) connections to this peer should count as failure.
++    const bool m_count_failure_after_reconnect;
+     std::atomic<int> nVersion{0};
+     Mutex m_subver_mutex;
+     /**
+@@ -1074,7 +1118,11 @@ public:
+         vWhitelistedRange = connOptions.vWhitelistedRange;
+         {
+             LOCK(m_added_nodes_mutex);
+-            m_added_nodes = connOptions.m_added_nodes;
++
++            for (const std::string& strAddedNode : connOptions.m_added_nodes) {
++                // -addnode cli arg does not currently have a way to signal BIP324 support
++                m_added_nodes.push_back({strAddedNode, false});
++            }
+         }
+         m_onion_binds = connOptions.onion_binds;
+     }
+@@ -1161,7 +1209,7 @@ public:
+     // Count the number of block-relay-only peers we have over our limit.
+     int GetExtraBlockRelayCount() const;
+ 
+-    bool AddNode(const std::string& node) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
++    bool AddNode(const AddedNodeParams& added_node_params) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
+     bool RemoveAddedNode(const std::string& node) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
+     std::vector<AddedNodeInfo> GetAddedNodeInfo() const EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
+ 
+@@ -1244,10 +1292,10 @@ private:
+     bool Bind(const CService& addr, unsigned int flags, NetPermissionFlags permissions);
+     bool InitBinds(const Options& options);
+ 
+-    void ThreadOpenAddedConnections() EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex, !m_unused_i2p_sessions_mutex);
++    void ThreadOpenAddedConnections() EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex, !m_unused_i2p_sessions_mutex, !m_reconnections_mutex);
+     void AddAddrFetch(const std::string& strDest) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_fetches_mutex);
+     void ProcessAddrFetch() EXCLUSIVE_LOCKS_REQUIRED(!m_addr_fetches_mutex, !m_unused_i2p_sessions_mutex);
+-    void ThreadOpenConnections(std::vector<std::string> connect) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_fetches_mutex, !m_added_nodes_mutex, !m_nodes_mutex, !m_unused_i2p_sessions_mutex);
++    void ThreadOpenConnections(std::vector<std::string> connect) EXCLUSIVE_LOCKS_REQUIRED(!m_addr_fetches_mutex, !m_added_nodes_mutex, !m_nodes_mutex, !m_unused_i2p_sessions_mutex, !m_reconnections_mutex);
+     void ThreadMessageHandler() EXCLUSIVE_LOCKS_REQUIRED(!mutexMsgProc);
+     void ThreadI2PAcceptIncoming();
+     void AcceptConnection(const ListenSocket& hListenSocket);
+@@ -1265,7 +1313,7 @@ private:
+                                       const CAddress& addr_bind,
+                                       const CAddress& addr);
+ 
+-    void DisconnectNodes();
++    void DisconnectNodes() EXCLUSIVE_LOCKS_REQUIRED(!m_reconnections_mutex, !m_nodes_mutex);
+     void NotifyNumConnectionsChanged();
+     /** Return true if the peer is inactive and should be disconnected. */
+     bool InactivityCheck(const CNode& node) const;
+@@ -1297,7 +1345,7 @@ private:
+      */
+     void SocketHandlerListening(const Sock::EventsPerSock& events_per_sock);
+ 
+-    void ThreadSocketHandler() EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex, !mutexMsgProc);
++    void ThreadSocketHandler() EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex, !mutexMsgProc, !m_nodes_mutex, !m_reconnections_mutex);
+     void ThreadDNSAddressSeed() EXCLUSIVE_LOCKS_REQUIRED(!m_addr_fetches_mutex, !m_nodes_mutex);
+ 
+     uint64_t CalculateKeyedNetGroup(const CAddress& ad) const;
+@@ -1383,7 +1431,10 @@ private:
+     const NetGroupManager& m_netgroupman;
+     std::deque<std::string> m_addr_fetches GUARDED_BY(m_addr_fetches_mutex);
+     Mutex m_addr_fetches_mutex;
+-    std::vector<std::string> m_added_nodes GUARDED_BY(m_added_nodes_mutex);
++
++    // connection string and whether to use v2 p2p
++    std::vector<AddedNodeParams> m_added_nodes GUARDED_BY(m_added_nodes_mutex);
++
+     mutable Mutex m_added_nodes_mutex;
+     std::vector<CNode*> m_nodes GUARDED_BY(m_nodes_mutex);
+     std::list<CNode*> m_nodes_disconnected;
+@@ -1522,6 +1573,25 @@ private:
+      */
+     std::queue<std::unique_ptr<i2p::sam::Session>> m_unused_i2p_sessions GUARDED_BY(m_unused_i2p_sessions_mutex);
+ 
++    /**
++     * Mutex protecting m_reconnections.
++     */
++    Mutex m_reconnections_mutex;
++
++    /**
++     * List of reconnections we have to make.
++     */
++    std::list<std::tuple<
++        CAddress /*addr_connect*/,
++        bool /*count_failure*/,
++        CSemaphoreGrant /*grant*/,
++        std::string /*dest*/,
++        ConnectionType /*conn_type*/
++    >> m_reconnections GUARDED_BY(m_reconnections_mutex);
++
++    /** Attempt reconnections, if m_reconnections non-empty. */
++    void PerformReconnections() EXCLUSIVE_LOCKS_REQUIRED(!m_reconnections_mutex, !m_unused_i2p_sessions_mutex);
++
+     /**
+      * Cap on the size of `m_unused_i2p_sessions`, to ensure it does not
+      * unexpectedly use too much memory.
+diff --git a/src/net_processing.cpp b/src/net_processing.cpp
+index 6b415b3a1e..0e2e591d9d 100644
+--- a/src/net_processing.cpp
++++ b/src/net_processing.cpp
+@@ -3509,11 +3509,12 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,
+ 
+         if (!pfrom.IsInboundConn()) {
+             const auto mapped_as{m_connman.GetMappedAS(pfrom.addr)};
+-            LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s%s (%s)\n",
++            LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s%s (%s,%s)\n",
+                       pfrom.nVersion.load(), peer->m_starting_height,
+                       pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToStringAddrPort()) : ""),
+                       (mapped_as ? strprintf(", mapped_as=%d", mapped_as) : ""),
+-                      pfrom.ConnectionTypeAsString());
++                      pfrom.ConnectionTypeAsString(),
++                      TransportTypeAsString(pfrom.m_transport->GetInfo().transport_type));
+         }
+ 
+         if (pfrom.GetCommonVersion() >= SHORT_IDS_BLOCKS_VERSION) {
+diff --git a/src/node/connection_types.cpp b/src/node/connection_types.cpp
+index 904f4371aa..5e4dc5bf2e 100644
+--- a/src/node/connection_types.cpp
++++ b/src/node/connection_types.cpp
+@@ -24,3 +24,17 @@ std::string ConnectionTypeAsString(ConnectionType conn_type)
+ 
+     assert(false);
+ }
++
++std::string TransportTypeAsString(TransportProtocolType transport_type)
++{
++    switch (transport_type) {
++    case TransportProtocolType::DETECTING:
++        return "detecting";
++    case TransportProtocolType::V1:
++        return "v1";
++    case TransportProtocolType::V2:
++        return "v2";
++    } // no default case, so the compiler can warn about missing cases
++
++    assert(false);
++}
+diff --git a/src/node/connection_types.h b/src/node/connection_types.h
+index 5e1abcace6..b04a63a87c 100644
+--- a/src/node/connection_types.h
++++ b/src/node/connection_types.h
+@@ -79,4 +79,14 @@ enum class ConnectionType {
+ /** Convert ConnectionType enum to a string value */
+ std::string ConnectionTypeAsString(ConnectionType conn_type);
+ 
++/** Transport layer version */
++enum class TransportProtocolType {
++    DETECTING, //!< Incoming connection; peer could be v1 or v2
++    V1, //!< Unencrypted, plaintext protocol
++    V2, //!< BIP324 protocol
++};
++
++/** Convert TransportProtocolType enum to a string value */
++std::string TransportTypeAsString(TransportProtocolType transport_type);
++
+ #endif // BITCOIN_NODE_CONNECTION_TYPES_H
+diff --git a/src/protocol.cpp b/src/protocol.cpp
+index 2105480c72..d070b9362b 100644
+--- a/src/protocol.cpp
++++ b/src/protocol.cpp
+@@ -199,6 +199,7 @@ static std::string serviceFlagToStr(size_t bit)
+     case NODE_WITNESS:         return "WITNESS";
+     case NODE_COMPACT_FILTERS: return "COMPACT_FILTERS";
+     case NODE_NETWORK_LIMITED: return "NETWORK_LIMITED";
++    case NODE_P2P_V2:          return "P2P_V2";
+     // Not using default, so we get warned when a case is missing
+     }
+ 
+diff --git a/src/protocol.h b/src/protocol.h
+index a7ca0c6f3e..fc288107b9 100644
+--- a/src/protocol.h
++++ b/src/protocol.h
+@@ -291,6 +291,9 @@ enum ServiceFlags : uint64_t {
+     // See BIP159 for details on how this is implemented.
+     NODE_NETWORK_LIMITED = (1 << 10),
+ 
++    // NODE_P2P_V2 means the node supports BIP324 transport
++    NODE_P2P_V2 = (1 << 11),
++
+     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
+     // isn't getting used, or one not being used much, and notify the
+     // bitcoin-development mailing list. Remember that service bits are just
+diff --git a/src/rpc/client.cpp b/src/rpc/client.cpp
+index 0ee3f27761..bfca115a51 100644
+--- a/src/rpc/client.cpp
++++ b/src/rpc/client.cpp
+@@ -301,6 +301,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
+     { "addpeeraddress", 2, "tried"},
+     { "sendmsgtopeer", 0, "peer_id" },
+     { "stop", 0, "wait" },
++    { "addnode", 2, "p2p_v2" },
+ };
+ // clang-format on
+ 
+diff --git a/src/rpc/net.cpp b/src/rpc/net.cpp
+index f7b6c68344..d64d921bfc 100644
+--- a/src/rpc/net.cpp
++++ b/src/rpc/net.cpp
+@@ -45,6 +45,12 @@ const std::vector<std::string> CONNECTION_TYPE_DOC{
+         "feeler (short-lived automatic connection for testing addresses)"
+ };
+ 
++const std::vector<std::string> TRANSPORT_TYPE_DOC{
++    "detecting (peer could be v1 or v2)",
++    "v1 (plaintext transport protocol)",
++    "v2 (BIP324 encrypted transport protocol)"
++};
++
+ static RPCHelpMan getconnectioncount()
+ {
+     return RPCHelpMan{"getconnectioncount",
+@@ -164,6 +170,8 @@ static RPCHelpMan getpeerinfo()
+                     {RPCResult::Type::STR, "connection_type", "Type of connection: \n" + Join(CONNECTION_TYPE_DOC, ",\n") + ".\n"
+                                                               "Please note this output is unlikely to be stable in upcoming releases as we iterate to\n"
+                                                               "best capture connection behaviors."},
++                    {RPCResult::Type::STR, "transport_protocol_type", "Type of transport protocol: \n" + Join(TRANSPORT_TYPE_DOC, ",\n") + ".\n"},
++                    {RPCResult::Type::STR, "session_id", "The session ID for this connection, or \"\" if there is none (\"v2\" transport protocol only).\n"},
+                 }},
+             }},
+         },
+@@ -268,6 +276,8 @@ static RPCHelpMan getpeerinfo()
+         }
+         obj.pushKV("bytesrecv_per_msg", recvPerMsgType);
+         obj.pushKV("connection_type", ConnectionTypeAsString(stats.m_conn_type));
++        obj.pushKV("transport_protocol_type", TransportTypeAsString(stats.m_transport_type));
++        obj.pushKV("session_id", stats.m_session_id);
+ 
+         ret.push_back(obj);
+     }
+@@ -289,11 +299,12 @@ static RPCHelpMan addnode()
+                 {
+                     {"node", RPCArg::Type::STR, RPCArg::Optional::NO, "The node (see getpeerinfo for nodes)"},
+                     {"command", RPCArg::Type::STR, RPCArg::Optional::NO, "'add' to add a node to the list, 'remove' to remove a node from the list, 'onetry' to try a connection to the node once"},
++                    {"p2p_v2", RPCArg::Type::BOOL, RPCArg::Default{false}, "Peer supports BIP324 v2 transport protocol"},
+                 },
+                 RPCResult{RPCResult::Type::NONE, "", ""},
+                 RPCExamples{
+-                    HelpExampleCli("addnode", "\"192.168.0.6:8333\" \"onetry\"")
+-            + HelpExampleRpc("addnode", "\"192.168.0.6:8333\", \"onetry\"")
++                    HelpExampleCli("addnode", "\"192.168.0.6:8333\" \"onetry\" true")
++            + HelpExampleRpc("addnode", "\"192.168.0.6:8333\", \"onetry\" true")
+                 },
+         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+ {
+@@ -309,17 +320,21 @@ static RPCHelpMan addnode()
+     CConnman& connman = EnsureConnman(node);
+ 
+     std::string strNode = request.params[0].get_str();
++    bool use_p2p_v2 = !request.params[2].isNull() && request.params[2].get_bool();
+ 
+     if (strCommand == "onetry")
+     {
+         CAddress addr;
++        if (use_p2p_v2) {
++            addr.nServices = ServiceFlags(addr.nServices | NODE_P2P_V2);
++        }
+         connman.OpenNetworkConnection(addr, false, nullptr, strNode.c_str(), ConnectionType::MANUAL);
+         return UniValue::VNULL;
+     }
+ 
+     if (strCommand == "add")
+     {
+-        if (!connman.AddNode(strNode)) {
++        if (!connman.AddNode({strNode, use_p2p_v2})) {
+             throw JSONRPCError(RPC_CLIENT_NODE_ALREADY_ADDED, "Error: Node already added");
+         }
+     }
+@@ -477,7 +492,7 @@ static RPCHelpMan getaddednodeinfo()
+     if (!request.params[0].isNull()) {
+         bool found = false;
+         for (const AddedNodeInfo& info : vInfo) {
+-            if (info.strAddedNode == request.params[0].get_str()) {
++            if (info.m_params.m_added_node == request.params[0].get_str()) {
+                 vInfo.assign(1, info);
+                 found = true;
+                 break;
+@@ -492,7 +507,7 @@ static RPCHelpMan getaddednodeinfo()
+ 
+     for (const AddedNodeInfo& info : vInfo) {
+         UniValue obj(UniValue::VOBJ);
+-        obj.pushKV("addednode", info.strAddedNode);
++        obj.pushKV("addednode", info.m_params.m_added_node);
+         obj.pushKV("connected", info.fConnected);
+         UniValue addresses(UniValue::VARR);
+         if (info.fConnected) {
+diff --git a/src/sync.h b/src/sync.h
+index 7242a793ab..c91d9c4e45 100644
+--- a/src/sync.h
++++ b/src/sync.h
+@@ -309,25 +309,33 @@ private:
+     int value;
+ 
+ public:
+-    explicit CSemaphore(int init) : value(init) {}
++    explicit CSemaphore(int init) noexcept : value(init) {}
+ 
+-    void wait()
++    // Disallow default construct, copy, move.
++    CSemaphore() = delete;
++    CSemaphore(const CSemaphore&) = delete;
++    CSemaphore(CSemaphore&&) = delete;
++    CSemaphore& operator=(const CSemaphore&) = delete;
++    CSemaphore& operator=(CSemaphore&&) = delete;
++
++    void wait() noexcept
+     {
+         std::unique_lock<std::mutex> lock(mutex);
+         condition.wait(lock, [&]() { return value >= 1; });
+         value--;
+     }
+ 
+-    bool try_wait()
++    bool try_wait() noexcept
+     {
+         std::lock_guard<std::mutex> lock(mutex);
+-        if (value < 1)
++        if (value < 1) {
+             return false;
++        }
+         value--;
+         return true;
+     }
+ 
+-    void post()
++    void post() noexcept
+     {
+         {
+             std::lock_guard<std::mutex> lock(mutex);
+@@ -345,45 +353,62 @@ private:
+     bool fHaveGrant;
+ 
+ public:
+-    void Acquire()
++    void Acquire() noexcept
+     {
+-        if (fHaveGrant)
++        if (fHaveGrant) {
+             return;
++        }
+         sem->wait();
+         fHaveGrant = true;
+     }
+ 
+-    void Release()
++    void Release() noexcept
+     {
+-        if (!fHaveGrant)
++        if (!fHaveGrant) {
+             return;
++        }
+         sem->post();
+         fHaveGrant = false;
+     }
+ 
+-    bool TryAcquire()
++    bool TryAcquire() noexcept
+     {
+-        if (!fHaveGrant && sem->try_wait())
++        if (!fHaveGrant && sem->try_wait()) {
+             fHaveGrant = true;
++        }
+         return fHaveGrant;
+     }
+ 
+-    void MoveTo(CSemaphoreGrant& grant)
++    // Disallow copy.
++    CSemaphoreGrant(const CSemaphoreGrant&) = delete;
++    CSemaphoreGrant& operator=(const CSemaphoreGrant&) = delete;
++
++    // Allow move.
++    CSemaphoreGrant(CSemaphoreGrant&& other) noexcept
+     {
+-        grant.Release();
+-        grant.sem = sem;
+-        grant.fHaveGrant = fHaveGrant;
+-        fHaveGrant = false;
++        sem = other.sem;
++        fHaveGrant = other.fHaveGrant;
++        other.fHaveGrant = false;
+     }
+ 
+-    CSemaphoreGrant() : sem(nullptr), fHaveGrant(false) {}
++    CSemaphoreGrant& operator=(CSemaphoreGrant&& other) noexcept
++    {
++        Release();
++        sem = other.sem;
++        fHaveGrant = other.fHaveGrant;
++        other.fHaveGrant = false;
++        return *this;
++    }
++
++    CSemaphoreGrant() noexcept : sem(nullptr), fHaveGrant(false) {}
+ 
+-    explicit CSemaphoreGrant(CSemaphore& sema, bool fTry = false) : sem(&sema), fHaveGrant(false)
++    explicit CSemaphoreGrant(CSemaphore& sema, bool fTry = false) noexcept : sem(&sema), fHaveGrant(false)
+     {
+-        if (fTry)
++        if (fTry) {
+             TryAcquire();
+-        else
++        } else {
+             Acquire();
++        }
+     }
+ 
+     ~CSemaphoreGrant()
+@@ -391,7 +416,7 @@ public:
+         Release();
+     }
+ 
+-    operator bool() const
++    explicit operator bool() const noexcept
+     {
+         return fHaveGrant;
+     }
+diff --git a/src/test/fuzz/connman.cpp b/src/test/fuzz/connman.cpp
+index cdf240dc59..8b447ac217 100644
+--- a/src/test/fuzz/connman.cpp
++++ b/src/test/fuzz/connman.cpp
+@@ -60,7 +60,7 @@ FUZZ_TARGET(connman, .init = initialize_connman)
+                 random_string = fuzzed_data_provider.ConsumeRandomLengthString(64);
+             },
+             [&] {
+-                connman.AddNode(random_string);
++                connman.AddNode({random_string, fuzzed_data_provider.ConsumeBool()});
+             },
+             [&] {
+                 connman.CheckIncomingNonce(fuzzed_data_provider.ConsumeIntegral<uint64_t>());
+diff --git a/src/test/fuzz/p2p_transport_serialization.cpp b/src/test/fuzz/p2p_transport_serialization.cpp
+index 88d6e96eac..21d8dab536 100644
+--- a/src/test/fuzz/p2p_transport_serialization.cpp
++++ b/src/test/fuzz/p2p_transport_serialization.cpp
+@@ -328,6 +328,9 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
+     // Make sure all expected messages were received.
+     assert(expected[0].empty());
+     assert(expected[1].empty());
++
++    // Compare session IDs.
++    assert(transports[0]->GetInfo().session_id == transports[1]->GetInfo().session_id);
+ }
+ 
+ std::unique_ptr<Transport> MakeV1Transport(NodeId nodeid) noexcept
+diff --git a/src/test/net_tests.cpp b/src/test/net_tests.cpp
+index 3eb7bdec62..a4d77c40bc 100644
+--- a/src/test/net_tests.cpp
++++ b/src/test/net_tests.cpp
+@@ -1321,6 +1321,14 @@ public:
+         SendPacket(contents);
+     }
+ 
++    /** Test whether the transport's session ID matches the session ID we expect. */
++    void CompareSessionIDs() const
++    {
++        auto info = m_transport.GetInfo();
++        BOOST_CHECK(info.session_id);
++        BOOST_CHECK(uint256(MakeUCharSpan(m_cipher.GetSessionID())) == *info.session_id);
++    }
++
+     /** Introduce a bit error in the data scheduled to be sent. */
+     void Damage()
+     {
+@@ -1346,6 +1354,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
+         BOOST_REQUIRE(ret && ret->empty());
+         tester.ReceiveGarbage();
+         tester.ReceiveVersion();
++        tester.CompareSessionIDs();
+         auto msg_data_1 = g_insecure_rand_ctx.randbytes<uint8_t>(InsecureRandRange(100000));
+         auto msg_data_2 = g_insecure_rand_ctx.randbytes<uint8_t>(InsecureRandRange(1000));
+         tester.SendMessage(uint8_t(4), msg_data_1); // cmpctblock short id
+@@ -1378,6 +1387,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
+         BOOST_REQUIRE(ret && ret->empty());
+         tester.ReceiveGarbage();
+         tester.ReceiveVersion();
++        tester.CompareSessionIDs();
+         auto msg_data_1 = g_insecure_rand_ctx.randbytes<uint8_t>(InsecureRandRange(100000));
+         auto msg_data_2 = g_insecure_rand_ctx.randbytes<uint8_t>(InsecureRandRange(1000));
+         tester.SendMessage(uint8_t(14), msg_data_1); // inv short id
+@@ -1435,6 +1445,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
+         BOOST_REQUIRE(ret && ret->empty());
+         tester.ReceiveGarbage();
+         tester.ReceiveVersion();
++        tester.CompareSessionIDs();
+         for (unsigned d = 0; d < num_decoys_1; ++d) {
+             auto decoy_data = g_insecure_rand_ctx.randbytes<uint8_t>(InsecureRandRange(1000));
+             tester.SendPacket(/*content=*/decoy_data, /*aad=*/{}, /*ignore=*/true);
+@@ -1512,6 +1523,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
+         BOOST_REQUIRE(ret && ret->empty());
+         tester.ReceiveGarbage();
+         tester.ReceiveVersion();
++        tester.CompareSessionIDs();
+         auto msg_data_1 = g_insecure_rand_ctx.randbytes<uint8_t>(4000000); // test that receiving 4M payload works
+         auto msg_data_2 = g_insecure_rand_ctx.randbytes<uint8_t>(4000000); // test that sending 4M payload works
+         tester.SendMessage(uint8_t(InsecureRandRange(223) + 33), {}); // unknown short id
+diff --git a/test/functional/p2p_v2.py b/test/functional/p2p_v2.py
+new file mode 100755
+index 0000000000..bfcb4997fc
+--- /dev/null
++++ b/test/functional/p2p_v2.py
+@@ -0,0 +1,91 @@
++#!/usr/bin/env python3
++# Copyright (c) 2022 The Bitcoin Core developers
++# Distributed under the MIT software license, see the accompanying
++# file COPYING or http://www.opensource.org/licenses/mit-license.php.
++"""
++Test BIP324 v2 transport
++"""
++
++from test_framework.test_framework import BitcoinTestFramework
++from test_framework.util import assert_equal
++
++class P2PV2Test(BitcoinTestFramework):
++    def set_test_params(self):
++        self.setup_clean_chain = True
++        self.num_nodes = 5
++        self.extra_args = [["-v2transport=1"], ["-v2transport=1"], ["-v2transport=0"], ["-v2transport=0"], ["-v2transport=0"]]
++
++    def run_test(self):
++        sending_handshake = "start sending v2 handshake to peer"
++        downgrading_to_v1 = "retrying with v1 transport protocol for peer"
++        self.disconnect_nodes(0, 1)
++        self.disconnect_nodes(1, 2)
++        self.disconnect_nodes(2, 3)
++        self.disconnect_nodes(3, 4)
++
++        # V2 nodes can sync with V2 nodes
++        assert_equal(self.nodes[0].getblockcount(), 0)
++        assert_equal(self.nodes[1].getblockcount(), 0)
++        self.nodes[0].generatetoaddress(5, "bcrt1q0yq2azut8gn2xu3y2g0xucf8pny6w8uxmyf220", invalid_call=False)
++        assert_equal(self.nodes[0].getblockcount(), 5)
++        assert_equal(self.nodes[1].getblockcount(), 0)
++        with self.nodes[0].assert_debug_log(expected_msgs=[sending_handshake],
++                                            unexpected_msgs=[downgrading_to_v1]):
++            self.connect_nodes(0, 1, True)
++        # sync_all() verifies that the block tips match
++        self.sync_all(self.nodes[0:2])
++        assert_equal(self.nodes[1].getblockcount(), 5)
++
++        # V1 nodes can sync with each other
++        assert_equal(self.nodes[2].getblockcount(), 0)
++        assert_equal(self.nodes[3].getblockcount(), 0)
++        self.nodes[2].generatetoaddress(8, "bcrt1qyr5lnc2g8aa3qa9c4th9d46n5uu4y0m9nvq2cv", invalid_call=False)
++        assert_equal(self.nodes[2].getblockcount(), 8)
++        assert_equal(self.nodes[3].getblockcount(), 0)
++        with self.nodes[2].assert_debug_log(expected_msgs=[],
++                                            unexpected_msgs=[sending_handshake, downgrading_to_v1]):
++            self.connect_nodes(2, 3, False)
++        self.sync_all(self.nodes[2:4])
++        assert_equal(self.nodes[3].getblockcount(), 8)
++        assert self.nodes[0].getbestblockhash() != self.nodes[2].getbestblockhash()
++
++        # V1 nodes can sync with V2 nodes
++        self.disconnect_nodes(0, 1)
++        self.disconnect_nodes(2, 3)
++        with self.nodes[2].assert_debug_log(expected_msgs=[],
++                                            unexpected_msgs=[sending_handshake, downgrading_to_v1]):
++            self.connect_nodes(2, 1, True)
++        self.sync_all(self.nodes[1:3])
++        assert_equal(self.nodes[1].getblockcount(), 8)
++        assert self.nodes[0].getbestblockhash() != self.nodes[1].getbestblockhash()
++
++        # V2 nodes can sync with V1 nodes
++        self.disconnect_nodes(1, 2)
++        with self.nodes[0].assert_debug_log(expected_msgs=[],
++                                            unexpected_msgs=[sending_handshake, downgrading_to_v1]):
++            self.connect_nodes(0, 3, False)
++        self.sync_all([self.nodes[0], self.nodes[3]])
++        assert_equal(self.nodes[0].getblockcount(), 8)
++
++        # V2 node mines another block and everyone gets it
++        self.connect_nodes(0, 1, True)
++        self.connect_nodes(1, 2, False)
++        self.nodes[1].generatetoaddress(1, "bcrt1q3zsxn3qx0cqyyxgv90k7j6786mpe543wc4vy2v", invalid_call=False)
++        self.sync_all(self.nodes[0:4])
++        assert_equal(self.nodes[0].getblockcount(), 9) # sync_all() verifies tip hashes match
++
++        # V1 node mines another block and everyone gets it
++        self.nodes[3].generatetoaddress(2, "bcrt1q3zsxn3qx0cqyyxgv90k7j6786mpe543wc4vy2v", invalid_call=False)
++        self.sync_all(self.nodes[0:4])
++        assert_equal(self.nodes[2].getblockcount(), 11) # sync_all() verifies tip hashes match
++
++        assert_equal(self.nodes[4].getblockcount(), 0)
++        # Peer 4 is v1 p2p, but is falsely advertised as v2.
++        with self.nodes[1].assert_debug_log(expected_msgs=[sending_handshake, downgrading_to_v1]):
++            self.connect_nodes(1, 4, True)
++        self.sync_all()
++        assert_equal(self.nodes[4].getblockcount(), 11)
++
++
++if __name__ == '__main__':
++    P2PV2Test().main()
+diff --git a/test/functional/p2p_v2_transport.py b/test/functional/p2p_v2_transport.py
+new file mode 100755
+index 0000000000..cc7911edd0
+--- /dev/null
++++ b/test/functional/p2p_v2_transport.py
+@@ -0,0 +1,32 @@
++#!/usr/bin/env python3
++# Copyright (c) 2021 The Bitcoin Core developers
++# Distributed under the MIT software license, see the accompanying
++# file COPYING or http://www.opensource.org/licenses/mit-license.php.
++"""
++Test v2 transport
++"""
++
++from test_framework.messages import NODE_P2P_V2
++from test_framework.test_framework import BitcoinTestFramework
++from test_framework.util import assert_equal
++
++class V2TransportTest(BitcoinTestFramework):
++    def set_test_params(self):
++        self.setup_clean_chain=True
++        self.num_nodes = 1
++        self.extra_args = [["-v2transport=0"]]
++
++    def run_test(self):
++        network_info = self.nodes[0].getnetworkinfo()
++        assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, 0)
++        if "P2P_V2" in network_info["localservicesnames"]:
++            raise AssertionError("Did not expect P2P_V2 to be signaled for a v1 node")
++
++        self.restart_node(0, ["-v2transport=1"])
++        network_info = self.nodes[0].getnetworkinfo()
++        assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, NODE_P2P_V2)
++        if "P2P_V2" not in network_info["localservicesnames"]:
++            raise AssertionError("Expected P2P_V2 to be signaled for a v2 node")
++
++if __name__ == '__main__':
++    V2TransportTest().main()
+diff --git a/test/functional/rpc_net.py b/test/functional/rpc_net.py
+index 255f5108a2..a85bfd376b 100755
+--- a/test/functional/rpc_net.py
++++ b/test/functional/rpc_net.py
+@@ -141,11 +141,13 @@ class NetTest(BitcoinTestFramework):
+                 "relaytxes": False,
+                 "services": "0000000000000000",
+                 "servicesnames": [],
++                "session_id": "",
+                 "startingheight": -1,
+                 "subver": "",
+                 "synced_blocks": -1,
+                 "synced_headers": -1,
+                 "timeoffset": 0,
++                "transport_protocol_type": "v1",
+                 "version": 0,
+             },
+         )
+diff --git a/test/functional/test_framework/messages.py b/test/functional/test_framework/messages.py
+index 4d635556f4..8f3aea8785 100755
+--- a/test/functional/test_framework/messages.py
++++ b/test/functional/test_framework/messages.py
+@@ -52,6 +52,7 @@ NODE_BLOOM = (1 << 2)
+ NODE_WITNESS = (1 << 3)
+ NODE_COMPACT_FILTERS = (1 << 6)
+ NODE_NETWORK_LIMITED = (1 << 10)
++NODE_P2P_V2 = (1 << 11)
+ 
+ MSG_TX = 1
+ MSG_BLOCK = 2
+diff --git a/test/functional/test_framework/test_framework.py b/test/functional/test_framework/test_framework.py
+index 73e7516ea7..931381b05e 100755
+--- a/test/functional/test_framework/test_framework.py
++++ b/test/functional/test_framework/test_framework.py
+@@ -189,6 +189,8 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
+         parser.add_argument("--randomseed", type=int,
+                             help="set a random seed for deterministically reproducing a previous test run")
+         parser.add_argument("--timeout-factor", dest="timeout_factor", type=float, help="adjust test timeouts by a factor. Setting it to 0 disables all timeouts")
++        parser.add_argument("--v2transport", dest="v2transport", default=False, action="store_true",
++                            help="use BIP324 v2 connections between all nodes by default")
+ 
+         self.add_options(parser)
+         # Running TestShell in a Jupyter notebook causes an additional -f argument
+@@ -504,6 +506,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
+         assert_equal(len(binary), num_nodes)
+         assert_equal(len(binary_cli), num_nodes)
+         for i in range(num_nodes):
++            args = list(extra_args[i])
++            if self.options.v2transport and ("-v2transport=0" not in args):
++                args.append("-v2transport=1")
+             test_node_i = TestNode(
+                 i,
+                 get_datadir_path(self.options.tmpdir, i),
+@@ -517,7 +522,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
+                 coverage_dir=self.options.coveragedir,
+                 cwd=self.options.tmpdir,
+                 extra_conf=extra_confs[i],
+-                extra_args=extra_args[i],
++                extra_args=args,
+                 use_cli=self.options.usecli,
+                 start_perf=self.options.perf,
+                 use_valgrind=self.options.valgrind,
+@@ -581,26 +586,50 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
+     def wait_for_node_exit(self, i, timeout):
+         self.nodes[i].process.wait(timeout)
+ 
+-    def connect_nodes(self, a, b):
++    def connect_nodes(self, a, b, peer_advertises_v2=None):
+         from_connection = self.nodes[a]
+         to_connection = self.nodes[b]
+         from_num_peers = 1 + len(from_connection.getpeerinfo())
+         to_num_peers = 1 + len(to_connection.getpeerinfo())
+         ip_port = "127.0.0.1:" + str(p2p_port(b))
+-        from_connection.addnode(ip_port, "onetry")
++
++        if peer_advertises_v2 is None:
++            peer_advertises_v2 = self.options.v2transport
++
++        if peer_advertises_v2:
++            from_connection.addnode(ip_port, "onetry", True)
++        else:
++            # skip the optional third argument (default false) for
++            # compatibility with older clients
++            from_connection.addnode(ip_port, "onetry")
++
++        min_verack_msg_bytes = 21 if peer_advertises_v2 else 24
+         # poll until version handshake complete to avoid race conditions
+         # with transaction relaying
+         # See comments in net_processing:
+         # * Must have a version message before anything else
+         # * Must have a verack message before anything else
+-        self.wait_until(lambda: sum(peer['version'] != 0 for peer in from_connection.getpeerinfo()) == from_num_peers)
+-        self.wait_until(lambda: sum(peer['version'] != 0 for peer in to_connection.getpeerinfo()) == to_num_peers)
+-        self.wait_until(lambda: sum(peer['bytesrecv_per_msg'].pop('verack', 0) == 24 for peer in from_connection.getpeerinfo()) == from_num_peers)
+-        self.wait_until(lambda: sum(peer['bytesrecv_per_msg'].pop('verack', 0) == 24 for peer in to_connection.getpeerinfo()) == to_num_peers)
+-        # The message bytes are counted before processing the message, so make
+-        # sure it was fully processed by waiting for a ping.
+-        self.wait_until(lambda: sum(peer["bytesrecv_per_msg"].pop("pong", 0) >= 32 for peer in from_connection.getpeerinfo()) == from_num_peers)
+-        self.wait_until(lambda: sum(peer["bytesrecv_per_msg"].pop("pong", 0) >= 32 for peer in to_connection.getpeerinfo()) == to_num_peers)
++        # * The message bytes are counted before processing the message, so make
++        #   sure it was fully processed by waiting for a ping.
++
++        def check_initiator_handshake():
++            peerinfo = from_connection.getpeerinfo()
++            if len(peerinfo) != from_num_peers:
++                return False
++
++            responder = list(filter(lambda x: x["addr"] == ip_port, peerinfo))[0]
++            return responder['version'] != 0 and responder['bytesrecv_per_msg'].pop('verack', 0) >= min_verack_msg_bytes and responder['bytesrecv_per_msg'].pop("pong", 0) >= 29
++
++        def check_responder_handshake():
++            peerinfo = to_connection.getpeerinfo()
++            if len(peerinfo) != to_num_peers:
++                return False
++
++            initiator = list(filter(lambda x: x["addrbind"] == ip_port, peerinfo))[0]
++            return initiator['version'] != 0 and initiator['bytesrecv_per_msg'].pop('verack', 0) >= min_verack_msg_bytes and initiator['bytesrecv_per_msg'].pop("pong", 0) >= 29
++
++        self.wait_until(check_initiator_handshake)
++        self.wait_until(check_responder_handshake)
+ 
+     def disconnect_nodes(self, a, b):
+         def disconnect_nodes_helper(node_a, node_b):
+diff --git a/test/functional/test_runner.py b/test/functional/test_runner.py
+index db04bb8bdb..d0030f1204 100755
+--- a/test/functional/test_runner.py
++++ b/test/functional/test_runner.py
+@@ -117,6 +117,7 @@ BASE_SCRIPTS = [
+     'wallet_backup.py --descriptors',
+     'feature_segwit.py --legacy-wallet',
+     'feature_segwit.py --descriptors',
++    'feature_segwit.py --descriptors --v2transport',
+     'p2p_tx_download.py',
+     'wallet_avoidreuse.py --legacy-wallet',
+     'wallet_avoidreuse.py --descriptors',
+@@ -194,6 +195,7 @@ BASE_SCRIPTS = [
+     'wallet_avoid_mixing_output_types.py --descriptors',
+     'mempool_reorg.py',
+     'p2p_block_sync.py',
++    'p2p_block_sync.py --v2transport',
+     'wallet_createwallet.py --legacy-wallet',
+     'wallet_createwallet.py --usecli',
+     'wallet_createwallet.py --descriptors',
+@@ -220,10 +222,13 @@ BASE_SCRIPTS = [
+     'wallet_transactiontime_rescan.py --legacy-wallet',
+     'p2p_addrv2_relay.py',
+     'p2p_compactblocks_hb.py',
++    'p2p_compactblocks_hb.py --v2transport',
+     'p2p_disconnect_ban.py',
++    'p2p_disconnect_ban.py --v2transport',
+     'feature_posix_fs_permissions.py',
+     'rpc_decodescript.py',
+     'rpc_blockchain.py',
++    'rpc_blockchain.py --v2transport',
+     'rpc_deprecated.py',
+     'wallet_disable.py',
+     'wallet_change_address.py --legacy-wallet',
+@@ -244,7 +249,11 @@ BASE_SCRIPTS = [
+     'mining_prioritisetransaction.py',
+     'p2p_invalid_locator.py',
+     'p2p_invalid_block.py',
++    'p2p_invalid_block.py --v2transport',
+     'p2p_invalid_tx.py',
++    'p2p_invalid_tx.py --v2transport',
++    'p2p_v2.py',
++    'p2p_v2_transport.py',
+     'example_test.py',
+     'wallet_txn_doublespend.py --legacy-wallet',
+     'wallet_multisig_descriptor_psbt.py --descriptors',
+@@ -266,9 +275,12 @@ BASE_SCRIPTS = [
+     'wallet_importprunedfunds.py --legacy-wallet',
+     'wallet_importprunedfunds.py --descriptors',
+     'p2p_leak_tx.py',
++    'p2p_leak_tx.py --v2transport',
+     'p2p_eviction.py',
+     'p2p_ibd_stalling.py',
++    'p2p_ibd_stalling.py --v2transport',
+     'p2p_net_deadlock.py',
++    'p2p_net_deadlock.py --v2transport',
+     'wallet_signmessagewithaddress.py',
+     'rpc_signmessagewithprivkey.py',
+     'rpc_generate.py',

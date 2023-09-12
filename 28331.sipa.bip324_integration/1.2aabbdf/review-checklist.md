@@ -1,0 +1,9 @@
+- [ ] 55079fedee net: Fix V2Transport memory buffers not being released
+- [ ] 1768aff56d net: advertise NODE_P2P_V2 if CLI arg -v2transport is on
+- [ ] 7d2ab20eb2 net: use V2Transport when NODE_P2P_V2 service flag is present
+- [ ] 1fa8efaff7 rpc: addnode arg to use BIP324 v2 p2p
+- [ ] 8672b854fb sync: modernize CSemaphore / CSemaphoreGrant
+- [ ] 4cfbbceff3 net: reconnect with V1Transport under certain conditions
+- [ ] 19023e7dac net: expose transport types/session IDs of connections in RPC and logs
+- [ ] be8a5dcddd test: Functional test for opportunistic encryption
+- [ ] 2aabbdf4de test: enable v2 transport between nodes in some functional tests
