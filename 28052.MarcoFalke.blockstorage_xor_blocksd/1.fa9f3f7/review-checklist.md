@@ -1,0 +1,2 @@
+- [ ] faff1840d4 Return XOR CAutoFile from BlockManager::Open*File()
+- [ ] fa9f3f7001 Add -blocksxor boolean option
