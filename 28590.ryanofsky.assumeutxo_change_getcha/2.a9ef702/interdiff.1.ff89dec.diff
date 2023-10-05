@@ -1,0 +1,55 @@
+--- /home/james/.ackr/28590.ryanofsky.assumeutxo_change_getcha/1.ff89dec/base.diff	2023-10-05 08:56:09.176759455 -0400
++++ /home/james/.ackr/28590.ryanofsky.assumeutxo_change_getcha/2.a9ef702/base.diff	2023-10-05 11:16:32.773652248 -0400
+@@ -58,7 +58,7 @@
+  }
+      };
+ diff --git a/test/functional/feature_assumeutxo.py b/test/functional/feature_assumeutxo.py
+-index be0715df32..12d172888c 100755
++index be0715df32..15cacc204c 100755
+ --- a/test/functional/feature_assumeutxo.py
+ +++ b/test/functional/feature_assumeutxo.py
+ @@ -128,10 +128,13 @@ class AssumeutxoTest(BitcoinTestFramework):
+@@ -79,7 +79,7 @@
+  
+          assert_equal(n1.getblockchaininfo()["blocks"], SNAPSHOT_BASE_HEIGHT)
+  
+-@@ -159,20 +162,12 @@ class AssumeutxoTest(BitcoinTestFramework):
++@@ -159,20 +162,11 @@ class AssumeutxoTest(BitcoinTestFramework):
+          self.connect_nodes(0, 1)
+  
+          self.log.info(f"Ensuring snapshot chain syncs to tip. ({FINAL_HEIGHT})")
+@@ -96,13 +96,13 @@
+          self.sync_blocks(nodes=(n0, n1))
+  
+          self.log.info("Ensuring background validation completes")
+-         # N.B.: the `snapshot` key disappears once the background validation is complete.
++-        # N.B.: the `snapshot` key disappears once the background validation is complete.
+ -        wait_until_helper(lambda: not n1.getchainstates().get('snapshot'))
+-+        wait_until_helper(lambda: len(n1.getchainstates()['chainstates']) != 1)
+++        wait_until_helper(lambda: len(n1.getchainstates()['chainstates']) == 1)
+  
+          # Ensure indexes have synced.
+          completed_idx_state = {
+-@@ -189,8 +184,8 @@ class AssumeutxoTest(BitcoinTestFramework):
++@@ -189,8 +183,8 @@ class AssumeutxoTest(BitcoinTestFramework):
+  
+              assert_equal(n.getblockchaininfo()["blocks"], FINAL_HEIGHT)
+  
+@@ -113,7 +113,7 @@
+  
+              if i != 0:
+                  # Ensure indexes have synced for the assumeutxo node
+-@@ -208,17 +203,20 @@ class AssumeutxoTest(BitcoinTestFramework):
++@@ -208,17 +202,20 @@ class AssumeutxoTest(BitcoinTestFramework):
+          assert_equal(loaded['coins_loaded'], SNAPSHOT_BASE_HEIGHT)
+          assert_equal(loaded['base_height'], SNAPSHOT_BASE_HEIGHT)
+  
+@@ -140,7 +140,7 @@
+  
+          completed_idx_state = {
+              'basic block filter index': COMPLETE_IDX,
+-@@ -234,8 +232,8 @@ class AssumeutxoTest(BitcoinTestFramework):
++@@ -234,8 +231,8 @@ class AssumeutxoTest(BitcoinTestFramework):
+  
+              assert_equal(n.getblockchaininfo()["blocks"], FINAL_HEIGHT)
+  

@@ -1,0 +1,153 @@
+diff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp
+index 0f4941b40c..abd723ee56 100644
+--- a/src/rpc/blockchain.cpp
++++ b/src/rpc/blockchain.cpp
+@@ -2807,6 +2807,7 @@ const std::vector<RPCResult> RPCHelpForChainstate{
+     {RPCResult::Type::STR_HEX, "snapshot_blockhash", /*optional=*/true, "the base block of the snapshot this chainstate is based on, if any"},
+     {RPCResult::Type::NUM, "coins_db_cache_bytes", "size of the coinsdb cache"},
+     {RPCResult::Type::NUM, "coins_tip_cache_bytes", "size of the coinstip cache"},
++    {RPCResult::Type::BOOL, "validated", "whether the chainstate is fully validated. True if all blocks in the chainstate were validated, false if the chain is based on a snapshot and the snapshot has not yet been validated."},
+ };
+ 
+ static RPCHelpMan getchainstates()
+@@ -2818,8 +2819,7 @@ return RPCHelpMan{
+         RPCResult{
+             RPCResult::Type::OBJ, "", "", {
+                 {RPCResult::Type::NUM, "headers", "the number of headers seen so far"},
+-                {RPCResult::Type::OBJ, "normal", /*optional=*/true, "fully validated chainstate containing blocks this node has validated starting from the genesis block", RPCHelpForChainstate},
+-                {RPCResult::Type::OBJ, "snapshot", /*optional=*/true, "only present if an assumeutxo snapshot is loaded. Partially validated chainstate containing blocks this node has validated starting from the snapshot. After the snapshot is validated (when the 'normal' chainstate advances far enough to validate it), this chainstate will replace and become the 'normal' chainstate.", RPCHelpForChainstate},
++                {RPCResult::Type::ARR, "chainstates", "list of the chainstates ordered by work, with the most-work (active) chainstate last", {{RPCResult::Type::OBJ, "", "", RPCHelpForChainstate},}},
+             }
+         },
+         RPCExamples{
+@@ -2834,7 +2834,7 @@ return RPCHelpMan{
+     NodeContext& node = EnsureAnyNodeContext(request.context);
+     ChainstateManager& chainman = *node.chainman;
+ 
+-    auto make_chain_data = [&](const Chainstate& cs) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
++    auto make_chain_data = [&](const Chainstate& cs, bool validated) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+         AssertLockHeld(::cs_main);
+         UniValue data(UniValue::VOBJ);
+         if (!cs.m_chain.Tip()) {
+@@ -2852,20 +2852,18 @@ return RPCHelpMan{
+         if (cs.m_from_snapshot_blockhash) {
+             data.pushKV("snapshot_blockhash", cs.m_from_snapshot_blockhash->ToString());
+         }
++        data.pushKV("validated", validated);
+         return data;
+     };
+ 
+-    if (chainman.GetAll().size() > 1) {
+-        for (Chainstate* chainstate : chainman.GetAll()) {
+-            obj.pushKV(
+-                chainstate->m_from_snapshot_blockhash ? "snapshot" : "normal",
+-                make_chain_data(*chainstate));
+-        }
+-    } else {
+-        obj.pushKV("normal", make_chain_data(chainman.ActiveChainstate()));
+-    }
+     obj.pushKV("headers", chainman.m_best_header ? chainman.m_best_header->nHeight : -1);
+ 
++    const auto& chainstates = chainman.GetAll();
++    UniValue obj_chainstates{UniValue::VARR};
++    for (Chainstate* cs : chainstates) {
++      obj_chainstates.push_back(make_chain_data(*cs, !cs->m_from_snapshot_blockhash || chainstates.size() == 1));
++    }
++    obj.pushKV("chainstates", std::move(obj_chainstates));
+     return obj;
+ }
+     };
+diff --git a/test/functional/feature_assumeutxo.py b/test/functional/feature_assumeutxo.py
+index be0715df32..15cacc204c 100755
+--- a/test/functional/feature_assumeutxo.py
++++ b/test/functional/feature_assumeutxo.py
+@@ -128,10 +128,13 @@ class AssumeutxoTest(BitcoinTestFramework):
+         assert_equal(loaded['coins_loaded'], SNAPSHOT_BASE_HEIGHT)
+         assert_equal(loaded['base_height'], SNAPSHOT_BASE_HEIGHT)
+ 
+-        monitor = n1.getchainstates()
+-        assert_equal(monitor['normal']['blocks'], START_HEIGHT)
+-        assert_equal(monitor['snapshot']['blocks'], SNAPSHOT_BASE_HEIGHT)
+-        assert_equal(monitor['snapshot']['snapshot_blockhash'], dump_output['base_hash'])
++        normal, snapshot = n1.getchainstates()["chainstates"]
++        assert_equal(normal['blocks'], START_HEIGHT)
++        assert_equal(normal.get('snapshot_blockhash'), None)
++        assert_equal(normal['validated'], True)
++        assert_equal(snapshot['blocks'], SNAPSHOT_BASE_HEIGHT)
++        assert_equal(snapshot['snapshot_blockhash'], dump_output['base_hash'])
++        assert_equal(snapshot['validated'], False)
+ 
+         assert_equal(n1.getblockchaininfo()["blocks"], SNAPSHOT_BASE_HEIGHT)
+ 
+@@ -159,20 +162,11 @@ class AssumeutxoTest(BitcoinTestFramework):
+         self.connect_nodes(0, 1)
+ 
+         self.log.info(f"Ensuring snapshot chain syncs to tip. ({FINAL_HEIGHT})")
+-
+-        def check_for_final_height():
+-            chainstates = n1.getchainstates()
+-            # The background validation may have completed before we run our first
+-            # check, so accept a final blockheight from either chainstate type.
+-            cs = chainstates.get('snapshot') or chainstates.get('normal')
+-            return cs['blocks'] == FINAL_HEIGHT
+-
+-        wait_until_helper(check_for_final_height)
++        wait_until_helper(lambda: n1.getchainstates()['chainstates'][-1]['blocks'] == FINAL_HEIGHT)
+         self.sync_blocks(nodes=(n0, n1))
+ 
+         self.log.info("Ensuring background validation completes")
+-        # N.B.: the `snapshot` key disappears once the background validation is complete.
+-        wait_until_helper(lambda: not n1.getchainstates().get('snapshot'))
++        wait_until_helper(lambda: len(n1.getchainstates()['chainstates']) == 1)
+ 
+         # Ensure indexes have synced.
+         completed_idx_state = {
+@@ -189,8 +183,8 @@ class AssumeutxoTest(BitcoinTestFramework):
+ 
+             assert_equal(n.getblockchaininfo()["blocks"], FINAL_HEIGHT)
+ 
+-            assert_equal(n.getchainstates()['normal']['blocks'], FINAL_HEIGHT)
+-            assert_equal(n.getchainstates().get('snapshot'), None)
++            chainstate, = n.getchainstates()['chainstates']
++            assert_equal(chainstate['blocks'], FINAL_HEIGHT)
+ 
+             if i != 0:
+                 # Ensure indexes have synced for the assumeutxo node
+@@ -208,17 +202,20 @@ class AssumeutxoTest(BitcoinTestFramework):
+         assert_equal(loaded['coins_loaded'], SNAPSHOT_BASE_HEIGHT)
+         assert_equal(loaded['base_height'], SNAPSHOT_BASE_HEIGHT)
+ 
+-        monitor = n2.getchainstates()
+-        assert_equal(monitor['normal']['blocks'], START_HEIGHT)
+-        assert_equal(monitor['snapshot']['blocks'], SNAPSHOT_BASE_HEIGHT)
+-        assert_equal(monitor['snapshot']['snapshot_blockhash'], dump_output['base_hash'])
++        normal, snapshot = n2.getchainstates()['chainstates']
++        assert_equal(normal['blocks'], START_HEIGHT)
++        assert_equal(normal.get('snapshot_blockhash'), None)
++        assert_equal(normal['validated'], True)
++        assert_equal(snapshot['blocks'], SNAPSHOT_BASE_HEIGHT)
++        assert_equal(snapshot['snapshot_blockhash'], dump_output['base_hash'])
++        assert_equal(snapshot['validated'], False)
+ 
+         self.connect_nodes(0, 2)
+-        wait_until_helper(lambda: n2.getchainstates()['snapshot']['blocks'] == FINAL_HEIGHT)
++        wait_until_helper(lambda: n2.getchainstates()['chainstates'][-1]['blocks'] == FINAL_HEIGHT)
+         self.sync_blocks()
+ 
+         self.log.info("Ensuring background validation completes")
+-        wait_until_helper(lambda: not n2.getchainstates().get('snapshot'))
++        wait_until_helper(lambda: len(n2.getchainstates()['chainstates']) == 1)
+ 
+         completed_idx_state = {
+             'basic block filter index': COMPLETE_IDX,
+@@ -234,8 +231,8 @@ class AssumeutxoTest(BitcoinTestFramework):
+ 
+             assert_equal(n.getblockchaininfo()["blocks"], FINAL_HEIGHT)
+ 
+-            assert_equal(n.getchainstates()['normal']['blocks'], FINAL_HEIGHT)
+-            assert_equal(n.getchainstates().get('snapshot'), None)
++            chainstate, = n.getchainstates()['chainstates']
++            assert_equal(chainstate['blocks'], FINAL_HEIGHT)
+ 
+             if i != 0:
+                 # Ensure indexes have synced for the assumeutxo node

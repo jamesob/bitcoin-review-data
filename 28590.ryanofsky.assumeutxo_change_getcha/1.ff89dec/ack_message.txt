@@ -1,0 +1,3 @@
+ACK ff89dec6e65ac085ccfd000e147c801ca7a2138a ([`jamesob/ackr/28590.1.ryanofsky.assumeutxo_change_getcha`](https://github.com/jamesob/bitcoin/tree/ackr/28590.1.ryanofsky.assumeutxo_change_getcha))
+
+Good simplification, thanks. Built, ran tests locally.
