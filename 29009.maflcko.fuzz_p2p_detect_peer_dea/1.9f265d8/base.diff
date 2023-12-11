@@ -1,0 +1,76 @@
+diff --git a/src/test/fuzz/process_message.cpp b/src/test/fuzz/process_message.cpp
+index 6392f03d4e..acb03ac5fc 100644
+--- a/src/test/fuzz/process_message.cpp
++++ b/src/test/fuzz/process_message.cpp
+@@ -79,14 +79,23 @@ FUZZ_TARGET(process_message, .init = initialize_process_message)
+     const auto mock_time = ConsumeTime(fuzzed_data_provider);
+     SetMockTime(mock_time);
+ 
++    CSerializedNetMsg net_msg;
++    net_msg.m_type = random_message_type;
+     // fuzzed_data_provider is fully consumed after this call, don't use it
+-    DataStream random_bytes_data_stream{fuzzed_data_provider.ConsumeRemainingBytes<unsigned char>()};
+-    try {
+-        g_setup->m_node.peerman->ProcessMessage(p2p_node, random_message_type, random_bytes_data_stream,
+-                                                GetTime<std::chrono::microseconds>(), std::atomic<bool>{false});
+-    } catch (const std::ios_base::failure&) {
++    net_msg.data = fuzzed_data_provider.ConsumeRemainingBytes<unsigned char>();
++
++    connman.FlushSendBuffer(p2p_node);
++    (void)connman.ReceiveMsgFrom(p2p_node, std::move(net_msg));
++
++    bool more_work{true};
++    while (more_work) {
++        p2p_node.fPauseSend = false;
++        try {
++            more_work = connman.ProcessMessagesOnce(p2p_node);
++        } catch (const std::ios_base::failure&) {
++        }
++        g_setup->m_node.peerman->SendMessages(&p2p_node);
+     }
+-    g_setup->m_node.peerman->SendMessages(&p2p_node);
+     SyncWithValidationInterfaceQueue();
+     g_setup->m_node.connman->StopNodes();
+ }
+diff --git a/src/test/fuzz/process_messages.cpp b/src/test/fuzz/process_messages.cpp
+index b7e2e04b4b..3f722f60ee 100644
+--- a/src/test/fuzz/process_messages.cpp
++++ b/src/test/fuzz/process_messages.cpp
+@@ -78,13 +78,17 @@ FUZZ_TARGET(process_messages, .init = initialize_process_messages)
+ 
+         connman.FlushSendBuffer(random_node);
+         (void)connman.ReceiveMsgFrom(random_node, std::move(net_msg));
+-        random_node.fPauseSend = false;
+ 
+-        try {
+-            connman.ProcessMessagesOnce(random_node);
+-        } catch (const std::ios_base::failure&) {
++        bool more_work{true};
++        while (more_work) { // Ensure that every message is eventually processed in some way or another
++            random_node.fPauseSend = false;
++
++            try {
++                more_work = connman.ProcessMessagesOnce(random_node);
++            } catch (const std::ios_base::failure&) {
++            }
++            g_setup->m_node.peerman->SendMessages(&random_node);
+         }
+-        g_setup->m_node.peerman->SendMessages(&random_node);
+     }
+     SyncWithValidationInterfaceQueue();
+     g_setup->m_node.connman->StopNodes();
+diff --git a/src/test/util/net.h b/src/test/util/net.h
+index 59c4ddb4b1..d91d801132 100644
+--- a/src/test/util/net.h
++++ b/src/test/util/net.h
+@@ -70,7 +70,10 @@ struct ConnmanTestMsg : public CConnman {
+                    bool relay_txs)
+         EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex);
+ 
+-    void ProcessMessagesOnce(CNode& node) EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex) { m_msgproc->ProcessMessages(&node, flagInterruptMsgProc); }
++    bool ProcessMessagesOnce(CNode& node) EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
++    {
++        return m_msgproc->ProcessMessages(&node, flagInterruptMsgProc);
++    }
+ 
+     void NodeReceiveMsgBytes(CNode& node, Span<const uint8_t> msg_bytes, bool& complete) const;
