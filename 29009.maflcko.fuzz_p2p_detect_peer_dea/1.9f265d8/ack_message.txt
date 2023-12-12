@@ -1,0 +1,46 @@
+ACK 9f265d88253ed464413dea5614fa13dea0d8cfd5 ([`jamesob/ackr/29009.1.maflcko.fuzz_p2p_detect_peer_dea`](https://github.com/jamesob/bitcoin/tree/ackr/29009.1.maflcko.fuzz_p2p_detect_peer_dea))
+
+Using the suggested buggy diff, I was able to reproduce a fuzz timeout locally:
+
+```
+SUMMARY: libFuzzer: timeout
+================== Job 4 exited with exit code 70 ============
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3004856548
+INFO: Loaded 1 modules   (549836 inline 8-bit counters): 549836 [0x55b1d6e36508, 0x55b1d6ebc8d4),
+INFO: Loaded 1 PC tables (549836 PCs): 549836 [0x55b1d6ebc8d8,0x55b1d7720598),
+INFO:     2124 files found in ../qa-assets/fuzz_seed_corpus/process_message
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1047633 bytes
+INFO: seed corpus: files: 2124 min: 1b max: 1047633b total: 78093906b rss: 247Mb
+Warning: Please check that your computer's date and time are correct! If your clock is wrong, Bitcoin Core will not work properly.
+ALARM: working on the last Unit for 1796 seconds
+       and the timeout value is 1200 (use -timeout=N to change)
+MS: 0 ; base unit: 0000000000000000000000000000000000000000
+artifact_prefix='./'; Test unit written to ./timeout-3a21200cd77fa45164203d47b65985b623d18c8f
+==1628346== ERROR: libFuzzer: timeout after 1796 seconds
+    #0 0x55b1d2def21f  (/home/james/src/bitcoin/src/test/fuzz/fuzz+0x1db721f) (BuildId: 6352bec346d40adbe5b31bd18e73b640a40465c2)
+
+    [ ... snip ... ]
+
+    #17 0x7f8844188ccf  (/usr/lib/libc.so.6+0x27ccf) (BuildId: 8bfe03f6bf9b6a6e2591babd0bbc266837d8f658)
+    #18 0x7f8844188d89  (/usr/lib/libc.so.6+0x27d89) (BuildId: 8bfe03f6bf9b6a6e2591babd0bbc266837d8f658)
+    #19 0x55b1d2c9e304  (/home/james/src/bitcoin/src/test/fuzz/fuzz+0x1c66304) (BuildId: 6352bec346d40adbe5b31bd18e73b640a40465c2)
+
+SUMMARY: libFuzzer: timeout
+FUZZ=process_message ./src/test/fuzz/fuzz  -rss_limit_mb=20000 -jobs=12  7716.06s user 734.55s system 463% cpu 30:21.38 total
+
+[1] 15:38:59 james@fido src/bitcoin (?± ackr/29009.1.maflcko.fuzz_p2p_detect_peer_dea 9f265d8) % base64 ./timeout-3a21200cd77fa45164203d47b65985b623d18c8f
+
+Z2V0ZGF0YQALkmNvbm7///r/+v///////////////2dldGEA//+JHgoBAABAAP//QTBloTBlMDp0
+imRhdGEA/2VkdGFndGEA//+JHgoBAABAAAEwMP9lZ0FlMDp0imRhlZ4A/2VkdGFndGEA//+JHgIB
+AABAAP9BKDAwMGV0ZGfL+SybqZYAFfABduEAD2dldGRhdGEBAABAZXRkYXRhAGP/c2VuZGFkZHJ2
+MjB24f0BbH8AAGf///9x//////////8BAABA/x4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4e
+Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4e////
+//////////8D/+r/////BAIA//9B/9//MDAyMTM4NDAzMzYwZ2V0ZGF0YQB0AHRgBAD//4keAgD/
+/2dljJthdGEA/////0H/AAAAAbNc/evr//8PAOvrrP///2VnbpYAFWH9////AQAAAAAAAAABZYsA
+lP5kYXRhAGP/bH8DMDU1AGRhdH//WAj/ZAJldGRhYQB0dGD/f/94CIODg4ODg4OD////////////
+1f////////8AAAAAAAAAExMBAAAAAAAAAAAAAAAAhAAAAAAAAAAAAAAAAAAAAAAAOgAAAAD+//8a
+AAAAZ2V0ZAAAAAAAAAB0YQ==
+```
+
+
