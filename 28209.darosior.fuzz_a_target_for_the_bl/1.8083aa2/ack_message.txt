@@ -1,0 +1,3 @@
+ACK 8083aa21a699cb240a11741be8ba5cfeeb58ee8b ([`jamesob/ackr/28209.1.darosior.fuzz_a_target_for_the_bl`](https://github.com/jamesob/bitcoin/tree/ackr/28209.1.darosior.fuzz_a_target_for_the_bl))
+
+Ran the test locally and read over the change. This is a good basic test to have in place; seems like a low-risk merge.
