@@ -1,0 +1,232 @@
+diff --git a/doc/release-notes-28052.md b/doc/release-notes-28052.md
+new file mode 100644
+index 0000000000..386f0cee5f
+--- /dev/null
++++ b/doc/release-notes-28052.md
+@@ -0,0 +1,6 @@
++Blockstorage
++============
++
++Block files are now XOR'd by default with a key stored in the blocksdir.
++Previous releases of Bitcoin Core or previous external software will not be able to read the blocksdir with a non-zero XOR-key.
++Refer to the `-blocksxor` help for more details.
+diff --git a/src/init.cpp b/src/init.cpp
+index d6dc62f707..d4d877f2b9 100644
+--- a/src/init.cpp
++++ b/src/init.cpp
+@@ -437,6 +437,13 @@ void SetupServerArgs(ArgsManager& argsman)
+ #endif
+     argsman.AddArg("-assumevalid=<hex>", strprintf("If this block is in the chain assume that it and its ancestors are valid and potentially skip their script verification (0 to verify all, default: %s, testnet: %s, signet: %s)", defaultChainParams->GetConsensus().defaultAssumeValid.GetHex(), testnetChainParams->GetConsensus().defaultAssumeValid.GetHex(), signetChainParams->GetConsensus().defaultAssumeValid.GetHex()), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+     argsman.AddArg("-blocksdir=<dir>", "Specify directory to hold blocks subdirectory for *.dat files (default: <datadir>)", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
++    argsman.AddArg("-blocksxor",
++                   strprintf("Whether an XOR-key applies to blocksdir *.dat files. "
++                             "The created XOR-key will be zeros for an existing blocksdir or when `-blocksxor=0` is "
++                             "set, and random for a freshly initialized blocksdir. "
++                             "(default: %u)",
++                             kernel::DEFAULT_XOR_KEY_BLOCKSDIR),
++                   ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+     argsman.AddArg("-fastprune", "Use smaller block files and lower minimum prune height for testing purposes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+ #if HAVE_SYSTEM
+     argsman.AddArg("-blocknotify=<cmd>", "Execute command when the best block changes (%s in cmd is replaced by block hash)", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+@@ -1489,7 +1496,11 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+     for (bool fLoaded = false; !fLoaded && !ShutdownRequested();) {
+         node.mempool = std::make_unique<CTxMemPool>(mempool_opts);
+ 
+-        node.chainman = std::make_unique<ChainstateManager>(node.kernel->interrupt, chainman_opts, blockman_opts);
++        try {
++            node.chainman = std::make_unique<ChainstateManager>(node.kernel->interrupt, chainman_opts, blockman_opts);
++        } catch (std::exception& e) {
++            return InitError(strprintf(Untranslated("Internal error: %s"), e.what()));
++        }
+         ChainstateManager& chainman = *node.chainman;
+ 
+         // This is defined and set here instead of inline in validation.h to avoid a hard
+diff --git a/src/kernel/blockmanager_opts.h b/src/kernel/blockmanager_opts.h
+index deeba7e318..681fb66bcc 100644
+--- a/src/kernel/blockmanager_opts.h
++++ b/src/kernel/blockmanager_opts.h
+@@ -14,12 +14,15 @@ class CChainParams;
+ 
+ namespace kernel {
+ 
++static constexpr bool DEFAULT_XOR_KEY_BLOCKSDIR{true};
++
+ /**
+  * An options struct for `BlockManager`, more ergonomically referred to as
+  * `BlockManager::Options` due to the using-declaration in `BlockManager`.
+  */
+ struct BlockManagerOpts {
+     const CChainParams& chainparams;
++    bool xor_key{DEFAULT_XOR_KEY_BLOCKSDIR};
+     uint64_t prune_target{0};
+     bool fast_prune{false};
+     const fs::path blocks_dir;
+diff --git a/src/node/blockmanager_args.cpp b/src/node/blockmanager_args.cpp
+index fa76566652..b85018badb 100644
+--- a/src/node/blockmanager_args.cpp
++++ b/src/node/blockmanager_args.cpp
+@@ -16,6 +16,7 @@
+ namespace node {
+ util::Result<void> ApplyArgsManOptions(const ArgsManager& args, BlockManager::Options& opts)
+ {
++    if (auto value{args.GetBoolArg("-blocksxor")}) opts.xor_key = *value;
+     // block pruning; get the amount of disk space (in MiB) to allot for block & undo files
+     int64_t nPruneArg{args.GetIntArg("-prune", opts.prune_target)};
+     if (nPruneArg < 0) {
+diff --git a/src/node/blockstorage.cpp b/src/node/blockstorage.cpp
+index ebc08d7567..e3cfc3f47b 100644
+--- a/src/node/blockstorage.cpp
++++ b/src/node/blockstorage.cpp
+@@ -19,6 +19,7 @@
+ #include <pow.h>
+ #include <primitives/block.h>
+ #include <primitives/transaction.h>
++#include <random.h>
+ #include <reverse_iterator.h>
+ #include <serialize.h>
+ #include <signet.h>
+@@ -821,13 +822,13 @@ FlatFileSeq BlockManager::UndoFileSeq() const
+ 
+ AutoFile BlockManager::OpenBlockFile(const FlatFilePos& pos, bool fReadOnly) const
+ {
+-    return AutoFile{BlockFileSeq().Open(pos, fReadOnly)};
++    return AutoFile{BlockFileSeq().Open(pos, fReadOnly), m_xor_key};
+ }
+ 
+ /** Open an undo file (rev?????.dat) */
+ AutoFile BlockManager::OpenUndoFile(const FlatFilePos& pos, bool fReadOnly) const
+ {
+-    return AutoFile{UndoFileSeq().Open(pos, fReadOnly)};
++    return AutoFile{UndoFileSeq().Open(pos, fReadOnly), m_xor_key};
+ }
+ 
+ fs::path BlockManager::GetBlockPosFilename(const FlatFilePos& pos) const
+@@ -1125,6 +1126,44 @@ FlatFilePos BlockManager::SaveBlockToDisk(const CBlock& block, int nHeight, cons
+     return blockPos;
+ }
+ 
++static auto InitBlocksdirXorKey(const BlockManager::Options& opts)
++{
++    // Bytes are serialized without length indicator, so this is also the exact
++    // size of the XOR-key file.
++    std::array<std::byte, 8> xor_key{};
++
++    // Initialize random fresh key, ...
++    FastRandomContext{}.fillrand(xor_key);
++    // ... but allow legacy or user-disabled key.
++    if (!fs::is_empty(opts.blocks_dir) || opts.xor_key == false) std::fill(xor_key.begin(), xor_key.end(), std::byte{});
++    const fs::path xor_key_path{opts.blocks_dir / "xor.key"};
++    if (fs::exists(xor_key_path)) {
++        // A pre-existing xor key file has priority.
++        AutoFile xor_key_file{fsbridge::fopen(xor_key_path, "rb")};
++        xor_key_file >> xor_key;
++    } else {
++        // Create initial or missing xor key file
++        AutoFile xor_key_file{fsbridge::fopen(xor_key_path, "wbx")};
++        xor_key_file << xor_key;
++    }
++    // If the user disabled the key, it must be zero.
++    if (!opts.xor_key && xor_key != decltype(xor_key){}) {
++        throw std::runtime_error{
++            strprintf("The blocksdir XOR-key can not be disabled when a random key was already stored! "
++                      "Stored key: '%s', stored path: '%s'.",
++                      HexStr(xor_key), fs::PathToString(xor_key_path)),
++        };
++    }
++    LogPrintf("Using xor key for *.dat files: '%s'\n", HexStr(xor_key));
++    return std::vector<std::byte>{xor_key.begin(), xor_key.end()};
++}
++
++BlockManager::BlockManager(const util::SignalInterrupt& interrupt, Options opts)
++    : m_prune_mode{opts.prune_target > 0},
++      m_xor_key{InitBlocksdirXorKey(opts)},
++      m_opts{std::move(opts)},
++      m_interrupt{interrupt} {}
++
+ class ImportingNow
+ {
+     std::atomic<bool>& m_importing;
+diff --git a/src/node/blockstorage.h b/src/node/blockstorage.h
+index d540406ae5..84a282e52b 100644
+--- a/src/node/blockstorage.h
++++ b/src/node/blockstorage.h
+@@ -230,6 +230,8 @@ private:
+ 
+     const bool m_prune_mode;
+ 
++    const std::vector<std::byte> m_xor_key;
++
+     /** Dirty block index entries. */
+     std::set<CBlockIndex*> m_dirty_blockindex;
+ 
+@@ -251,10 +253,7 @@ private:
+ public:
+     using Options = kernel::BlockManagerOpts;
+ 
+-    explicit BlockManager(const util::SignalInterrupt& interrupt, Options opts)
+-        : m_prune_mode{opts.prune_target > 0},
+-          m_opts{std::move(opts)},
+-          m_interrupt{interrupt} {};
++    explicit BlockManager(const util::SignalInterrupt& interrupt, Options opts);
+ 
+     const util::SignalInterrupt& m_interrupt;
+     std::atomic<bool> m_importing{false};
+diff --git a/test/functional/feature_loadblock.py b/test/functional/feature_loadblock.py
+index 5129e0d328..ca360de6be 100755
+--- a/test/functional/feature_loadblock.py
++++ b/test/functional/feature_loadblock.py
+@@ -26,6 +26,10 @@ class LoadblockTest(BitcoinTestFramework):
+         self.setup_clean_chain = True
+         self.num_nodes = 2
+         self.supports_cli = False
++        self.extra_args = [
++            ["-blocksxor=0"],  # TODO: The linearize scripts should be adjusted to apply any XOR
++            [],
++        ]
+ 
+     def run_test(self):
+         self.nodes[1].setnetworkactive(state=False)
+diff --git a/test/functional/feature_reindex.py b/test/functional/feature_reindex.py
+index 83f1c5003c..d674e20ad9 100755
+--- a/test/functional/feature_reindex.py
++++ b/test/functional/feature_reindex.py
+@@ -39,9 +39,19 @@ class ReindexTest(BitcoinTestFramework):
+         # we're generating them rather than getting them from peers), so to
+         # test out-of-order handling, swap blocks 1 and 2 on disk.
+         blk0 = self.nodes[0].blocks_path / "blk00000.dat"
++        with open(self.nodes[0].blocks_path / "xor.key", "rb") as xor_f:
++            NUM_XOR_BYTES = 8 # From InitBlocksdirXorKey::xor_key.size()
++            xor_dat = xor_f.read(NUM_XOR_BYTES)
++
++        def util_xor(data, key):
++            data = bytearray(data)
++            for i in range(len(data)):
++                data[i] ^= key[i % len(key)]
++            return bytes(data)
++
+         with open(blk0, 'r+b') as bf:
+             # Read at least the first few blocks (including genesis)
+-            b = bf.read(2000)
++            b = util_xor(bf.read(2000), xor_dat)
+ 
+             # Find the offsets of blocks 2, 3, and 4 (the first 3 blocks beyond genesis)
+             # by searching for the regtest marker bytes (see pchMessageStart).
+@@ -55,12 +65,15 @@ class ReindexTest(BitcoinTestFramework):
+             b4_start = find_block(b, b3_start)
+ 
+             # Blocks 2 and 3 should be the same size.
+-            assert_equal(b3_start-b2_start, b4_start-b3_start)
++            assert_equal(b3_start - b2_start, b4_start - b3_start)
+ 
+             # Swap the second and third blocks (don't disturb the genesis block).
++            b_new = bytearray(b)
++            b_new[b2_start:b3_start] = b[b3_start:b4_start]
++            b_new[b3_start:b4_start] = b[b2_start:b3_start]
++            b_new = util_xor(b_new, xor_dat)
+             bf.seek(b2_start)
+-            bf.write(b[b3_start:b4_start])
+-            bf.write(b[b2_start:b3_start])
++            bf.write(b_new[b2_start:b4_start])
+ 
+         # The reindexing code should detect and accommodate out of order blocks.
+         with self.nodes[0].assert_debug_log([
