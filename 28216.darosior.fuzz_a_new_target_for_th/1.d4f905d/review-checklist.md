@@ -1,0 +1,3 @@
+- [ ] 4a0c47fd8f fuzz: avoid underflow in coins_view target
+- [ ] b542af65e7 fuzz: move the coins_view target's body into a standalone function
+- [ ] d4f905d2dd fuzz: add a target for the coins database
