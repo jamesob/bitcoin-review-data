@@ -1,0 +1,442 @@
+diff --git a/doc/developer-notes.md b/doc/developer-notes.md
+index 80353bcdd2..f94b96a312 100644
+--- a/doc/developer-notes.md
++++ b/doc/developer-notes.md
+@@ -723,6 +723,47 @@ General Bitcoin Core
+   - *Explanation*: If the test suite is to be updated for a change, this has to
+     be done first.
+ 
++Logging
++-------
++
++The macros `LogInfo`, `LogDebug`, `LogTrace`, `LogWarning` and `LogError` are available for
++logging messages. They should be used as follows:
++
++- `LogDebug(BCLog::CATEGORY, fmt, params...)` is what you want
++  most of the time, and it should be used for log messages that are
++  useful for debugging and can reasonably be enabled on a production
++  system (that has sufficient free storage space). They will be logged
++  if the program is started with `-debug=category` or `-debug=1`.
++  Note that `LogPrint(BCLog::CATEGORY, fmt, params...)` is a deprecated
++  alias for `LogDebug`.
++
++- `LogInfo(fmt, params...)` should only be used rarely, eg for startup
++  messages or for infrequent and important events such as a new block tip
++  being found or a new outbound connection being made. These log messages
++  are unconditional so care must be taken that they can't be used by an
++  attacker to fill up storage. Note that `LogPrintf(fmt, params...)` is
++  a deprecated alias for `LogInfo`.
++
++- `LogError(fmt, params...)` should be used in place of `LogInfo` for
++  severe problems that require the node (or a subsystem) to shut down
++  entirely (eg, insufficient storage space).
++
++- `LogWarning(fmt, params...)` should be used in place of `LogInfo` for
++  severe problems that the node admin should address, but are not
++  severe enough to warrant shutting down the node (eg, system time
++  appears to be wrong, unknown soft fork appears to have activated).
++
++- `LogTrace(BCLog::CATEGORY, fmt, params...) should be used in place of
++  `LogDebug` for log messages that would be unusable on a production
++  system, eg due to being too noisy in normal use, or too resource
++  intensive to process. These will be logged if the startup
++  options `-debug=category -loglevel=category:trace` or `-debug=1
++  -loglevel=trace` are selected.
++
++Note that the format strings and parameters of `LogDebug` and `LogTrace`
++are only evaluated if the logging category is enabled, so you must be
++careful to avoid side-effects in those expressions.
++
+ Wallet
+ -------
+ 
+@@ -891,7 +932,7 @@ Strings and formatting
+     `wcstoll`, `wcstombs`, `wcstoul`, `wcstoull`, `wcstoumax`, `wcswidth`,
+     `wcsxfrm`, `wctob`, `wctomb`, `wctrans`, `wctype`, `wcwidth`, `wprintf`
+ 
+-- For `strprintf`, `LogPrint`, `LogPrintf` formatting characters don't need size specifiers.
++- For `strprintf`, `LogInfo`, `LogDebug`, etc formatting characters don't need size specifiers.
+ 
+   - *Rationale*: Bitcoin Core uses tinyformat, which is type safe. Leave them out to avoid confusion.
+ 
+@@ -903,7 +944,7 @@ Strings and formatting
+ 
+     - *Rationale*: Although this is guaranteed to be safe starting with C++11, `.data()` communicates the intent better.
+ 
+-  - Do not use it when passing strings to `tfm::format`, `strprintf`, `LogPrint[f]`.
++  - Do not use it when passing strings to `tfm::format`, `strprintf`, `LogInfo`, `LogDebug`, etc.
+ 
+     - *Rationale*: This is redundant. Tinyformat handles strings.
+ 
+diff --git a/src/httpserver.cpp b/src/httpserver.cpp
+index a83f4421d7..70bd01c950 100644
+--- a/src/httpserver.cpp
++++ b/src/httpserver.cpp
+@@ -412,7 +412,7 @@ bool InitHTTPServer()
+ 
+     LogPrint(BCLog::HTTP, "Initialized HTTP server\n");
+     int workQueueDepth = std::max((long)gArgs.GetIntArg("-rpcworkqueue", DEFAULT_HTTP_WORKQUEUE), 1L);
+-    LogPrintfCategory(BCLog::HTTP, "creating work queue of depth %d\n", workQueueDepth);
++    LogDebug(BCLog::HTTP, "creating work queue of depth %d\n", workQueueDepth);
+ 
+     g_work_queue = std::make_unique<WorkQueue<HTTPClosure>>(workQueueDepth);
+     // transfer ownership to eventBase/HTTP via .release()
+@@ -434,9 +434,8 @@ static std::vector<std::thread> g_thread_http_workers;
+ 
+ void StartHTTPServer()
+ {
+-    LogPrint(BCLog::HTTP, "Starting HTTP server\n");
+     int rpcThreads = std::max((long)gArgs.GetIntArg("-rpcthreads", DEFAULT_HTTP_THREADS), 1L);
+-    LogPrintfCategory(BCLog::HTTP, "starting %d worker threads\n", rpcThreads);
++    LogInfo("Starting HTTP server with %d worker threads\n", rpcThreads);
+     g_thread_http = std::thread(ThreadHTTP, eventBase);
+ 
+     for (int i = 0; i < rpcThreads; i++) {
+diff --git a/src/init.cpp b/src/init.cpp
+index f0847bd4f7..2431f913ce 100644
+--- a/src/init.cpp
++++ b/src/init.cpp
+@@ -1503,7 +1503,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+         if (status == node::ChainstateLoadStatus::SUCCESS) {
+             uiInterface.InitMessage(_("Verifying blocks…").translated);
+             if (chainman.m_blockman.m_have_pruned && options.check_blocks > MIN_BLOCKS_TO_KEEP) {
+-                LogPrintfCategory(BCLog::PRUNE, "pruned datadir may not have more than %d blocks; only checking available blocks\n",
++                LogWarning("pruned datadir may not have more than %d blocks; only checking available blocks\n",
+                                   MIN_BLOCKS_TO_KEEP);
+             }
+             std::tie(status, error) = catch_exceptions([&]{ return VerifyLoadedChainstate(chainman, options);});
+diff --git a/src/init/common.cpp b/src/init/common.cpp
+index f3f7c696c5..6560258ef5 100644
+--- a/src/init/common.cpp
++++ b/src/init/common.cpp
+@@ -40,6 +40,7 @@ void AddLoggingArgs(ArgsManager& argsman)
+ #endif
+     argsman.AddArg("-logsourcelocations", strprintf("Prepend debug output with name of the originating source location (source file, line number and function name) (default: %u)", DEFAULT_LOGSOURCELOCATIONS), ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+     argsman.AddArg("-logtimemicros", strprintf("Add microsecond precision to debug timestamps (default: %u)", DEFAULT_LOGTIMEMICROS), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
++    argsman.AddArg("-loglevelalways", strprintf("Always prepend a category and level (default: %u)", DEFAULT_LOGLEVELALWAYS), ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+     argsman.AddArg("-printtoconsole", "Send trace/debug info to console (default: 1 when no -daemon. To disable logging to file, set -nodebuglogfile)", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+     argsman.AddArg("-shrinkdebugfile", "Shrink debug.log file on client startup (default: 1 when no -debug)", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+ }
+@@ -55,6 +56,7 @@ void SetLoggingOptions(const ArgsManager& args)
+     LogInstance().m_log_threadnames = args.GetBoolArg("-logthreadnames", DEFAULT_LOGTHREADNAMES);
+ #endif
+     LogInstance().m_log_sourcelocations = args.GetBoolArg("-logsourcelocations", DEFAULT_LOGSOURCELOCATIONS);
++    LogInstance().m_always_print_category_level = args.GetBoolArg("-loglevelalways", DEFAULT_LOGLEVELALWAYS);
+ 
+     fLogIPs = args.GetBoolArg("-logips", DEFAULT_LOGIPS);
+ }
+diff --git a/src/logging.cpp b/src/logging.cpp
+index 08bfa1f7a4..42f100ded6 100644
+--- a/src/logging.cpp
++++ b/src/logging.cpp
+@@ -126,9 +126,9 @@ bool BCLog::Logger::WillLogCategory(BCLog::LogFlags category) const
+ 
+ bool BCLog::Logger::WillLogCategoryLevel(BCLog::LogFlags category, BCLog::Level level) const
+ {
+-    // Log messages at Warning and Error level unconditionally, so that
++    // Log messages at Info, Warning and Error level unconditionally, so that
+     // important troubleshooting information doesn't get lost.
+-    if (level >= BCLog::Level::Warning) return true;
++    if (level >= BCLog::Level::Info) return true;
+ 
+     if (!WillLogCategory(category)) return false;
+ 
+@@ -202,7 +202,7 @@ bool GetLogCategory(BCLog::LogFlags& flag, const std::string& str)
+     return false;
+ }
+ 
+-std::string BCLog::Logger::LogLevelToStr(BCLog::Level level) const
++std::string BCLog::Logger::LogLevelToStr(BCLog::Level level)
+ {
+     switch (level) {
+     case BCLog::Level::Trace:
+@@ -215,8 +215,6 @@ std::string BCLog::Logger::LogLevelToStr(BCLog::Level level) const
+         return "warning";
+     case BCLog::Level::Error:
+         return "error";
+-    case BCLog::Level::None:
+-        return "";
+     }
+     assert(false);
+ }
+@@ -307,8 +305,6 @@ static std::optional<BCLog::Level> GetLogLevel(const std::string& level_str)
+         return BCLog::Level::Warning;
+     } else if (level_str == "error") {
+         return BCLog::Level::Error;
+-    } else if (level_str == "none") {
+-        return BCLog::Level::None;
+     } else {
+         return std::nullopt;
+     }
+@@ -341,7 +337,7 @@ static constexpr std::array<BCLog::Level, 3> LogLevelsList()
+ std::string BCLog::Logger::LogLevelsString() const
+ {
+     const auto& levels = LogLevelsList();
+-    return Join(std::vector<BCLog::Level>{levels.begin(), levels.end()}, ", ", [this](BCLog::Level level) { return LogLevelToStr(level); });
++    return Join(std::vector<BCLog::Level>{levels.begin(), levels.end()}, ", ", [](BCLog::Level level) { return LogLevelToStr(level); });
+ }
+ 
+ std::string BCLog::Logger::LogTimestampStr(const std::string& str)
+@@ -392,29 +388,39 @@ namespace BCLog {
+     }
+ } // namespace BCLog
+ 
+-void BCLog::Logger::LogPrintStr(const std::string& str, const std::string& logging_function, const std::string& source_file, int source_line, BCLog::LogFlags category, BCLog::Level level)
++std::string BCLog::Logger::GetLogPrefix(BCLog::LogFlags category, BCLog::Level level) const
+ {
+-    StdLockGuard scoped_lock(m_cs);
+-    std::string str_prefixed = LogEscapeMessage(str);
++    if (category == LogFlags::NONE) category = LogFlags::ALL;
+ 
+-    if ((category != LogFlags::NONE || level != Level::None) && m_started_new_line) {
+-        std::string s{"["};
++    const bool has_category{m_always_print_category_level || category != LogFlags::ALL};
+ 
+-        if (category != LogFlags::NONE) {
+-            s += LogCategoryToStr(category);
+-        }
++    // If there is no category, Info is implied
++    if (!has_category && level == Level::Info) return {};
+ 
+-        if (category != LogFlags::NONE && level != Level::None) {
+-            // Only add separator if both flag and level are not NONE
+-            s += ":";
+-        }
++    std::string s{"["};
++    if (has_category) {
++        s += LogCategoryToStr(category);
++    }
+ 
+-        if (level != Level::None) {
+-            s += LogLevelToStr(level);
+-        }
++    if (m_always_print_category_level || !has_category || level != Level::Debug) {
++        // If there is a category, Debug is implied, so don't add the level
++
++        // Only add separator if we have a category
++        if (has_category) s += ":";
++        s += Logger::LogLevelToStr(level);
++    }
++
++    s += "] ";
++    return s;
++}
+ 
+-        s += "] ";
+-        str_prefixed.insert(0, s);
++void BCLog::Logger::LogPrintStr(const std::string& str, const std::string& logging_function, const std::string& source_file, int source_line, BCLog::LogFlags category, BCLog::Level level)
++{
++    StdLockGuard scoped_lock(m_cs);
++    std::string str_prefixed = LogEscapeMessage(str);
++
++    if (m_started_new_line) {
++        str_prefixed.insert(0, GetLogPrefix(category, level));
+     }
+ 
+     if (m_log_sourcelocations && m_started_new_line) {
+diff --git a/src/logging.h b/src/logging.h
+index f7380d8928..525e0aec6d 100644
+--- a/src/logging.h
++++ b/src/logging.h
+@@ -25,6 +25,7 @@ static const bool DEFAULT_LOGIPS        = false;
+ static const bool DEFAULT_LOGTIMESTAMPS = true;
+ static const bool DEFAULT_LOGTHREADNAMES = false;
+ static const bool DEFAULT_LOGSOURCELOCATIONS = false;
++static constexpr bool DEFAULT_LOGLEVELALWAYS = false;
+ extern const char * const DEFAULT_DEBUGLOGFILE;
+ 
+ extern bool fLogIPs;
+@@ -77,7 +78,6 @@ namespace BCLog {
+         Info,      // Default
+         Warning,
+         Error,
+-        None, // Internal use only
+     };
+     constexpr auto DEFAULT_LOG_LEVEL{Level::Debug};
+ 
+@@ -120,10 +120,13 @@ namespace BCLog {
+         bool m_log_time_micros = DEFAULT_LOGTIMEMICROS;
+         bool m_log_threadnames = DEFAULT_LOGTHREADNAMES;
+         bool m_log_sourcelocations = DEFAULT_LOGSOURCELOCATIONS;
++        bool m_always_print_category_level = DEFAULT_LOGLEVELALWAYS;
+ 
+         fs::path m_file_path;
+         std::atomic<bool> m_reopen_file{false};
+ 
++        std::string GetLogPrefix(LogFlags category, Level level) const;
++
+         /** Send a string to the log output */
+         void LogPrintStr(const std::string& str, const std::string& logging_function, const std::string& source_file, int source_line, BCLog::LogFlags category, BCLog::Level level);
+ 
+@@ -194,7 +197,7 @@ namespace BCLog {
+         std::string LogLevelsString() const;
+ 
+         //! Returns the string representation of a log level.
+-        std::string LogLevelToStr(BCLog::Level level) const;
++        static std::string LogLevelToStr(BCLog::Level level);
+ 
+         bool DefaultShrinkDebugFile() const;
+     };
+@@ -234,22 +237,17 @@ static inline void LogPrintf_(const std::string& logging_function, const std::st
+ #define LogPrintLevel_(category, level, ...) LogPrintf_(__func__, __FILE__, __LINE__, category, level, __VA_ARGS__)
+ 
+ // Log unconditionally.
+-#define LogPrintf(...) LogPrintLevel_(BCLog::LogFlags::NONE, BCLog::Level::None, __VA_ARGS__)
++#define LogInfo(...) LogPrintLevel_(BCLog::LogFlags::ALL, BCLog::Level::Info, __VA_ARGS__)
++#define LogWarning(...) LogPrintLevel_(BCLog::LogFlags::ALL, BCLog::Level::Warning, __VA_ARGS__)
++#define LogError(...) LogPrintLevel_(BCLog::LogFlags::ALL, BCLog::Level::Error, __VA_ARGS__)
+ 
+-// Log unconditionally, prefixing the output with the passed category name.
+-#define LogPrintfCategory(category, ...) LogPrintLevel_(category, BCLog::Level::None, __VA_ARGS__)
++// Deprecated unconditional logging.
++#define LogPrintf(...) LogInfo(__VA_ARGS__)
++#define LogPrintfCategory(category, ...) LogPrintLevel_(category, BCLog::Level::Info, __VA_ARGS__)
+ 
+ // Use a macro instead of a function for conditional logging to prevent
+ // evaluating arguments when logging for the category is not enabled.
+ 
+-// Log conditionally, prefixing the output with the passed category name.
+-#define LogPrint(category, ...)                                        \
+-    do {                                                               \
+-        if (LogAcceptCategory((category), BCLog::Level::Debug)) {      \
+-            LogPrintLevel_(category, BCLog::Level::None, __VA_ARGS__); \
+-        }                                                              \
+-    } while (0)
+-
+ // Log conditionally, prefixing the output with the passed category name and severity level.
+ #define LogPrintLevel(category, level, ...)               \
+     do {                                                  \
+@@ -258,6 +256,13 @@ static inline void LogPrintf_(const std::string& logging_function, const std::st
+         }                                                 \
+     } while (0)
+ 
++// Log conditionally, prefixing the output with the passed category name.
++#define LogDebug(category, ...) LogPrintLevel(category, BCLog::Level::Debug, __VA_ARGS__)
++#define LogTrace(category, ...) LogPrintLevel(category, BCLog::Level::Trace, __VA_ARGS__)
++
++// Deprecated conditional logging
++#define LogPrint(category, ...)  LogDebug(category, __VA_ARGS__)
++
+ template <typename... Args>
+ bool error(const char* fmt, const Args&... args)
+ {
+diff --git a/src/net_processing.cpp b/src/net_processing.cpp
+index 6b415b3a1e..cc54b9e92b 100644
+--- a/src/net_processing.cpp
++++ b/src/net_processing.cpp
+@@ -4326,7 +4326,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type,
+         }
+ 
+         if (received_new_header) {
+-            LogPrintfCategory(BCLog::NET, "Saw new cmpctblock header hash=%s peer=%d\n",
++            LogInfo("Saw new cmpctblock header hash=%s peer=%d\n",
+                 blockhash.ToString(), pfrom.GetId());
+         }
+ 
+diff --git a/src/test/logging_tests.cpp b/src/test/logging_tests.cpp
+index e448805e69..88e3ec94b7 100644
+--- a/src/test/logging_tests.cpp
++++ b/src/test/logging_tests.cpp
+@@ -84,27 +84,32 @@ BOOST_FIXTURE_TEST_CASE(logging_LogPrintf_, LogSetup)
+ {
+     LogInstance().m_log_sourcelocations = true;
+     LogPrintf_("fn1", "src1", 1, BCLog::LogFlags::NET, BCLog::Level::Debug, "foo1: %s\n", "bar1");
+-    LogPrintf_("fn2", "src2", 2, BCLog::LogFlags::NET, BCLog::Level::None, "foo2: %s\n", "bar2");
+-    LogPrintf_("fn3", "src3", 3, BCLog::LogFlags::NONE, BCLog::Level::Debug, "foo3: %s\n", "bar3");
+-    LogPrintf_("fn4", "src4", 4, BCLog::LogFlags::NONE, BCLog::Level::None, "foo4: %s\n", "bar4");
++    LogPrintf_("fn2", "src2", 2, BCLog::LogFlags::NET, BCLog::Level::Info, "foo2: %s\n", "bar2");
++    LogPrintf_("fn3", "src3", 3, BCLog::LogFlags::ALL, BCLog::Level::Debug, "foo3: %s\n", "bar3");
++    LogPrintf_("fn4", "src4", 4, BCLog::LogFlags::ALL, BCLog::Level::Info, "foo4: %s\n", "bar4");
++    LogPrintf_("fn5", "src5", 5, BCLog::LogFlags::NONE, BCLog::Level::Debug, "foo5: %s\n", "bar5");
++    LogPrintf_("fn6", "src6", 6, BCLog::LogFlags::NONE, BCLog::Level::Info, "foo6: %s\n", "bar6");
+     std::ifstream file{tmp_log_path};
+     std::vector<std::string> log_lines;
+     for (std::string log; std::getline(file, log);) {
+         log_lines.push_back(log);
+     }
+     std::vector<std::string> expected = {
+-        "[src1:1] [fn1] [net:debug] foo1: bar1",
+-        "[src2:2] [fn2] [net] foo2: bar2",
++        "[src1:1] [fn1] [net] foo1: bar1",
++        "[src2:2] [fn2] [net:info] foo2: bar2",
+         "[src3:3] [fn3] [debug] foo3: bar3",
+         "[src4:4] [fn4] foo4: bar4",
++        "[src5:5] [fn5] [debug] foo5: bar5",
++        "[src6:6] [fn6] foo6: bar6",
+     };
+     BOOST_CHECK_EQUAL_COLLECTIONS(log_lines.begin(), log_lines.end(), expected.begin(), expected.end());
+ }
+ 
+-BOOST_FIXTURE_TEST_CASE(logging_LogPrintMacros, LogSetup)
++BOOST_FIXTURE_TEST_CASE(logging_LogPrintMacrosDeprecated, LogSetup)
+ {
+     LogPrintf("foo5: %s\n", "bar5");
+     LogPrint(BCLog::NET, "foo6: %s\n", "bar6");
++    LogPrintLevel(BCLog::NET, BCLog::Level::Trace, "foo4: %s\n", "bar4"); // not logged
+     LogPrintLevel(BCLog::NET, BCLog::Level::Debug, "foo7: %s\n", "bar7");
+     LogPrintLevel(BCLog::NET, BCLog::Level::Info, "foo8: %s\n", "bar8");
+     LogPrintLevel(BCLog::NET, BCLog::Level::Warning, "foo9: %s\n", "bar9");
+@@ -118,11 +123,32 @@ BOOST_FIXTURE_TEST_CASE(logging_LogPrintMacros, LogSetup)
+     std::vector<std::string> expected = {
+         "foo5: bar5",
+         "[net] foo6: bar6",
+-        "[net:debug] foo7: bar7",
++        "[net] foo7: bar7",
+         "[net:info] foo8: bar8",
+         "[net:warning] foo9: bar9",
+         "[net:error] foo10: bar10",
+-        "[validation] foo11: bar11",
++        "[validation:info] foo11: bar11",
++    };
++    BOOST_CHECK_EQUAL_COLLECTIONS(log_lines.begin(), log_lines.end(), expected.begin(), expected.end());
++}
++
++BOOST_FIXTURE_TEST_CASE(logging_LogPrintMacros, LogSetup)
++{
++    LogTrace(BCLog::NET, "foo6: %s\n", "bar6"); // not logged
++    LogDebug(BCLog::NET, "foo7: %s\n", "bar7");
++    LogInfo("foo8: %s\n", "bar8");
++    LogWarning("foo9: %s\n", "bar9");
++    LogError("foo10: %s\n", "bar10");
++    std::ifstream file{tmp_log_path};
++    std::vector<std::string> log_lines;
++    for (std::string log; std::getline(file, log);) {
++        log_lines.push_back(log);
++    }
++    std::vector<std::string> expected = {
++        "[net] foo7: bar7",
++        "foo8: bar8",
++        "[warning] foo9: bar9",
++        "[error] foo10: bar10",
+     };
+     BOOST_CHECK_EQUAL_COLLECTIONS(log_lines.begin(), log_lines.end(), expected.begin(), expected.end());
+ }
+diff --git a/src/torcontrol.cpp b/src/torcontrol.cpp
+index 9cf976a700..7d8be790d1 100644
+--- a/src/torcontrol.cpp
++++ b/src/torcontrol.cpp
+@@ -433,7 +433,7 @@ void TorController::add_onion_cb(TorControlConnection& _conn, const TorControlRe
+             return;
+         }
+         service = LookupNumeric(std::string(service_id+".onion"), Params().GetDefaultPort());
+-        LogPrintfCategory(BCLog::TOR, "Got service ID %s, advertising service %s\n", service_id, service.ToStringAddrPort());
++        LogInfo("Got tor service ID %s, advertising service %s\n", service_id, service.ToStringAddrPort());
+         if (WriteBinaryFile(GetPrivateKeyFile(), private_key)) {
+             LogPrint(BCLog::TOR, "Cached service private key to %s\n", fs::PathToString(GetPrivateKeyFile()));
+         } else {
+diff --git a/test/lint/lint-format-strings.py b/test/lint/lint-format-strings.py
+index 5ac5840ecf..09d858e131 100755
+--- a/test/lint/lint-format-strings.py
++++ b/test/lint/lint-format-strings.py
+@@ -20,6 +20,11 @@ FUNCTION_NAMES_AND_NUMBER_OF_LEADING_ARGUMENTS = [
+     'fprintf,1',
+     'tfm::format,1',  # Assuming tfm::::format(std::ostream&, ...
+     'LogConnectFailure,1',
++    'LogError,0',
++    'LogWarning,0',
++    'LogInfo,0',
++    'LogDebug,1',
++    'LogTrace,1',
+     'LogPrint,1',
+     'LogPrintf,0',
+     'LogPrintfCategory,1',
