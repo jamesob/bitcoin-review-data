@@ -1,0 +1,6 @@
+- [ ] 457eff1183 Allow mocking CheckProofOfWork
+- [ ] bdb085e32d [PoC] fs: make some filesystem utilities mockable
+- [ ] 5974af71b4 [PoC] fs: make std re[name,move] mockable
+- [ ] f4e07ef6ca fs_helpers: make more filesystem utilities mockable.
+- [ ] 8855d7c547 fuzz: add a target for the BlockManager
+- [ ] ea36af80be fuzz: add a target for the ChainstateManager
