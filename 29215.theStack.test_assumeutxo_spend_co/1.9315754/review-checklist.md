@@ -1,0 +1,1 @@
+- [ ] 931575418e test: assumeutxo: spend coin from snapshot chainstate after loading
