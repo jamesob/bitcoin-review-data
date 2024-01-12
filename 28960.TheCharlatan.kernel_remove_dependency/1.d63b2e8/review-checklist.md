@@ -1,0 +1,4 @@
+- [ ] cfb94ef2b3 [refactor] De-globalize CMainSignals
+- [ ] 2eb6be4407 [refactor] Make MainSignalsImpl RAII styled
+- [ ] b1aca69b11 [refactor] Move scheduler client to CMainSignals
+- [ ] d63b2e8878 kernel: Remove dependency on CScheduler

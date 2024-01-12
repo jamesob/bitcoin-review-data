@@ -1,0 +1,2043 @@
+diff --git a/src/Makefile.am b/src/Makefile.am
+index b6f0daaaba..98d04fa285 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -195,6 +195,7 @@ BITCOIN_CORE_H = \
+   kernel/messagestartchars.h \
+   kernel/notifications_interface.h \
+   kernel/validation_cache_sizes.h \
++  kernel/validation_interface_queue.h \
+   key.h \
+   key_io.h \
+   logging.h \
+@@ -960,7 +961,6 @@ libbitcoinkernel_la_SOURCES = \
+   pubkey.cpp \
+   random.cpp \
+   randomenv.cpp \
+-  scheduler.cpp \
+   script/interpreter.cpp \
+   script/script.cpp \
+   script/script_error.cpp \
+@@ -977,7 +977,6 @@ libbitcoinkernel_la_SOURCES = \
+   util/batchpriority.cpp \
+   util/chaintype.cpp \
+   util/check.cpp \
+-  util/exception.cpp \
+   util/fs.cpp \
+   util/fs_helpers.cpp \
+   util/hasher.cpp \
+@@ -988,7 +987,6 @@ libbitcoinkernel_la_SOURCES = \
+   util/strencodings.cpp \
+   util/string.cpp \
+   util/syserror.cpp \
+-  util/thread.cpp \
+   util/threadnames.cpp \
+   util/time.cpp \
+   util/tokenpipe.cpp \
+diff --git a/src/bench/wallet_balance.cpp b/src/bench/wallet_balance.cpp
+index bf2195293e..b26b3e8327 100644
+--- a/src/bench/wallet_balance.cpp
++++ b/src/bench/wallet_balance.cpp
+@@ -39,7 +39,7 @@ static void WalletBalance(benchmark::Bench& bench, const bool set_dirty, const b
+         generatetoaddress(test_setup->m_node, address_mine.value_or(ADDRESS_WATCHONLY));
+         generatetoaddress(test_setup->m_node, ADDRESS_WATCHONLY);
+     }
+-    SyncWithValidationInterfaceQueue();
++    test_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     auto bal = GetBalance(wallet); // Cache
+ 
+diff --git a/src/bench/wallet_loading.cpp b/src/bench/wallet_loading.cpp
+index b17c7fe05a..a83addf741 100644
+--- a/src/bench/wallet_loading.cpp
++++ b/src/bench/wallet_loading.cpp
+@@ -51,14 +51,14 @@ static void WalletLoading(benchmark::Bench& bench, bool legacy_wallet)
+     database = DuplicateMockDatabase(wallet->GetDatabase());
+ 
+     // reload the wallet for the actual benchmark
+-    TestUnloadWallet(std::move(wallet));
++    TestUnloadWallet(std::move(wallet), *test_setup->m_node.main_signals);
+ 
+     bench.epochs(5).run([&] {
+         wallet = TestLoadWallet(std::move(database), context, create_flags);
+ 
+         // Cleanup
+         database = DuplicateMockDatabase(wallet->GetDatabase());
+-        TestUnloadWallet(std::move(wallet));
++        TestUnloadWallet(std::move(wallet), *test_setup->m_node.main_signals);
+     });
+ }
+ 
+diff --git a/src/bitcoin-chainstate.cpp b/src/bitcoin-chainstate.cpp
+index ee8b0a44c5..e00f765c97 100644
+--- a/src/bitcoin-chainstate.cpp
++++ b/src/bitcoin-chainstate.cpp
+@@ -16,6 +16,7 @@
+ #include <kernel/checks.h>
+ #include <kernel/context.h>
+ #include <kernel/validation_cache_sizes.h>
++#include <kernel/validation_interface_queue.h>
+ 
+ #include <consensus/validation.h>
+ #include <core_io.h>
+@@ -23,11 +24,9 @@
+ #include <node/caches.h>
+ #include <node/chainstate.h>
+ #include <random.h>
+-#include <scheduler.h>
+ #include <script/sigcache.h>
+ #include <util/chaintype.h>
+ #include <util/fs.h>
+-#include <util/thread.h>
+ #include <validation.h>
+ #include <validationinterface.h>
+ 
+@@ -68,16 +67,27 @@ int main(int argc, char* argv[])
+     Assert(InitSignatureCache(validation_cache_sizes.signature_cache_bytes));
+     Assert(InitScriptExecutionCache(validation_cache_sizes.script_execution_cache_bytes));
+ 
++    class DummyQueue : public ValidationInterfaceQueue
++    {
++    public:
++        DummyQueue() {}
++        void AddToProcessQueue(std::function<void()> func) override
++        {
++            func();
++        }
+ 
+-    // SETUP: Scheduling and Background Signals
+-    CScheduler scheduler{};
+-    // Start the lightweight task scheduler thread
+-    scheduler.m_service_thread = std::thread(util::TraceThread, "scheduler", [&] { scheduler.serviceQueue(); });
++        void EmptyQueue() override
++        {
++            return;
++        }
+ 
+-    // Gather some entropy once per minute.
+-    scheduler.scheduleEvery(RandAddPeriodic, std::chrono::minutes{1});
++        size_t CallbacksPending() override
++        {
++            return 0;
++        }
++    };
+ 
+-    GetMainSignals().RegisterBackgroundSignalScheduler(scheduler);
++    CMainSignals main_signals{std::make_unique<DummyQueue>()};
+ 
+     class KernelNotifications : public kernel::Notifications
+     {
+@@ -126,7 +136,7 @@ int main(int argc, char* argv[])
+         .notifications = chainman_opts.notifications,
+     };
+     util::SignalInterrupt interrupt;
+-    ChainstateManager chainman{interrupt, chainman_opts, blockman_opts};
++    ChainstateManager chainman{interrupt, chainman_opts, blockman_opts, main_signals};
+ 
+     node::CacheSizes cache_sizes;
+     cache_sizes.block_tree_db = 2 << 20;
+@@ -236,9 +246,9 @@ int main(int argc, char* argv[])
+ 
+         bool new_block;
+         auto sc = std::make_shared<submitblock_StateCatcher>(block.GetHash());
+-        RegisterSharedValidationInterface(sc);
++        main_signals.RegisterSharedValidationInterface(sc);
+         bool accepted = chainman.ProcessNewBlock(blockptr, /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/&new_block);
+-        UnregisterSharedValidationInterface(sc);
++        main_signals.UnregisterSharedValidationInterface(sc);
+         if (!new_block && accepted) {
+             std::cerr << "duplicate" << std::endl;
+             break;
+@@ -288,10 +298,9 @@ int main(int argc, char* argv[])
+ epilogue:
+     // Without this precise shutdown sequence, there will be a lot of nullptr
+     // dereferencing and UB.
+-    scheduler.stop();
+     if (chainman.m_thread_load.joinable()) chainman.m_thread_load.join();
+ 
+-    GetMainSignals().FlushBackgroundCallbacks();
++    main_signals.FlushBackgroundCallbacks();
+     {
+         LOCK(cs_main);
+         for (Chainstate* chainstate : chainman.GetAll()) {
+@@ -301,5 +310,4 @@ epilogue:
+             }
+         }
+     }
+-    GetMainSignals().UnregisterBackgroundSignalScheduler();
+ }
+diff --git a/src/bitcoind.cpp b/src/bitcoind.cpp
+index 4f0a816388..5b223f93c4 100644
+--- a/src/bitcoind.cpp
++++ b/src/bitcoind.cpp
+@@ -20,6 +20,7 @@
+ #include <node/context.h>
+ #include <node/interface_ui.h>
+ #include <noui.h>
++#include <scheduler.h>
+ #include <util/check.h>
+ #include <util/exception.h>
+ #include <util/strencodings.h>
+@@ -27,6 +28,7 @@
+ #include <util/threadnames.h>
+ #include <util/tokenpipe.h>
+ #include <util/translation.h>
++#include <validationinterface.h>
+ 
+ #include <any>
+ #include <functional>
+@@ -183,6 +185,8 @@ static bool AppInit(NodeContext& node)
+             return false;
+         }
+ 
++        node.scheduler = std::make_unique<CScheduler>();
++        node.main_signals = std::make_unique<CMainSignals>(std::make_unique<SingleThreadedSchedulerClient>(*node.scheduler));
+         node.kernel = std::make_unique<kernel::Context>();
+         if (!AppInitSanityChecks(*node.kernel))
+         {
+diff --git a/src/index/base.cpp b/src/index/base.cpp
+index bcfe7215be..72eaf7fd06 100644
+--- a/src/index/base.cpp
++++ b/src/index/base.cpp
+@@ -89,7 +89,7 @@ bool BaseIndex::Init()
+         return &m_chain->context()->chainman->GetChainstateForIndexing());
+     // Register to validation interface before setting the 'm_synced' flag, so that
+     // callbacks are not missed once m_synced is true.
+-    RegisterValidationInterface(this);
++    m_chain->context()->main_signals->RegisterValidationInterface(this);
+ 
+     CBlockLocator locator;
+     if (!GetDB().ReadBestBlock(locator)) {
+@@ -380,7 +380,7 @@ bool BaseIndex::BlockUntilSyncedToCurrentChain() const
+     }
+ 
+     LogPrintf("%s: %s is catching up on block notifications\n", __func__, GetName());
+-    SyncWithValidationInterfaceQueue();
++    m_chain->context()->main_signals->SyncWithValidationInterfaceQueue();
+     return true;
+ }
+ 
+@@ -399,7 +399,7 @@ bool BaseIndex::StartBackgroundSync()
+ 
+ void BaseIndex::Stop()
+ {
+-    UnregisterValidationInterface(this);
++    m_chain->context()->main_signals->UnregisterValidationInterface(this);
+ 
+     if (m_thread_sync.joinable()) {
+         m_thread_sync.join();
+diff --git a/src/init.cpp b/src/init.cpp
+index 793eab2eab..42a28af59e 100644
+--- a/src/init.cpp
++++ b/src/init.cpp
+@@ -291,7 +291,7 @@ void Shutdown(NodeContext& node)
+ 
+     // Because these depend on each-other, we make sure that neither can be
+     // using the other before destroying them.
+-    if (node.peerman) UnregisterValidationInterface(node.peerman.get());
++    if (node.peerman) node.main_signals->UnregisterValidationInterface(node.peerman.get());
+     if (node.connman) node.connman->Stop();
+ 
+     StopTorControl();
+@@ -317,7 +317,9 @@ void Shutdown(NodeContext& node)
+     // fee estimator from validation interface.
+     if (node.fee_estimator) {
+         node.fee_estimator->Flush();
+-        UnregisterValidationInterface(node.fee_estimator.get());
++        if (node.main_signals) {
++            node.main_signals->UnregisterValidationInterface(node.fee_estimator.get());
++        }
+     }
+ 
+     // FlushStateToDisk generates a ChainStateFlushed callback, which we should avoid missing
+@@ -332,7 +334,7 @@ void Shutdown(NodeContext& node)
+ 
+     // After there are no more peers/RPC left to give us new data which may generate
+     // CValidationInterface callbacks, flush them...
+-    GetMainSignals().FlushBackgroundCallbacks();
++    if (node.main_signals) node.main_signals->FlushBackgroundCallbacks();
+ 
+     // Stop and delete all indexes only after flushing background callbacks.
+     if (g_txindex) {
+@@ -367,17 +369,19 @@ void Shutdown(NodeContext& node)
+ 
+ #if ENABLE_ZMQ
+     if (g_zmq_notification_interface) {
+-        UnregisterValidationInterface(g_zmq_notification_interface.get());
++        if (node.main_signals) node.main_signals->UnregisterValidationInterface(g_zmq_notification_interface.get());
+         g_zmq_notification_interface.reset();
+     }
+ #endif
+ 
+     node.chain_clients.clear();
+-    UnregisterAllValidationInterfaces();
+-    GetMainSignals().UnregisterBackgroundSignalScheduler();
++    if (node.main_signals) {
++        node.main_signals->UnregisterAllValidationInterfaces();
++    }
+     node.mempool.reset();
+     node.fee_estimator.reset();
+     node.chainman.reset();
++    node.main_signals.reset();
+     node.scheduler.reset();
+     node.kernel.reset();
+ 
+@@ -1147,9 +1151,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+         return InitError(strprintf(_("Unable to allocate memory for -maxsigcachesize: '%s' MiB"), args.GetIntArg("-maxsigcachesize", DEFAULT_MAX_SIG_CACHE_BYTES >> 20)));
+     }
+ 
+-    assert(!node.scheduler);
+-    node.scheduler = std::make_unique<CScheduler>();
+-
+     // Start the lightweight task scheduler thread
+     node.scheduler->m_service_thread = std::thread(util::TraceThread, "scheduler", [&] { node.scheduler->serviceQueue(); });
+ 
+@@ -1169,8 +1170,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+         }
+     }, std::chrono::minutes{5});
+ 
+-    GetMainSignals().RegisterBackgroundSignalScheduler(*node.scheduler);
+-
+     // Create client interfaces for wallets that are supposed to be loaded
+     // according to -wallet and -disablewallet options. This only constructs
+     // the interfaces, it doesn't load wallet data. Wallets actually get loaded
+@@ -1275,7 +1274,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+         // Flush estimates to disk periodically
+         CBlockPolicyEstimator* fee_estimator = node.fee_estimator.get();
+         node.scheduler->scheduleEvery([fee_estimator] { fee_estimator->FlushFeeEstimates(); }, FEE_FLUSH_INTERVAL);
+-        RegisterValidationInterface(fee_estimator);
++        node.main_signals->RegisterValidationInterface(fee_estimator);
+     }
+ 
+     // Check port numbers
+@@ -1446,7 +1445,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+         });
+ 
+     if (g_zmq_notification_interface) {
+-        RegisterValidationInterface(g_zmq_notification_interface.get());
++        node.main_signals->RegisterValidationInterface(g_zmq_notification_interface.get());
+     }
+ #endif
+ 
+@@ -1504,9 +1503,13 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+     LogPrintf("* Using %.1f MiB for in-memory UTXO set (plus up to %.1f MiB of unused mempool space)\n", cache_sizes.coins * (1.0 / 1024 / 1024), mempool_opts.max_size_bytes * (1.0 / 1024 / 1024));
+ 
+     for (bool fLoaded = false; !fLoaded && !ShutdownRequested(node);) {
+-        node.mempool = std::make_unique<CTxMemPool>(mempool_opts);
++        node.mempool = std::make_unique<CTxMemPool>(mempool_opts, *Assert(node.main_signals));
+ 
+-        node.chainman = std::make_unique<ChainstateManager>(*Assert(node.shutdown), chainman_opts, blockman_opts);
++        node.chainman = std::make_unique<ChainstateManager>(
++            *Assert(node.shutdown),
++            chainman_opts,
++            blockman_opts,
++            *Assert(node.main_signals));
+         ChainstateManager& chainman = *node.chainman;
+ 
+         // This is defined and set here instead of inline in validation.h to avoid a hard
+@@ -1517,7 +1520,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+ 
+             // Drain the validation interface queue to ensure that the old indexes
+             // don't have any pending work.
+-            SyncWithValidationInterfaceQueue();
++            node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+             for (auto* index : node.indexes) {
+                 index->Interrupt();
+@@ -1606,7 +1609,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
+     node.peerman = PeerManager::make(*node.connman, *node.addrman,
+                                      node.banman.get(), chainman,
+                                      *node.mempool, peerman_opts);
+-    RegisterValidationInterface(node.peerman.get());
++    node.main_signals->RegisterValidationInterface(node.peerman.get());
+ 
+     // ********************************************************* Step 8: start indexers
+ 
+diff --git a/src/kernel/validation_interface_queue.h b/src/kernel/validation_interface_queue.h
+new file mode 100644
+index 0000000000..974261ecea
+--- /dev/null
++++ b/src/kernel/validation_interface_queue.h
+@@ -0,0 +1,35 @@
++// Copyright (c) 2023-present The Bitcoin Core developers
++// Distributed under the MIT software license, see the accompanying
++// file COPYING or http://www.opensource.org/licenses/mit-license.php.
++
++#ifndef BITCOIN_KERNEL_VALIDATION_INTERFACE_QUEUE_H
++#define BITCOIN_KERNEL_VALIDATION_INTERFACE_QUEUE_H
++
++#include <cstddef>
++#include <functional>
++
++class ValidationInterfaceQueue
++{
++public:
++    virtual ~ValidationInterfaceQueue() {}
++
++    /**
++     * This is called for each subscriber on each validation interface event.
++     * The callback can either be queued for later/asynchronous/threaded
++     * processing, or be executed immediately for synchronous processing.
++     * Synchronous processing will block validation.
++     */
++    virtual void AddToProcessQueue(std::function<void()> func) = 0;
++
++    /**
++     * This is called to force the processing of all queued events.
++     */
++    virtual void EmptyQueue() = 0;
++
++    /**
++     * Returns the number of queued events.
++     */
++    virtual size_t CallbacksPending() = 0;
++};
++
++#endif // BITCOIN_KERNEL_VALIDATION_INTERFACE_QUEUE_H
+diff --git a/src/node/context.h b/src/node/context.h
+index 4f3b640b2d..a1fe4dfb8e 100644
+--- a/src/node/context.h
++++ b/src/node/context.h
+@@ -20,6 +20,7 @@ class BanMan;
+ class BaseIndex;
+ class CBlockPolicyEstimator;
+ class CConnman;
++class CMainSignals;
+ class CScheduler;
+ class CTxMemPool;
+ class ChainstateManager;
+@@ -72,6 +73,7 @@ struct NodeContext {
+     std::function<void()> rpc_interruption_point = [] {};
+     std::unique_ptr<KernelNotifications> notifications;
+     std::atomic<int> exit_status{EXIT_SUCCESS};
++    std::unique_ptr<CMainSignals> main_signals;
+ 
+     //! Declare default constructor and destructor that are not inline, so code
+     //! instantiating the NodeContext struct doesn't need to #include class
+diff --git a/src/node/interfaces.cpp b/src/node/interfaces.cpp
+index 6963e928fe..e939760eb3 100644
+--- a/src/node/interfaces.cpp
++++ b/src/node/interfaces.cpp
+@@ -39,6 +39,7 @@
+ #include <primitives/transaction.h>
+ #include <rpc/protocol.h>
+ #include <rpc/server.h>
++#include <scheduler.h>
+ #include <support/allocators/secure.h>
+ #include <sync.h>
+ #include <txmempool.h>
+@@ -99,6 +100,8 @@ public:
+         if (!AppInitBasicSetup(args(), Assert(context())->exit_status)) return false;
+         if (!AppInitParameterInteraction(args())) return false;
+ 
++        m_context->scheduler = std::make_unique<CScheduler>();
++        m_context->main_signals = std::make_unique<CMainSignals>(std::make_unique<SingleThreadedSchedulerClient>(*m_context->scheduler));
+         m_context->kernel = std::make_unique<kernel::Context>();
+         if (!AppInitSanityChecks(*m_context->kernel)) return false;
+ 
+@@ -459,17 +462,20 @@ public:
+ 
+ class NotificationsHandlerImpl : public Handler
+ {
++private:
++    CMainSignals& m_signals;
++
+ public:
+-    explicit NotificationsHandlerImpl(std::shared_ptr<Chain::Notifications> notifications)
+-        : m_proxy(std::make_shared<NotificationsProxy>(std::move(notifications)))
++    explicit NotificationsHandlerImpl(std::shared_ptr<Chain::Notifications> notifications, CMainSignals& signals)
++        : m_signals{signals}, m_proxy{std::make_shared<NotificationsProxy>(std::move(notifications))}
+     {
+-        RegisterSharedValidationInterface(m_proxy);
++        m_signals.RegisterSharedValidationInterface(m_proxy);
+     }
+     ~NotificationsHandlerImpl() override { disconnect(); }
+     void disconnect() override
+     {
+         if (m_proxy) {
+-            UnregisterSharedValidationInterface(m_proxy);
++            m_signals.UnregisterSharedValidationInterface(m_proxy);
+             m_proxy.reset();
+         }
+     }
+@@ -761,12 +767,12 @@ public:
+     }
+     std::unique_ptr<Handler> handleNotifications(std::shared_ptr<Notifications> notifications) override
+     {
+-        return std::make_unique<NotificationsHandlerImpl>(std::move(notifications));
++        return std::make_unique<NotificationsHandlerImpl>(std::move(notifications), *m_node.main_signals);
+     }
+     void waitForNotificationsIfTipChanged(const uint256& old_tip) override
+     {
+         if (!old_tip.IsNull() && old_tip == WITH_LOCK(::cs_main, return chainman().ActiveChain().Tip()->GetBlockHash())) return;
+-        SyncWithValidationInterfaceQueue();
++        m_node.main_signals->SyncWithValidationInterfaceQueue();
+     }
+     std::unique_ptr<Handler> handleRpc(const CRPCCommand& command) override
+     {
+diff --git a/src/node/transaction.cpp b/src/node/transaction.cpp
+index e8ab2326c1..1b826403e9 100644
+--- a/src/node/transaction.cpp
++++ b/src/node/transaction.cpp
+@@ -101,7 +101,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
+                 // with a transaction to/from their wallet, immediately call some
+                 // wallet RPC, and get a stale result because callbacks have not
+                 // yet been processed.
+-                CallFunctionInValidationInterfaceQueue([&promise] {
++                node.main_signals->CallFunctionInValidationInterfaceQueue([&promise] {
+                     promise.set_value();
+                 });
+                 callback_set = true;
+diff --git a/src/rpc/blockchain.cpp b/src/rpc/blockchain.cpp
+index afd80d8788..d50beccb4a 100644
+--- a/src/rpc/blockchain.cpp
++++ b/src/rpc/blockchain.cpp
+@@ -395,7 +395,8 @@ static RPCHelpMan syncwithvalidationinterfacequeue()
+                 },
+         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+ {
+-    SyncWithValidationInterfaceQueue();
++    NodeContext& node = EnsureAnyNodeContext(request.context);
++    node.main_signals->SyncWithValidationInterfaceQueue();
+     return UniValue::VNULL;
+ },
+     };
+diff --git a/src/rpc/fees.cpp b/src/rpc/fees.cpp
+index 57ba486ed9..36baa27dce 100644
+--- a/src/rpc/fees.cpp
++++ b/src/rpc/fees.cpp
+@@ -4,6 +4,7 @@
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.
+ 
+ #include <core_io.h>
++#include <node/context.h>
+ #include <policy/feerate.h>
+ #include <policy/fees.h>
+ #include <rpc/protocol.h>
+@@ -21,10 +22,6 @@
+ #include <cmath>
+ #include <string>
+ 
+-namespace node {
+-struct NodeContext;
+-}
+-
+ using node::NodeContext;
+ 
+ static RPCHelpMan estimatesmartfee()
+@@ -68,7 +65,7 @@ static RPCHelpMan estimatesmartfee()
+             const NodeContext& node = EnsureAnyNodeContext(request.context);
+             const CTxMemPool& mempool = EnsureMemPool(node);
+ 
+-            SyncWithValidationInterfaceQueue();
++            node.main_signals->SyncWithValidationInterfaceQueue();
+             unsigned int max_target = fee_estimator.HighestTargetTracked(FeeEstimateHorizon::LONG_HALFLIFE);
+             unsigned int conf_target = ParseConfirmTarget(request.params[0], max_target);
+             bool conservative = true;
+@@ -156,8 +153,9 @@ static RPCHelpMan estimaterawfee()
+         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+         {
+             CBlockPolicyEstimator& fee_estimator = EnsureAnyFeeEstimator(request.context);
++            const NodeContext& node = EnsureAnyNodeContext(request.context);
+ 
+-            SyncWithValidationInterfaceQueue();
++            node.main_signals->SyncWithValidationInterfaceQueue();
+             unsigned int max_target = fee_estimator.HighestTargetTracked(FeeEstimateHorizon::LONG_HALFLIFE);
+             unsigned int conf_target = ParseConfirmTarget(request.params[0], max_target);
+             double threshold = 0.95;
+diff --git a/src/rpc/mining.cpp b/src/rpc/mining.cpp
+index fdb694b5f1..99cb72241d 100644
+--- a/src/rpc/mining.cpp
++++ b/src/rpc/mining.cpp
+@@ -1010,6 +1010,7 @@ static RPCHelpMan submitblock()
+     }
+ 
+     ChainstateManager& chainman = EnsureAnyChainman(request.context);
++    NodeContext& node = EnsureAnyNodeContext(request.context);
+     uint256 hash = block.GetHash();
+     {
+         LOCK(cs_main);
+@@ -1034,9 +1035,9 @@ static RPCHelpMan submitblock()
+ 
+     bool new_block;
+     auto sc = std::make_shared<submitblock_StateCatcher>(block.GetHash());
+-    RegisterSharedValidationInterface(sc);
++    node.main_signals->RegisterSharedValidationInterface(sc);
+     bool accepted = chainman.ProcessNewBlock(blockptr, /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/&new_block);
+-    UnregisterSharedValidationInterface(sc);
++    node.main_signals->UnregisterSharedValidationInterface(sc);
+     if (!new_block && accepted) {
+         return "duplicate";
+     }
+diff --git a/src/rpc/node.cpp b/src/rpc/node.cpp
+index b085828215..268b76303a 100644
+--- a/src/rpc/node.cpp
++++ b/src/rpc/node.cpp
+@@ -90,7 +90,7 @@ static RPCHelpMan mockscheduler()
+ 
+     const NodeContext& node_context{EnsureAnyNodeContext(request.context)};
+     CHECK_NONFATAL(node_context.scheduler)->MockForward(std::chrono::seconds{delta_seconds});
+-    SyncWithValidationInterfaceQueue();
++    node_context.main_signals->SyncWithValidationInterfaceQueue();
+     for (const auto& chain_client : node_context.chain_clients) {
+         chain_client->schedulerMockForward(std::chrono::seconds(delta_seconds));
+     }
+diff --git a/src/scheduler.h b/src/scheduler.h
+index 9212582b97..834b70d219 100644
+--- a/src/scheduler.h
++++ b/src/scheduler.h
+@@ -6,6 +6,7 @@
+ #define BITCOIN_SCHEDULER_H
+ 
+ #include <attributes.h>
++#include <kernel/validation_interface_queue.h>
+ #include <sync.h>
+ #include <threadsafety.h>
+ 
+@@ -120,7 +121,7 @@ private:
+  * B() will be able to observe all of the effects of callback A() which executed
+  * before it.
+  */
+-class SingleThreadedSchedulerClient
++class SingleThreadedSchedulerClient : public ValidationInterfaceQueue
+ {
+ private:
+     CScheduler& m_scheduler;
+@@ -141,15 +142,15 @@ public:
+      * Practically, this means that callbacks can behave as if they are executed
+      * in order by a single thread.
+      */
+-    void AddToProcessQueue(std::function<void()> func) EXCLUSIVE_LOCKS_REQUIRED(!m_callbacks_mutex);
++    void AddToProcessQueue(std::function<void()> func) override EXCLUSIVE_LOCKS_REQUIRED(!m_callbacks_mutex);
+ 
+     /**
+      * Processes all remaining queue members on the calling thread, blocking until queue is empty
+      * Must be called after the CScheduler has no remaining processing threads!
+      */
+-    void EmptyQueue() EXCLUSIVE_LOCKS_REQUIRED(!m_callbacks_mutex);
++    void EmptyQueue() override EXCLUSIVE_LOCKS_REQUIRED(!m_callbacks_mutex);
+ 
+-    size_t CallbacksPending() EXCLUSIVE_LOCKS_REQUIRED(!m_callbacks_mutex);
++    size_t CallbacksPending() override EXCLUSIVE_LOCKS_REQUIRED(!m_callbacks_mutex);
+ };
+ 
+ #endif // BITCOIN_SCHEDULER_H
+diff --git a/src/test/coinstatsindex_tests.cpp b/src/test/coinstatsindex_tests.cpp
+index cc1ec49d41..03d154c296 100644
+--- a/src/test/coinstatsindex_tests.cpp
++++ b/src/test/coinstatsindex_tests.cpp
+@@ -70,7 +70,7 @@ BOOST_FIXTURE_TEST_CASE(coinstatsindex_initial_sync, TestChain100Setup)
+     // SyncWithValidationInterfaceQueue() call below is also needed to ensure
+     // TSAN always sees the test thread waiting for the notification thread, and
+     // avoid potential false positive reports.
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     // Shutdown sequence (c.f. Shutdown() in init.cpp)
+     coin_stats_index.Stop();
+diff --git a/src/test/fuzz/mini_miner.cpp b/src/test/fuzz/mini_miner.cpp
+index 84f9bb4ad0..801aa65224 100644
+--- a/src/test/fuzz/mini_miner.cpp
++++ b/src/test/fuzz/mini_miner.cpp
+@@ -33,7 +33,7 @@ void initialize_miner()
+ FUZZ_TARGET(mini_miner, .init = initialize_miner)
+ {
+     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
+-    CTxMemPool pool{CTxMemPool::Options{}};
++    CTxMemPool pool{CTxMemPool::Options{}, *g_setup->m_node.main_signals};
+     std::vector<COutPoint> outpoints;
+     std::deque<COutPoint> available_coins = g_available_coins;
+     LOCK2(::cs_main, pool.cs);
+@@ -109,7 +109,7 @@ FUZZ_TARGET(mini_miner, .init = initialize_miner)
+ FUZZ_TARGET(mini_miner_selection, .init = initialize_miner)
+ {
+     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
+-    CTxMemPool pool{CTxMemPool::Options{}};
++    CTxMemPool pool{CTxMemPool::Options{}, *g_setup->m_node.main_signals};
+     // Make a copy to preserve determinism.
+     std::deque<COutPoint> available_coins = g_available_coins;
+     std::vector<CTransactionRef> transactions;
+diff --git a/src/test/fuzz/package_eval.cpp b/src/test/fuzz/package_eval.cpp
+index 5a08d0ff44..b3d60ecdad 100644
+--- a/src/test/fuzz/package_eval.cpp
++++ b/src/test/fuzz/package_eval.cpp
+@@ -46,7 +46,7 @@ void initialize_tx_pool()
+             g_outpoints_coinbase_init_mature.push_back(prevout);
+         }
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+ }
+ 
+ struct OutpointsUpdater final : public CValidationInterface {
+@@ -125,7 +125,7 @@ CTxMemPool MakeMempool(FuzzedDataProvider& fuzzed_data_provider, const NodeConte
+     mempool_opts.require_standard = fuzzed_data_provider.ConsumeBool();
+ 
+     // ...and construct a CTxMemPool from it
+-    return CTxMemPool{mempool_opts};
++    return CTxMemPool{mempool_opts, *node.main_signals};
+ }
+ 
+ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
+@@ -145,7 +145,7 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
+     }
+ 
+     auto outpoints_updater = std::make_shared<OutpointsUpdater>(mempool_outpoints);
+-    RegisterSharedValidationInterface(outpoints_updater);
++    g_setup->m_node.main_signals->RegisterSharedValidationInterface(outpoints_updater);
+ 
+     CTxMemPool tx_pool_{MakeMempool(fuzzed_data_provider, node)};
+     MockedTxPool& tx_pool = *static_cast<MockedTxPool*>(&tx_pool_);
+@@ -260,7 +260,7 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
+         // Remember all added transactions
+         std::set<CTransactionRef> added;
+         auto txr = std::make_shared<TransactionsDelta>(added);
+-        RegisterSharedValidationInterface(txr);
++        g_setup->m_node.main_signals->RegisterSharedValidationInterface(txr);
+         const bool bypass_limits = fuzzed_data_provider.ConsumeBool();
+ 
+         // When there are multiple transactions in the package, we call ProcessNewPackage(txs, test_accept=false)
+@@ -274,8 +274,8 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
+         const auto res = WITH_LOCK(::cs_main, return AcceptToMemoryPool(chainstate, txs.back(), GetTime(), bypass_limits, /*test_accept=*/!single_submit));
+         const bool accepted = res.m_result_type == MempoolAcceptResult::ResultType::VALID;
+ 
+-        SyncWithValidationInterfaceQueue();
+-        UnregisterSharedValidationInterface(txr);
++        g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
++        g_setup->m_node.main_signals->UnregisterSharedValidationInterface(txr);
+ 
+         // There is only 1 transaction in the package. We did a test-package-accept and a ATMP
+         if (single_submit) {
+@@ -297,7 +297,7 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
+         }
+     }
+ 
+-    UnregisterSharedValidationInterface(outpoints_updater);
++    g_setup->m_node.main_signals->UnregisterSharedValidationInterface(outpoints_updater);
+ 
+     WITH_LOCK(::cs_main, tx_pool.check(chainstate.CoinsTip(), chainstate.m_chain.Height() + 1));
+ }
+diff --git a/src/test/fuzz/partially_downloaded_block.cpp b/src/test/fuzz/partially_downloaded_block.cpp
+index 4a4b46da60..4366bc4bf1 100644
+--- a/src/test/fuzz/partially_downloaded_block.cpp
++++ b/src/test/fuzz/partially_downloaded_block.cpp
+@@ -52,7 +52,7 @@ FUZZ_TARGET(partially_downloaded_block, .init = initialize_pdb)
+ 
+     CBlockHeaderAndShortTxIDs cmpctblock{*block};
+ 
+-    CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node)};
++    CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node), *g_setup->m_node.main_signals};
+     PartiallyDownloadedBlock pdb{&pool};
+ 
+     // Set of available transactions (mempool or extra_txn)
+diff --git a/src/test/fuzz/process_message.cpp b/src/test/fuzz/process_message.cpp
+index 56b391ed5c..cc3418f18c 100644
+--- a/src/test/fuzz/process_message.cpp
++++ b/src/test/fuzz/process_message.cpp
+@@ -47,7 +47,7 @@ void initialize_process_message()
+     for (int i = 0; i < 2 * COINBASE_MATURITY; i++) {
+         MineBlock(g_setup->m_node, CScript() << OP_TRUE);
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+ }
+ 
+ FUZZ_TARGET(process_message, .init = initialize_process_message)
+@@ -89,6 +89,6 @@ FUZZ_TARGET(process_message, .init = initialize_process_message)
+         }
+         g_setup->m_node.peerman->SendMessages(&p2p_node);
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+     g_setup->m_node.connman->StopNodes();
+ }
+diff --git a/src/test/fuzz/process_messages.cpp b/src/test/fuzz/process_messages.cpp
+index 6b264907b5..fe57899c6a 100644
+--- a/src/test/fuzz/process_messages.cpp
++++ b/src/test/fuzz/process_messages.cpp
+@@ -37,7 +37,7 @@ void initialize_process_messages()
+     for (int i = 0; i < 2 * COINBASE_MATURITY; i++) {
+         MineBlock(g_setup->m_node, CScript() << OP_TRUE);
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+ }
+ 
+ FUZZ_TARGET(process_messages, .init = initialize_process_messages)
+@@ -89,6 +89,6 @@ FUZZ_TARGET(process_messages, .init = initialize_process_messages)
+             g_setup->m_node.peerman->SendMessages(&random_node);
+         }
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+     g_setup->m_node.connman->StopNodes();
+ }
+diff --git a/src/test/fuzz/rbf.cpp b/src/test/fuzz/rbf.cpp
+index aa6385d12d..fdc4071a8b 100644
+--- a/src/test/fuzz/rbf.cpp
++++ b/src/test/fuzz/rbf.cpp
+@@ -38,7 +38,7 @@ FUZZ_TARGET(rbf, .init = initialize_rbf)
+         return;
+     }
+ 
+-    CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node)};
++    CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node), *g_setup->m_node.main_signals};
+ 
+     LIMITED_WHILE(fuzzed_data_provider.ConsumeBool(), 10000)
+     {
+diff --git a/src/test/fuzz/tx_pool.cpp b/src/test/fuzz/tx_pool.cpp
+index 4ad0956201..2f25b8422e 100644
+--- a/src/test/fuzz/tx_pool.cpp
++++ b/src/test/fuzz/tx_pool.cpp
+@@ -49,7 +49,7 @@ void initialize_tx_pool()
+                               g_outpoints_coinbase_init_immature;
+         outpoints.push_back(prevout);
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+ }
+ 
+ struct TransactionsDelta final : public CValidationInterface {
+@@ -106,7 +106,7 @@ void Finish(FuzzedDataProvider& fuzzed_data_provider, MockedTxPool& tx_pool, Cha
+         assert(all_txids.size() < info_all.size());
+         WITH_LOCK(::cs_main, tx_pool.check(chainstate.CoinsTip(), chainstate.m_chain.Height() + 1));
+     }
+-    SyncWithValidationInterfaceQueue();
++    g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
+ }
+ 
+ void MockTime(FuzzedDataProvider& fuzzed_data_provider, const Chainstate& chainstate)
+@@ -127,7 +127,7 @@ CTxMemPool MakeMempool(FuzzedDataProvider& fuzzed_data_provider, const NodeConte
+     mempool_opts.require_standard = fuzzed_data_provider.ConsumeBool();
+ 
+     // ...and construct a CTxMemPool from it
+-    return CTxMemPool{mempool_opts};
++    return CTxMemPool{mempool_opts, *node.main_signals};
+ }
+ 
+ void CheckATMPInvariants(const MempoolAcceptResult& res, bool txid_in_mempool, bool wtxid_in_mempool)
+@@ -286,7 +286,7 @@ FUZZ_TARGET(tx_pool_standard, .init = initialize_tx_pool)
+         std::set<CTransactionRef> removed;
+         std::set<CTransactionRef> added;
+         auto txr = std::make_shared<TransactionsDelta>(removed, added);
+-        RegisterSharedValidationInterface(txr);
++        g_setup->m_node.main_signals->RegisterSharedValidationInterface(txr);
+         const bool bypass_limits = fuzzed_data_provider.ConsumeBool();
+ 
+         // Make sure ProcessNewPackage on one transaction works.
+@@ -304,8 +304,8 @@ FUZZ_TARGET(tx_pool_standard, .init = initialize_tx_pool)
+ 
+         const auto res = WITH_LOCK(::cs_main, return AcceptToMemoryPool(chainstate, tx, GetTime(), bypass_limits, /*test_accept=*/false));
+         const bool accepted = res.m_result_type == MempoolAcceptResult::ResultType::VALID;
+-        SyncWithValidationInterfaceQueue();
+-        UnregisterSharedValidationInterface(txr);
++        g_setup->m_node.main_signals->SyncWithValidationInterfaceQueue();
++        g_setup->m_node.main_signals->UnregisterSharedValidationInterface(txr);
+ 
+         bool txid_in_mempool = tx_pool.exists(GenTxid::Txid(tx->GetHash()));
+         bool wtxid_in_mempool = tx_pool.exists(GenTxid::Wtxid(tx->GetWitnessHash()));
+diff --git a/src/test/fuzz/validation_load_mempool.cpp b/src/test/fuzz/validation_load_mempool.cpp
+index 00678742c9..4275d8af04 100644
+--- a/src/test/fuzz/validation_load_mempool.cpp
++++ b/src/test/fuzz/validation_load_mempool.cpp
+@@ -40,7 +40,7 @@ FUZZ_TARGET(validation_load_mempool, .init = initialize_validation_load_mempool)
+     SetMockTime(ConsumeTime(fuzzed_data_provider));
+     FuzzedFileProvider fuzzed_file_provider{fuzzed_data_provider};
+ 
+-    CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node)};
++    CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node), *g_setup->m_node.main_signals};
+ 
+     auto& chainstate{static_cast<DummyChainState&>(g_setup->m_node.chainman->ActiveChainstate())};
+     chainstate.SetMempool(&pool);
+diff --git a/src/test/miner_tests.cpp b/src/test/miner_tests.cpp
+index 342d2514ed..37a68f4971 100644
+--- a/src/test/miner_tests.cpp
++++ b/src/test/miner_tests.cpp
+@@ -47,7 +47,7 @@ struct MinerTestingSetup : public TestingSetup {
+         // pointer is not accessed, when the new one should be accessed
+         // instead.
+         m_node.mempool.reset();
+-        m_node.mempool = std::make_unique<CTxMemPool>(MemPoolOptionsForTest(m_node));
++        m_node.mempool = std::make_unique<CTxMemPool>(MemPoolOptionsForTest(m_node), *m_node.main_signals);
+         return *m_node.mempool;
+     }
+     BlockAssembler AssemblerForTest(CTxMemPool& tx_mempool);
+diff --git a/src/test/policyestimator_tests.cpp b/src/test/policyestimator_tests.cpp
+index ede73c6895..bb6b8a1b1e 100644
+--- a/src/test/policyestimator_tests.cpp
++++ b/src/test/policyestimator_tests.cpp
+@@ -20,7 +20,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+ {
+     CBlockPolicyEstimator& feeEst = *Assert(m_node.fee_estimator);
+     CTxMemPool& mpool = *Assert(m_node.mempool);
+-    RegisterValidationInterface(&feeEst);
++    m_node.main_signals->RegisterValidationInterface(&feeEst);
+     TestMemPoolEntryHelper entry;
+     CAmount basefee(2000);
+     CAmount deltaFee(100);
+@@ -74,7 +74,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+                                                                                       /*submitted_in_package=*/false,
+                                                                                       /*chainstate_is_current=*/true,
+                                                                                       /*has_no_mempool_parents=*/true)};
+-                    GetMainSignals().TransactionAddedToMempool(tx_info, mpool.GetAndIncrementSequence());
++                    m_node.main_signals->TransactionAddedToMempool(tx_info, mpool.GetAndIncrementSequence());
+                 }
+                 uint256 hash = tx.GetHash();
+                 txHashes[j].push_back(hash);
+@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+         // Check after just a few txs that combining buckets works as expected
+         if (blocknum == 3) {
+             // Wait for fee estimator to catch up
+-            SyncWithValidationInterfaceQueue();
++            m_node.main_signals->SyncWithValidationInterfaceQueue();
+             // At this point we should need to combine 3 buckets to get enough data points
+             // So estimateFee(1) should fail and estimateFee(2) should return somewhere around
+             // 9*baserate.  estimateFee(2) %'s are 100,100,90 = average 97%
+@@ -113,7 +113,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+     }
+ 
+     // Wait for fee estimator to catch up
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     std::vector<CAmount> origFeeEst;
+     // Highest feerate is 10*baseRate and gets in all blocks,
+@@ -146,7 +146,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+     }
+ 
+     // Wait for fee estimator to catch up
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     BOOST_CHECK(feeEst.estimateFee(1) == CFeeRate(0));
+     for (int i = 2; i < 10;i++) {
+@@ -175,7 +175,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+                                                                                       /*submitted_in_package=*/false,
+                                                                                       /*chainstate_is_current=*/true,
+                                                                                       /*has_no_mempool_parents=*/true)};
+-                    GetMainSignals().TransactionAddedToMempool(tx_info, mpool.GetAndIncrementSequence());
++                    m_node.main_signals->TransactionAddedToMempool(tx_info, mpool.GetAndIncrementSequence());
+                 }
+                 uint256 hash = tx.GetHash();
+                 txHashes[j].push_back(hash);
+@@ -188,7 +188,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+     }
+ 
+     // Wait for fee estimator to catch up
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     for (int i = 1; i < 10;i++) {
+         BOOST_CHECK(feeEst.estimateFee(i) == CFeeRate(0) || feeEst.estimateFee(i).GetFeePerK() > origFeeEst[i-1] - deltaFee);
+@@ -212,7 +212,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+     block.clear();
+ 
+     // Wait for fee estimator to catch up
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     BOOST_CHECK(feeEst.estimateFee(1) == CFeeRate(0));
+     for (int i = 2; i < 10;i++) {
+@@ -239,7 +239,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+                                                                                       /*submitted_in_package=*/false,
+                                                                                       /*chainstate_is_current=*/true,
+                                                                                       /*has_no_mempool_parents=*/true)};
+-                    GetMainSignals().TransactionAddedToMempool(tx_info, mpool.GetAndIncrementSequence());
++                    m_node.main_signals->TransactionAddedToMempool(tx_info, mpool.GetAndIncrementSequence());
+                 }
+                 uint256 hash = tx.GetHash();
+                 CTransactionRef ptx = mpool.get(hash);
+@@ -257,7 +257,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
+         block.clear();
+     }
+     // Wait for fee estimator to catch up
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+     BOOST_CHECK(feeEst.estimateFee(1) == CFeeRate(0));
+     for (int i = 2; i < 9; i++) { // At 9, the original estimate was already at the bottom (b/c scale = 2)
+         BOOST_CHECK(feeEst.estimateFee(i).GetFeePerK() < origFeeEst[i-1] - deltaFee);
+diff --git a/src/test/txindex_tests.cpp b/src/test/txindex_tests.cpp
+index e2432a4718..ceff3d8edd 100644
+--- a/src/test/txindex_tests.cpp
++++ b/src/test/txindex_tests.cpp
+@@ -71,7 +71,7 @@ BOOST_FIXTURE_TEST_CASE(txindex_initial_sync, TestChain100Setup)
+     // SyncWithValidationInterfaceQueue() call below is also needed to ensure
+     // TSAN always sees the test thread waiting for the notification thread, and
+     // avoid potential false positive reports.
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     // shutdown sequence (c.f. Shutdown() in init.cpp)
+     txindex.Stop();
+diff --git a/src/test/util/mining.cpp b/src/test/util/mining.cpp
+index 08d1b4c902..b7b3a37d1b 100644
+--- a/src/test/util/mining.cpp
++++ b/src/test/util/mining.cpp
+@@ -95,12 +95,12 @@ COutPoint MineBlock(const NodeContext& node, std::shared_ptr<CBlock>& block)
+     const auto old_height = WITH_LOCK(chainman.GetMutex(), return chainman.ActiveHeight());
+     bool new_block;
+     BlockValidationStateCatcher bvsc{block->GetHash()};
+-    RegisterValidationInterface(&bvsc);
++    node.main_signals->RegisterValidationInterface(&bvsc);
+     const bool processed{chainman.ProcessNewBlock(block, true, true, &new_block)};
+     const bool duplicate{!new_block && processed};
+     assert(!duplicate);
+-    UnregisterValidationInterface(&bvsc);
+-    SyncWithValidationInterfaceQueue();
++    node.main_signals->UnregisterValidationInterface(&bvsc);
++    node.main_signals->SyncWithValidationInterfaceQueue();
+     const bool was_valid{bvsc.m_state && bvsc.m_state->IsValid()};
+     assert(old_height + was_valid == WITH_LOCK(chainman.GetMutex(), return chainman.ActiveHeight()));
+ 
+diff --git a/src/test/util/setup_common.cpp b/src/test/util/setup_common.cpp
+index 8789e86196..2113b97fc4 100644
+--- a/src/test/util/setup_common.cpp
++++ b/src/test/util/setup_common.cpp
+@@ -138,6 +138,8 @@ BasicTestingSetup::BasicTestingSetup(const ChainType chainType, const std::vecto
+     InitLogging(*m_node.args);
+     AppInitParameterInteraction(*m_node.args);
+     LogInstance().StartLogging();
++    m_node.scheduler = std::make_unique<CScheduler>();
++    m_node.main_signals = std::make_unique<CMainSignals>(std::make_unique<SingleThreadedSchedulerClient>(*m_node.scheduler));
+     m_node.kernel = std::make_unique<kernel::Context>();
+     SetupEnvironment();
+ 
+@@ -170,12 +172,10 @@ ChainTestingSetup::ChainTestingSetup(const ChainType chainType, const std::vecto
+ 
+     // We have to run a scheduler thread to prevent ActivateBestChain
+     // from blocking due to queue overrun.
+-    m_node.scheduler = std::make_unique<CScheduler>();
+     m_node.scheduler->m_service_thread = std::thread(util::TraceThread, "scheduler", [&] { m_node.scheduler->serviceQueue(); });
+-    GetMainSignals().RegisterBackgroundSignalScheduler(*m_node.scheduler);
+ 
+     m_node.fee_estimator = std::make_unique<CBlockPolicyEstimator>(FeeestPath(*m_node.args), DEFAULT_ACCEPT_STALE_FEE_ESTIMATES);
+-    m_node.mempool = std::make_unique<CTxMemPool>(MemPoolOptionsForTest(m_node));
++    m_node.mempool = std::make_unique<CTxMemPool>(MemPoolOptionsForTest(m_node), *m_node.main_signals);
+ 
+     m_cache_sizes = CalculateCacheSizes(m_args);
+ 
+@@ -194,7 +194,11 @@ ChainTestingSetup::ChainTestingSetup(const ChainType chainType, const std::vecto
+         .blocks_dir = m_args.GetBlocksDirPath(),
+         .notifications = chainman_opts.notifications,
+     };
+-    m_node.chainman = std::make_unique<ChainstateManager>(*Assert(m_node.shutdown), chainman_opts, blockman_opts);
++    m_node.chainman = std::make_unique<ChainstateManager>(
++        *Assert(m_node.shutdown),
++        chainman_opts,
++        blockman_opts,
++        *Assert(m_node.main_signals));
+     m_node.chainman->m_blockman.m_block_tree_db = std::make_unique<BlockTreeDB>(DBParams{
+         .path = m_args.GetDataDirNet() / "blocks" / "index",
+         .cache_bytes = static_cast<size_t>(m_cache_sizes.block_tree_db),
+@@ -204,8 +208,7 @@ ChainTestingSetup::ChainTestingSetup(const ChainType chainType, const std::vecto
+ ChainTestingSetup::~ChainTestingSetup()
+ {
+     if (m_node.scheduler) m_node.scheduler->stop();
+-    GetMainSignals().FlushBackgroundCallbacks();
+-    GetMainSignals().UnregisterBackgroundSignalScheduler();
++    m_node.main_signals->FlushBackgroundCallbacks();
+     m_node.connman.reset();
+     m_node.banman.reset();
+     m_node.addrman.reset();
+@@ -214,6 +217,7 @@ ChainTestingSetup::~ChainTestingSetup()
+     m_node.mempool.reset();
+     m_node.fee_estimator.reset();
+     m_node.chainman.reset();
++    m_node.main_signals.reset();
+     m_node.scheduler.reset();
+ }
+ 
+diff --git a/src/test/validation_block_tests.cpp b/src/test/validation_block_tests.cpp
+index 35e5c6a037..38a2081cba 100644
+--- a/src/test/validation_block_tests.cpp
++++ b/src/test/validation_block_tests.cpp
+@@ -158,7 +158,7 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
+     bool ignored;
+     // Connect the genesis block and drain any outstanding events
+     BOOST_CHECK(Assert(m_node.chainman)->ProcessNewBlock(std::make_shared<CBlock>(Params().GenesisBlock()), true, true, &ignored));
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     // subscribe to events (this subscriber will validate event ordering)
+     const CBlockIndex* initial_tip = nullptr;
+@@ -167,7 +167,7 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
+         initial_tip = m_node.chainman->ActiveChain().Tip();
+     }
+     auto sub = std::make_shared<TestSubscriber>(initial_tip->GetBlockHash());
+-    RegisterSharedValidationInterface(sub);
++    m_node.main_signals->RegisterSharedValidationInterface(sub);
+ 
+     // create a bunch of threads that repeatedly process a block generated above at random
+     // this will create parallelism and randomness inside validation - the ValidationInterface
+@@ -196,9 +196,9 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
+     for (auto& t : threads) {
+         t.join();
+     }
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+-    UnregisterSharedValidationInterface(sub);
++    m_node.main_signals->UnregisterSharedValidationInterface(sub);
+ 
+     LOCK(cs_main);
+     BOOST_CHECK_EQUAL(sub->m_expected_tip, m_node.chainman->ActiveChain().Tip()->GetBlockHash());
+diff --git a/src/test/validation_chainstatemanager_tests.cpp b/src/test/validation_chainstatemanager_tests.cpp
+index 368ba8bee4..c166f8cb72 100644
+--- a/src/test/validation_chainstatemanager_tests.cpp
++++ b/src/test/validation_chainstatemanager_tests.cpp
+@@ -103,7 +103,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager, TestChain100Setup)
+     BOOST_CHECK_EQUAL(active_tip2, c2.m_chain.Tip());
+ 
+     // Let scheduler events finish running to avoid accessing memory that is going to be unloaded
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ }
+ 
+ //! Test rebalancing the caches associated with each chainstate.
+@@ -375,7 +375,7 @@ struct SnapshotTestSetup : TestChain100Setup {
+                 cs->ForceFlushStateToDisk();
+             }
+             // Process all callbacks referring to the old manager before wiping it.
+-            SyncWithValidationInterfaceQueue();
++            m_node.main_signals->SyncWithValidationInterfaceQueue();
+             LOCK(::cs_main);
+             chainman.ResetChainstates();
+             BOOST_CHECK_EQUAL(chainman.GetAll().size(), 0);
+@@ -394,7 +394,11 @@ struct SnapshotTestSetup : TestChain100Setup {
+             // For robustness, ensure the old manager is destroyed before creating a
+             // new one.
+             m_node.chainman.reset();
+-            m_node.chainman = std::make_unique<ChainstateManager>(*Assert(m_node.shutdown), chainman_opts, blockman_opts);
++            m_node.chainman = std::make_unique<ChainstateManager>(
++                *Assert(m_node.shutdown),
++                chainman_opts,
++                blockman_opts,
++                *Assert(m_node.main_signals));
+         }
+         return *Assert(m_node.chainman);
+     }
+diff --git a/src/test/validationinterface_tests.cpp b/src/test/validationinterface_tests.cpp
+index 5979441057..4374f6e3d9 100644
+--- a/src/test/validationinterface_tests.cpp
++++ b/src/test/validationinterface_tests.cpp
+@@ -28,7 +28,7 @@ BOOST_AUTO_TEST_CASE(unregister_validation_interface_race)
+         const CBlock block_dummy;
+         BlockValidationState state_dummy;
+         while (generate) {
+-            GetMainSignals().BlockChecked(block_dummy, state_dummy);
++            m_node.main_signals->BlockChecked(block_dummy, state_dummy);
+         }
+     }};
+ 
+@@ -37,8 +37,8 @@ BOOST_AUTO_TEST_CASE(unregister_validation_interface_race)
+         // keep going for about 1 sec, which is 250k iterations
+         for (int i = 0; i < 250000; i++) {
+             auto sub = std::make_shared<TestSubscriberNoop>();
+-            RegisterSharedValidationInterface(sub);
+-            UnregisterSharedValidationInterface(sub);
++            m_node.main_signals->RegisterSharedValidationInterface(sub);
++            m_node.main_signals->UnregisterSharedValidationInterface(sub);
+         }
+         // tell the other thread we are done
+         generate = false;
+@@ -52,8 +52,8 @@ BOOST_AUTO_TEST_CASE(unregister_validation_interface_race)
+ class TestInterface : public CValidationInterface
+ {
+ public:
+-    TestInterface(std::function<void()> on_call = nullptr, std::function<void()> on_destroy = nullptr)
+-        : m_on_call(std::move(on_call)), m_on_destroy(std::move(on_destroy))
++    TestInterface(CMainSignals& signal, std::function<void()> on_call = nullptr, std::function<void()> on_destroy = nullptr)
++        : m_on_call(std::move(on_call)), m_on_destroy(std::move(on_destroy)), m_signal{signal}
+     {
+     }
+     virtual ~TestInterface()
+@@ -64,14 +64,15 @@ public:
+     {
+         if (m_on_call) m_on_call();
+     }
+-    static void Call()
++    void Call()
+     {
+         CBlock block;
+         BlockValidationState state;
+-        GetMainSignals().BlockChecked(block, state);
++        m_signal.BlockChecked(block, state);
+     }
+     std::function<void()> m_on_call;
+     std::function<void()> m_on_destroy;
++    CMainSignals& m_signal;
+ };
+ 
+ // Regression test to ensure UnregisterAllValidationInterfaces calls don't
+@@ -80,18 +81,21 @@ public:
+ BOOST_AUTO_TEST_CASE(unregister_all_during_call)
+ {
+     bool destroyed = false;
+-    RegisterSharedValidationInterface(std::make_shared<TestInterface>(
++    auto shared{std::make_shared<TestInterface>(
++        *m_node.main_signals,
+         [&] {
+             // First call should decrements reference count 2 -> 1
+-            UnregisterAllValidationInterfaces();
++            m_node.main_signals->UnregisterAllValidationInterfaces();
+             BOOST_CHECK(!destroyed);
+             // Second call should not decrement reference count 1 -> 0
+-            UnregisterAllValidationInterfaces();
++            m_node.main_signals->UnregisterAllValidationInterfaces();
+             BOOST_CHECK(!destroyed);
+         },
+-        [&] { destroyed = true; }));
+-    TestInterface::Call();
+-    BOOST_CHECK(destroyed);
++        [&] { destroyed = true; })};
++    m_node.main_signals->RegisterSharedValidationInterface(shared);
++    BOOST_CHECK(shared.use_count() == 2);
++    shared->Call();
++    BOOST_CHECK(shared.use_count() == 1);
+ }
+ 
+ BOOST_AUTO_TEST_SUITE_END()
+diff --git a/src/txmempool.cpp b/src/txmempool.cpp
+index acee56fe78..8251a48fef 100644
+--- a/src/txmempool.cpp
++++ b/src/txmempool.cpp
+@@ -394,8 +394,9 @@ void CTxMemPoolEntry::UpdateAncestorState(int32_t modifySize, CAmount modifyFee,
+     assert(int(nSigOpCostWithAncestors) >= 0);
+ }
+ 
+-CTxMemPool::CTxMemPool(const Options& opts)
++CTxMemPool::CTxMemPool(const Options& opts, CMainSignals& signals)
+     : m_check_ratio{opts.check_ratio},
++      m_signals{signals},
+       m_max_size_bytes{opts.max_size_bytes},
+       m_expiry{opts.expiry},
+       m_incremental_relay_feerate{opts.incremental_relay_feerate},
+@@ -492,7 +493,7 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
+         // for any reason except being included in a block. Clients interested
+         // in transactions included in blocks can subscribe to the BlockConnected
+         // notification.
+-        GetMainSignals().TransactionRemovedFromMempool(it->GetSharedTx(), reason, mempool_sequence);
++        m_signals.TransactionRemovedFromMempool(it->GetSharedTx(), reason, mempool_sequence);
+     }
+     TRACE5(mempool, removed,
+         it->GetTx().GetHash().data(),
+@@ -643,7 +644,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
+         removeConflicts(*tx);
+         ClearPrioritisation(tx->GetHash());
+     }
+-    GetMainSignals().MempoolTransactionsRemovedForBlock(txs_removed_for_block, nBlockHeight);
++    m_signals.MempoolTransactionsRemovedForBlock(txs_removed_for_block, nBlockHeight);
+     lastRollingFeeUpdate = GetTime();
+     blockSinceLastRollingFeeBump = true;
+ }
+diff --git a/src/txmempool.h b/src/txmempool.h
+index 9da51756e6..2307c9cb47 100644
+--- a/src/txmempool.h
++++ b/src/txmempool.h
+@@ -40,6 +40,7 @@
+ #include <vector>
+ 
+ class CChain;
++class CMainSignals;
+ 
+ /** Fake height value used in Coin to signify they are only in the memory pool (since 0.8) */
+ static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
+@@ -410,6 +411,7 @@ private:
+      */
+     std::set<uint256> m_unbroadcast_txids GUARDED_BY(cs);
+ 
++    CMainSignals& m_signals;
+ 
+     /**
+      * Helper function to calculate all in-mempool ancestors of staged_ancestors and apply ancestor
+@@ -452,7 +454,7 @@ public:
+      * accepting transactions becomes O(N^2) where N is the number of transactions
+      * in the pool.
+      */
+-    explicit CTxMemPool(const Options& opts);
++    explicit CTxMemPool(const Options& opts, CMainSignals& signals);
+ 
+     /**
+      * If sanity-checking is turned on, check makes sure the pool is
+diff --git a/src/validation.cpp b/src/validation.cpp
+index 0f3d5d1454..ab0949aa2f 100644
+--- a/src/validation.cpp
++++ b/src/validation.cpp
+@@ -429,11 +429,12 @@ namespace {
+ class MemPoolAccept
+ {
+ public:
+-    explicit MemPoolAccept(CTxMemPool& mempool, Chainstate& active_chainstate) :
++    explicit MemPoolAccept(CTxMemPool& mempool, Chainstate& active_chainstate, CMainSignals& signals) :
+         m_pool(mempool),
+         m_view(&m_dummy),
+         m_viewmempool(&active_chainstate.CoinsTip(), m_pool),
+-        m_active_chainstate(active_chainstate)
++        m_active_chainstate(active_chainstate),
++        m_signals{signals}
+     {
+     }
+ 
+@@ -687,6 +688,8 @@ private:
+ 
+     Chainstate& m_active_chainstate;
+ 
++    CMainSignals& m_signals;
++
+     /** Whether the transaction(s) would replace any mempool transactions. If so, RBF rules apply. */
+     bool m_rbf{false};
+ };
+@@ -1220,7 +1223,7 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>&
+                                                        args.m_bypass_limits, args.m_package_submission,
+                                                        IsCurrentForFeeEstimation(m_active_chainstate),
+                                                        m_pool.HasNoInputsOf(tx));
+-        GetMainSignals().TransactionAddedToMempool(tx_info, m_pool.GetAndIncrementSequence());
++        m_signals.TransactionAddedToMempool(tx_info, m_pool.GetAndIncrementSequence());
+     }
+     return all_submitted;
+ }
+@@ -1269,7 +1272,7 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
+                                                    args.m_bypass_limits, args.m_package_submission,
+                                                    IsCurrentForFeeEstimation(m_active_chainstate),
+                                                    m_pool.HasNoInputsOf(tx));
+-    GetMainSignals().TransactionAddedToMempool(tx_info, m_pool.GetAndIncrementSequence());
++    m_signals.TransactionAddedToMempool(tx_info, m_pool.GetAndIncrementSequence());
+ 
+     return MempoolAcceptResult::Success(std::move(ws.m_replaced_transactions), ws.m_vsize, ws.m_base_fees,
+                                         effective_feerate, single_wtxid);
+@@ -1613,7 +1616,7 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
+ 
+     std::vector<COutPoint> coins_to_uncache;
+     auto args = MemPoolAccept::ATMPArgs::SingleAccept(chainparams, accept_time, bypass_limits, coins_to_uncache, test_accept);
+-    MempoolAcceptResult result = MemPoolAccept(pool, active_chainstate).AcceptSingleTransaction(tx, args);
++    MempoolAcceptResult result = MemPoolAccept(pool, active_chainstate, active_chainstate.GetMainSignals()).AcceptSingleTransaction(tx, args);
+     if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
+         // Remove coins that were not present in the coins cache before calling
+         // AcceptSingleTransaction(); this is to prevent memory DoS in case we receive a large
+@@ -1646,10 +1649,10 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
+         AssertLockHeld(cs_main);
+         if (test_accept) {
+             auto args = MemPoolAccept::ATMPArgs::PackageTestAccept(chainparams, GetTime(), coins_to_uncache);
+-            return MemPoolAccept(pool, active_chainstate).AcceptMultipleTransactions(package, args);
++            return MemPoolAccept(pool, active_chainstate, active_chainstate.GetMainSignals()).AcceptMultipleTransactions(package, args);
+         } else {
+             auto args = MemPoolAccept::ATMPArgs::PackageChildWithParents(chainparams, GetTime(), coins_to_uncache);
+-            return MemPoolAccept(pool, active_chainstate).AcceptPackage(package, args);
++            return MemPoolAccept(pool, active_chainstate, active_chainstate.GetMainSignals()).AcceptPackage(package, args);
+         }
+     }();
+ 
+@@ -1705,6 +1708,11 @@ const CBlockIndex* Chainstate::SnapshotBase()
+     return m_cached_snapshot_base;
+ }
+ 
++CMainSignals& Chainstate::GetMainSignals()
++{
++    return m_chainman.m_signals;
++}
++
+ void Chainstate::InitCoinsDB(
+     size_t cache_size_bytes,
+     bool in_memory,
+@@ -3187,11 +3195,11 @@ static bool NotifyHeaderTip(ChainstateManager& chainman) LOCKS_EXCLUDED(cs_main)
+     return fNotify;
+ }
+ 
+-static void LimitValidationInterfaceQueue() LOCKS_EXCLUDED(cs_main) {
++static void LimitValidationInterfaceQueue(CMainSignals& signals) LOCKS_EXCLUDED(cs_main) {
+     AssertLockNotHeld(cs_main);
+ 
+-    if (GetMainSignals().CallbacksPending() > 10) {
+-        SyncWithValidationInterfaceQueue();
++    if (signals.CallbacksPending() > 10) {
++        signals.SyncWithValidationInterfaceQueue();
+     }
+ }
+ 
+@@ -3229,7 +3237,7 @@ bool Chainstate::ActivateBestChain(BlockValidationState& state, std::shared_ptr<
+         // Note that if a validationinterface callback ends up calling
+         // ActivateBestChain this may lead to a deadlock! We should
+         // probably have a DEBUG_LOCKORDER test for this in the future.
+-        LimitValidationInterfaceQueue();
++        LimitValidationInterfaceQueue(GetMainSignals());
+ 
+         {
+             LOCK(cs_main);
+@@ -3428,7 +3436,7 @@ bool Chainstate::InvalidateBlock(BlockValidationState& state, CBlockIndex* pinde
+         if (m_chainman.m_interrupt) break;
+ 
+         // Make sure the queue of validation callbacks doesn't grow unboundedly.
+-        LimitValidationInterfaceQueue();
++        LimitValidationInterfaceQueue(GetMainSignals());
+ 
+         LOCK(cs_main);
+         // Lock for as long as disconnectpool is in scope to make sure MaybeUpdateMempoolForReorg is
+@@ -4137,7 +4145,7 @@ bool ChainstateManager::AcceptBlock(const std::shared_ptr<const CBlock>& pblock,
+     // Header is valid/has work, merkle tree and segwit merkle tree are good...RELAY NOW
+     // (but if it does not build on our best tip, let the SendMessages loop relay it)
+     if (!IsInitialBlockDownload() && ActiveTip() == pindex->pprev)
+-        GetMainSignals().NewPoWValidBlock(pindex, pblock);
++        m_signals.NewPoWValidBlock(pindex, pblock);
+ 
+     // Write block to history file
+     if (fNewBlock) *fNewBlock = true;
+@@ -4190,7 +4198,7 @@ bool ChainstateManager::ProcessNewBlock(const std::shared_ptr<const CBlock>& blo
+             ret = AcceptBlock(block, state, &pindex, force_processing, nullptr, new_block, min_pow_checked);
+         }
+         if (!ret) {
+-            GetMainSignals().BlockChecked(*block, state);
++            m_signals.BlockChecked(*block, state);
+             return error("%s: AcceptBlock FAILED (%s)", __func__, state.ToString());
+         }
+     }
+@@ -5783,13 +5791,12 @@ static ChainstateManager::Options&& Flatten(ChainstateManager::Options&& opts)
+     return std::move(opts);
+ }
+ 
+-ChainstateManager::ChainstateManager(const util::SignalInterrupt& interrupt, Options options, node::BlockManager::Options blockman_options)
++ChainstateManager::ChainstateManager(const util::SignalInterrupt& interrupt, Options options, node::BlockManager::Options blockman_options, CMainSignals& signals)
+     : m_script_check_queue{/*batch_size=*/128, options.worker_threads_num},
+       m_interrupt{interrupt},
+       m_options{Flatten(std::move(options))},
+-      m_blockman{interrupt, std::move(blockman_options)}
+-{
+-}
++      m_blockman{interrupt, std::move(blockman_options)},
++      m_signals{signals} {}
+ 
+ ChainstateManager::~ChainstateManager()
+ {
+diff --git a/src/validation.h b/src/validation.h
+index 093cecfcd1..4dbd5be088 100644
+--- a/src/validation.h
++++ b/src/validation.h
+@@ -52,6 +52,7 @@ class Chainstate;
+ class CTxMemPool;
+ class ChainstateManager;
+ struct ChainTxData;
++class CMainSignals;
+ class DisconnectedBlockTransactions;
+ struct PrecomputedTransactionData;
+ struct LockPoints;
+@@ -542,6 +543,8 @@ public:
+     //! @sa ChainstateRole
+     ChainstateRole GetRole() const EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+ 
++    CMainSignals& GetMainSignals();
++
+     /**
+      * Initialize the CoinsViews UTXO set database management data structures. The in-memory
+      * cache is initialized separately.
+@@ -924,7 +927,7 @@ private:
+ public:
+     using Options = kernel::ChainstateManagerOpts;
+ 
+-    explicit ChainstateManager(const util::SignalInterrupt& interrupt, Options options, node::BlockManager::Options blockman_options);
++    explicit ChainstateManager(const util::SignalInterrupt& interrupt, Options options, node::BlockManager::Options blockman_options, CMainSignals& signals);
+ 
+     //! Function to restart active indexes; set dynamically to avoid a circular
+     //! dependency on `base/index.cpp`.
+@@ -963,6 +966,7 @@ public:
+     //! A single BlockManager instance is shared across each constructed
+     //! chainstate to avoid duplicating block metadata.
+     node::BlockManager m_blockman;
++    CMainSignals& m_signals;
+ 
+     /**
+      * Whether initial block download has ended and IsInitialBlockDownload
+diff --git a/src/validationinterface.cpp b/src/validationinterface.cpp
+index 5e944a7c47..ba900f272e 100644
+--- a/src/validationinterface.cpp
++++ b/src/validationinterface.cpp
+@@ -5,7 +5,6 @@
+ 
+ #include <validationinterface.h>
+ 
+-#include <attributes.h>
+ #include <chain.h>
+ #include <consensus/validation.h>
+ #include <kernel/chain.h>
+@@ -13,7 +12,6 @@
+ #include <logging.h>
+ #include <primitives/block.h>
+ #include <primitives/transaction.h>
+-#include <scheduler.h>
+ 
+ #include <future>
+ #include <unordered_map>
+@@ -21,150 +19,91 @@
+ 
+ std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept;
+ 
+-/**
+- * MainSignalsImpl manages a list of shared_ptr<CValidationInterface> callbacks.
+- *
+- * A std::unordered_map is used to track what callbacks are currently
+- * registered, and a std::list is used to store the callbacks that are
+- * currently registered as well as any callbacks that are just unregistered
+- * and about to be deleted when they are done executing.
+- */
+-class MainSignalsImpl
++void MainSignalsImpl::Register(std::shared_ptr<CValidationInterface> callbacks) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+ {
+-private:
+-    Mutex m_mutex;
+-    //! List entries consist of a callback pointer and reference count. The
+-    //! count is equal to the number of current executions of that entry, plus 1
+-    //! if it's registered. It cannot be 0 because that would imply it is
+-    //! unregistered and also not being executed (so shouldn't exist).
+-    struct ListEntry { std::shared_ptr<CValidationInterface> callbacks; int count = 1; };
+-    std::list<ListEntry> m_list GUARDED_BY(m_mutex);
+-    std::unordered_map<CValidationInterface*, std::list<ListEntry>::iterator> m_map GUARDED_BY(m_mutex);
+-
+-public:
+-    // We are not allowed to assume the scheduler only runs in one thread,
+-    // but must ensure all callbacks happen in-order, so we end up creating
+-    // our own queue here :(
+-    SingleThreadedSchedulerClient m_schedulerClient;
+-
+-    explicit MainSignalsImpl(CScheduler& scheduler LIFETIMEBOUND) : m_schedulerClient(scheduler) {}
+-
+-    void Register(std::shared_ptr<CValidationInterface> callbacks) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+-    {
+-        LOCK(m_mutex);
+-        auto inserted = m_map.emplace(callbacks.get(), m_list.end());
+-        if (inserted.second) inserted.first->second = m_list.emplace(m_list.end());
+-        inserted.first->second->callbacks = std::move(callbacks);
+-    }
+-
+-    void Unregister(CValidationInterface* callbacks) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+-    {
+-        LOCK(m_mutex);
+-        auto it = m_map.find(callbacks);
+-        if (it != m_map.end()) {
+-            if (!--it->second->count) m_list.erase(it->second);
+-            m_map.erase(it);
+-        }
+-    }
+-
+-    //! Clear unregisters every previously registered callback, erasing every
+-    //! map entry. After this call, the list may still contain callbacks that
+-    //! are currently executing, but it will be cleared when they are done
+-    //! executing.
+-    void Clear() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+-    {
+-        LOCK(m_mutex);
+-        for (const auto& entry : m_map) {
+-            if (!--entry.second->count) m_list.erase(entry.second);
+-        }
+-        m_map.clear();
+-    }
+-
+-    template<typename F> void Iterate(F&& f) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+-    {
+-        WAIT_LOCK(m_mutex, lock);
+-        for (auto it = m_list.begin(); it != m_list.end();) {
+-            ++it->count;
+-            {
+-                REVERSE_LOCK(lock);
+-                f(*it->callbacks);
+-            }
+-            it = --it->count ? std::next(it) : m_list.erase(it);
+-        }
+-    }
+-};
+-
+-static CMainSignals g_signals;
++    LOCK(m_mutex);
++    auto inserted = m_map.emplace(callbacks.get(), m_list.end());
++    if (inserted.second) inserted.first->second = m_list.emplace(m_list.end());
++    inserted.first->second->callbacks = std::move(callbacks);
++}
+ 
+-void CMainSignals::RegisterBackgroundSignalScheduler(CScheduler& scheduler)
++void MainSignalsImpl::Unregister(CValidationInterface* callbacks) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+ {
+-    assert(!m_internals);
+-    m_internals = std::make_unique<MainSignalsImpl>(scheduler);
++    LOCK(m_mutex);
++    auto it = m_map.find(callbacks);
++    if (it != m_map.end()) {
++        if (!--it->second->count) m_list.erase(it->second);
++        m_map.erase(it);
++    }
+ }
+ 
+-void CMainSignals::UnregisterBackgroundSignalScheduler()
++void MainSignalsImpl::Clear() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+ {
+-    m_internals.reset(nullptr);
++    LOCK(m_mutex);
++    for (const auto& entry : m_map) {
++        if (!--entry.second->count) m_list.erase(entry.second);
++    }
++    m_map.clear();
+ }
+ 
+-void CMainSignals::FlushBackgroundCallbacks()
++template<typename F> void MainSignalsImpl::Iterate(F&& f) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+ {
+-    if (m_internals) {
+-        m_internals->m_schedulerClient.EmptyQueue();
++    WAIT_LOCK(m_mutex, lock);
++    for (auto it = m_list.begin(); it != m_list.end();) {
++        ++it->count;
++        {
++            REVERSE_LOCK(lock);
++            f(*it->callbacks);
++        }
++        it = --it->count ? std::next(it) : m_list.erase(it);
+     }
+ }
+ 
+-size_t CMainSignals::CallbacksPending()
++void CMainSignals::FlushBackgroundCallbacks()
+ {
+-    if (!m_internals) return 0;
+-    return m_internals->m_schedulerClient.CallbacksPending();
++    m_schedulerClient->EmptyQueue();
+ }
+ 
+-CMainSignals& GetMainSignals()
++size_t CMainSignals::CallbacksPending()
+ {
+-    return g_signals;
++    return m_schedulerClient->CallbacksPending();
+ }
+ 
+-void RegisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks)
++void CMainSignals::RegisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks)
+ {
+     // Each connection captures the shared_ptr to ensure that each callback is
+     // executed before the subscriber is destroyed. For more details see #18338.
+-    g_signals.m_internals->Register(std::move(callbacks));
++    m_internals.Register(std::move(callbacks));
+ }
+ 
+-void RegisterValidationInterface(CValidationInterface* callbacks)
++void CMainSignals::RegisterValidationInterface(CValidationInterface* callbacks)
+ {
+     // Create a shared_ptr with a no-op deleter - CValidationInterface lifecycle
+     // is managed by the caller.
+     RegisterSharedValidationInterface({callbacks, [](CValidationInterface*){}});
+ }
+ 
+-void UnregisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks)
++void CMainSignals::UnregisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks)
+ {
+     UnregisterValidationInterface(callbacks.get());
+ }
+ 
+-void UnregisterValidationInterface(CValidationInterface* callbacks)
++void CMainSignals::UnregisterValidationInterface(CValidationInterface* callbacks)
+ {
+-    if (g_signals.m_internals) {
+-        g_signals.m_internals->Unregister(callbacks);
+-    }
++    m_internals.Unregister(callbacks);
+ }
+ 
+-void UnregisterAllValidationInterfaces()
++void CMainSignals::UnregisterAllValidationInterfaces()
+ {
+-    if (!g_signals.m_internals) {
+-        return;
+-    }
+-    g_signals.m_internals->Clear();
++    m_internals.Clear();
+ }
+ 
+-void CallFunctionInValidationInterfaceQueue(std::function<void()> func)
++void CMainSignals::CallFunctionInValidationInterfaceQueue(std::function<void()> func)
+ {
+-    g_signals.m_internals->m_schedulerClient.AddToProcessQueue(std::move(func));
++    m_schedulerClient->AddToProcessQueue(std::move(func));
+ }
+ 
+-void SyncWithValidationInterfaceQueue()
++void CMainSignals::SyncWithValidationInterfaceQueue()
+ {
+     AssertLockNotHeld(cs_main);
+     // Block until the validation queue drains
+@@ -183,7 +122,7 @@ void SyncWithValidationInterfaceQueue()
+     do {                                                       \
+         auto local_name = (name);                              \
+         LOG_EVENT("Enqueuing " fmt, local_name, __VA_ARGS__);  \
+-        m_internals->m_schedulerClient.AddToProcessQueue([=] { \
++        m_schedulerClient->AddToProcessQueue([=] { \
+             LOG_EVENT(fmt, local_name, __VA_ARGS__);           \
+             event();                                           \
+         });                                                    \
+@@ -198,7 +137,7 @@ void CMainSignals::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockInd
+     // in the same critical section where the chain is updated
+ 
+     auto event = [pindexNew, pindexFork, fInitialDownload, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.UpdatedBlockTip(pindexNew, pindexFork, fInitialDownload); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.UpdatedBlockTip(pindexNew, pindexFork, fInitialDownload); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: new block hash=%s fork block hash=%s (in IBD=%s)", __func__,
+                           pindexNew->GetBlockHash().ToString(),
+@@ -209,7 +148,7 @@ void CMainSignals::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockInd
+ void CMainSignals::TransactionAddedToMempool(const NewMempoolTransactionInfo& tx, uint64_t mempool_sequence)
+ {
+     auto event = [tx, mempool_sequence, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.TransactionAddedToMempool(tx, mempool_sequence); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.TransactionAddedToMempool(tx, mempool_sequence); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: txid=%s wtxid=%s", __func__,
+                           tx.info.m_tx->GetHash().ToString(),
+@@ -218,7 +157,7 @@ void CMainSignals::TransactionAddedToMempool(const NewMempoolTransactionInfo& tx
+ 
+ void CMainSignals::TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) {
+     auto event = [tx, reason, mempool_sequence, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.TransactionRemovedFromMempool(tx, reason, mempool_sequence); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.TransactionRemovedFromMempool(tx, reason, mempool_sequence); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: txid=%s wtxid=%s reason=%s", __func__,
+                           tx->GetHash().ToString(),
+@@ -228,7 +167,7 @@ void CMainSignals::TransactionRemovedFromMempool(const CTransactionRef& tx, MemP
+ 
+ void CMainSignals::BlockConnected(ChainstateRole role, const std::shared_ptr<const CBlock> &pblock, const CBlockIndex *pindex) {
+     auto event = [role, pblock, pindex, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.BlockConnected(role, pblock, pindex); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.BlockConnected(role, pblock, pindex); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: block hash=%s block height=%d", __func__,
+                           pblock->GetHash().ToString(),
+@@ -238,7 +177,7 @@ void CMainSignals::BlockConnected(ChainstateRole role, const std::shared_ptr<con
+ void CMainSignals::MempoolTransactionsRemovedForBlock(const std::vector<RemovedMempoolTransactionInfo>& txs_removed_for_block, unsigned int nBlockHeight)
+ {
+     auto event = [txs_removed_for_block, nBlockHeight, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.MempoolTransactionsRemovedForBlock(txs_removed_for_block, nBlockHeight); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.MempoolTransactionsRemovedForBlock(txs_removed_for_block, nBlockHeight); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: block height=%s txs removed=%s", __func__,
+                           nBlockHeight,
+@@ -248,7 +187,7 @@ void CMainSignals::MempoolTransactionsRemovedForBlock(const std::vector<RemovedM
+ void CMainSignals::BlockDisconnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex)
+ {
+     auto event = [pblock, pindex, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.BlockDisconnected(pblock, pindex); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.BlockDisconnected(pblock, pindex); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: block hash=%s block height=%d", __func__,
+                           pblock->GetHash().ToString(),
+@@ -257,7 +196,7 @@ void CMainSignals::BlockDisconnected(const std::shared_ptr<const CBlock>& pblock
+ 
+ void CMainSignals::ChainStateFlushed(ChainstateRole role, const CBlockLocator &locator) {
+     auto event = [role, locator, this] {
+-        m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.ChainStateFlushed(role, locator); });
++        m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.ChainStateFlushed(role, locator); });
+     };
+     ENQUEUE_AND_LOG_EVENT(event, "%s: block hash=%s", __func__,
+                           locator.IsNull() ? "null" : locator.vHave.front().ToString());
+@@ -266,10 +205,10 @@ void CMainSignals::ChainStateFlushed(ChainstateRole role, const CBlockLocator &l
+ void CMainSignals::BlockChecked(const CBlock& block, const BlockValidationState& state) {
+     LOG_EVENT("%s: block hash=%s state=%s", __func__,
+               block.GetHash().ToString(), state.ToString());
+-    m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.BlockChecked(block, state); });
++    m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.BlockChecked(block, state); });
+ }
+ 
+ void CMainSignals::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock> &block) {
+     LOG_EVENT("%s: block hash=%s", __func__, block->GetHash().ToString());
+-    m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.NewPoWValidBlock(pindex, block); });
++    m_internals.Iterate([&](CValidationInterface& callbacks) { callbacks.NewPoWValidBlock(pindex, block); });
+ }
+diff --git a/src/validationinterface.h b/src/validationinterface.h
+index d9292ae2c9..9a5d9d3ba4 100644
+--- a/src/validationinterface.h
++++ b/src/validationinterface.h
+@@ -6,61 +6,28 @@
+ #ifndef BITCOIN_VALIDATIONINTERFACE_H
+ #define BITCOIN_VALIDATIONINTERFACE_H
+ 
+-#include <kernel/cs_main.h>
+ #include <kernel/chain.h>
++#include <kernel/cs_main.h>
++#include <kernel/validation_interface_queue.h>
+ #include <primitives/transaction.h> // CTransaction(Ref)
+ #include <sync.h>
+ 
++#include <cstddef>
++#include <cstdint>
+ #include <functional>
++#include <list>
+ #include <memory>
++#include <unordered_map>
++#include <utility>
+ 
+ class BlockValidationState;
+ class CBlock;
+ class CBlockIndex;
+ struct CBlockLocator;
+-class CValidationInterface;
+-class CScheduler;
+ enum class MemPoolRemovalReason;
+ struct RemovedMempoolTransactionInfo;
+ struct NewMempoolTransactionInfo;
+ 
+-/** Register subscriber */
+-void RegisterValidationInterface(CValidationInterface* callbacks);
+-/** Unregister subscriber. DEPRECATED. This is not safe to use when the RPC server or main message handler thread is running. */
+-void UnregisterValidationInterface(CValidationInterface* callbacks);
+-/** Unregister all subscribers */
+-void UnregisterAllValidationInterfaces();
+-
+-// Alternate registration functions that release a shared_ptr after the last
+-// notification is sent. These are useful for race-free cleanup, since
+-// unregistration is nonblocking and can return before the last notification is
+-// processed.
+-/** Register subscriber */
+-void RegisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks);
+-/** Unregister subscriber */
+-void UnregisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks);
+-
+-/**
+- * Pushes a function to callback onto the notification queue, guaranteeing any
+- * callbacks generated prior to now are finished when the function is called.
+- *
+- * Be very careful blocking on func to be called if any locks are held -
+- * validation interface clients may not be able to make progress as they often
+- * wait for things like cs_main, so blocking until func is called with cs_main
+- * will result in a deadlock (that DEBUG_LOCKORDER will miss).
+- */
+-void CallFunctionInValidationInterfaceQueue(std::function<void ()> func);
+-/**
+- * This is a synonym for the following, which asserts certain locks are not
+- * held:
+- *     std::promise<void> promise;
+- *     CallFunctionInValidationInterfaceQueue([&promise] {
+- *         promise.set_value();
+- *     });
+- *     promise.get_future().wait();
+- */
+-void SyncWithValidationInterfaceQueue() LOCKS_EXCLUDED(cs_main);
+-
+ /**
+  * Implement this to subscribe to events generated in validation and mempool
+  *
+@@ -189,26 +156,95 @@ protected:
+     friend class ValidationInterfaceTest;
+ };
+ 
+-class MainSignalsImpl;
++/**
++ * MainSignalsImpl manages a list of shared_ptr<CValidationInterface> callbacks.
++ *
++ * A std::unordered_map is used to track what callbacks are currently
++ * registered, and a std::list is used to store the callbacks that are
++ * currently registered as well as any callbacks that are just unregistered
++ * and about to be deleted when they are done executing.
++ */
++class MainSignalsImpl
++{
++private:
++    Mutex m_mutex;
++    //! List entries consist of a callback pointer and reference count. The
++    //! count is equal to the number of current executions of that entry, plus 1
++    //! if it's registered. It cannot be 0 because that would imply it is
++    //! unregistered and also not being executed (so shouldn't exist).
++    struct ListEntry { std::shared_ptr<CValidationInterface> callbacks; int count = 1; };
++    std::list<ListEntry> m_list GUARDED_BY(m_mutex);
++    std::unordered_map<CValidationInterface*, std::list<ListEntry>::iterator> m_map GUARDED_BY(m_mutex);
++
++    void Register(std::shared_ptr<CValidationInterface> callbacks) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
++
++    void Unregister(CValidationInterface* callbacks) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
++
++    //! Clear unregisters every previously registered callback, erasing every
++    //! map entry. After this call, the list may still contain callbacks that
++    //! are currently executing, but it will be cleared when they are done
++    //! executing.
++    void Clear() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
++
++    template <typename F> void Iterate(F&& f) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
++
++    friend class CMainSignals;
++};
++
+ class CMainSignals {
+ private:
+-    std::unique_ptr<MainSignalsImpl> m_internals;
++    MainSignalsImpl m_internals;
+ 
+-    friend void ::RegisterSharedValidationInterface(std::shared_ptr<CValidationInterface>);
+-    friend void ::UnregisterValidationInterface(CValidationInterface*);
+-    friend void ::UnregisterAllValidationInterfaces();
+-    friend void ::CallFunctionInValidationInterfaceQueue(std::function<void ()> func);
++    // We are not allowed to assume the scheduler only runs in one thread,
++    // but must ensure all callbacks happen in-order, so we end up creating
++    // our own queue here :(
++    std::unique_ptr<ValidationInterfaceQueue> m_schedulerClient;
+ 
+ public:
+-    /** Register a CScheduler to give callbacks which should run in the background (may only be called once) */
+-    void RegisterBackgroundSignalScheduler(CScheduler& scheduler);
+-    /** Unregister a CScheduler to give callbacks which should run in the background - these callbacks will now be dropped! */
+-    void UnregisterBackgroundSignalScheduler();
++    explicit CMainSignals(std::unique_ptr<ValidationInterfaceQueue> schedulerclient) : m_schedulerClient{std::move(schedulerclient)} {}
++
+     /** Call any remaining callbacks on the calling thread */
+     void FlushBackgroundCallbacks();
+ 
+     size_t CallbacksPending();
+ 
++    /** Register subscriber */
++    void RegisterValidationInterface(CValidationInterface* callbacks);
++    /** Unregister subscriber. DEPRECATED. This is not safe to use when the RPC server or main message handler thread is running. */
++    void UnregisterValidationInterface(CValidationInterface* callbacks);
++    /** Unregister all subscribers */
++    void UnregisterAllValidationInterfaces();
++
++    // Alternate registration functions that release a shared_ptr after the last
++    // notification is sent. These are useful for race-free cleanup, since
++    // unregistration is nonblocking and can return before the last notification is
++    // processed.
++    /** Unregister subscriber */
++    void UnregisterSharedValidationInterface(std::shared_ptr<CValidationInterface> callbacks);
++
++    void RegisterSharedValidationInterface(std::shared_ptr<CValidationInterface>);
++
++    /**
++     * This is a synonym for the following, which asserts certain locks are not
++     * held:
++     *     std::promise<void> promise;
++     *     CallFunctionInValidationInterfaceQueue([&promise] {
++     *         promise.set_value();
++     *     });
++     *     promise.get_future().wait();
++     */
++    void SyncWithValidationInterfaceQueue() LOCKS_EXCLUDED(cs_main);
++
++    /**
++     * Pushes a function to callback onto the notification queue, guaranteeing any
++     * callbacks generated prior to now are finished when the function is called.
++     *
++     * Be very careful blocking on func to be called if any locks are held -
++     * validation interface clients may not be able to make progress as they often
++     * wait for things like cs_main, so blocking until func is called with cs_main
++     * will result in a deadlock (that DEBUG_LOCKORDER will miss).
++     */
++    void CallFunctionInValidationInterfaceQueue(std::function<void ()> func);
+ 
+     void UpdatedBlockTip(const CBlockIndex *, const CBlockIndex *, bool fInitialDownload);
+     void TransactionAddedToMempool(const NewMempoolTransactionInfo&, uint64_t mempool_sequence);
+@@ -221,6 +257,4 @@ public:
+     void NewPoWValidBlock(const CBlockIndex *, const std::shared_ptr<const CBlock>&);
+ };
+ 
+-CMainSignals& GetMainSignals();
+-
+ #endif // BITCOIN_VALIDATIONINTERFACE_H
+diff --git a/src/wallet/test/util.cpp b/src/wallet/test/util.cpp
+index cbf3ccd1ec..23e770b3ef 100644
+--- a/src/wallet/test/util.cpp
++++ b/src/wallet/test/util.cpp
+@@ -69,9 +69,9 @@ std::shared_ptr<CWallet> TestLoadWallet(WalletContext& context)
+     return TestLoadWallet(std::move(database), context, options.create_flags);
+ }
+ 
+-void TestUnloadWallet(std::shared_ptr<CWallet>&& wallet)
++void TestUnloadWallet(std::shared_ptr<CWallet>&& wallet, CMainSignals& main_signals)
+ {
+-    SyncWithValidationInterfaceQueue();
++    main_signals.SyncWithValidationInterfaceQueue();
+     wallet->m_chain_notifications_handler.reset();
+     UnloadWallet(std::move(wallet));
+ }
+diff --git a/src/wallet/test/util.h b/src/wallet/test/util.h
+index 8bd238648f..7792c4fe23 100644
+--- a/src/wallet/test/util.h
++++ b/src/wallet/test/util.h
+@@ -17,6 +17,7 @@ enum class OutputType;
+ namespace interfaces {
+ class Chain;
+ } // namespace interfaces
++class CMainSignals;
+ 
+ namespace wallet {
+ class CWallet;
+@@ -38,7 +39,7 @@ std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cc
+ 
+ std::shared_ptr<CWallet> TestLoadWallet(WalletContext& context);
+ std::shared_ptr<CWallet> TestLoadWallet(std::unique_ptr<WalletDatabase> database, WalletContext& context, uint64_t create_flags);
+-void TestUnloadWallet(std::shared_ptr<CWallet>&& wallet);
++void TestUnloadWallet(std::shared_ptr<CWallet>&& wallet, CMainSignals& main_signals);
+ 
+ // Creates a copy of the provided database
+ std::unique_ptr<WalletDatabase> DuplicateMockDatabase(WalletDatabase& database);
+diff --git a/src/wallet/test/wallet_tests.cpp b/src/wallet/test/wallet_tests.cpp
+index 65297054df..1f3c7dd040 100644
+--- a/src/wallet/test/wallet_tests.cpp
++++ b/src/wallet/test/wallet_tests.cpp
+@@ -789,7 +789,7 @@ BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
+     auto wallet = TestLoadWallet(context);
+     CKey key = GenerateRandomKey();
+     AddKey(*wallet, key);
+-    TestUnloadWallet(std::move(wallet));
++    TestUnloadWallet(std::move(wallet), *m_node.main_signals);
+ 
+ 
+     // Add log hook to detect AddToWallet events from rescans, blockConnected,
+@@ -812,7 +812,7 @@ BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
+     // transactionAddedToMempool notifications, and create block and mempool
+     // transactions paying to the wallet
+     std::promise<void> promise;
+-    CallFunctionInValidationInterfaceQueue([&promise] {
++    m_node.main_signals->CallFunctionInValidationInterfaceQueue([&promise] {
+         promise.get_future().wait();
+     });
+     std::string error;
+@@ -840,13 +840,13 @@ BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
+     // Unblock notification queue and make sure stale blockConnected and
+     // transactionAddedToMempool events are processed
+     promise.set_value();
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+     // AddToWallet events for block_tx and mempool_tx events are counted a
+     // second time as the notification queue is processed
+     BOOST_CHECK_EQUAL(addtx_count, 5);
+ 
+ 
+-    TestUnloadWallet(std::move(wallet));
++    TestUnloadWallet(std::move(wallet), *m_node.main_signals);
+ 
+ 
+     // Load wallet again, this time creating new block and mempool transactions
+@@ -863,7 +863,7 @@ BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
+             m_coinbase_txns.push_back(CreateAndProcessBlock({block_tx}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
+             mempool_tx = TestSimpleSpend(*m_coinbase_txns[3], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
+             BOOST_CHECK(m_node.chain->broadcastTransaction(MakeTransactionRef(mempool_tx), DEFAULT_TRANSACTION_MAXFEE, false, error));
+-            SyncWithValidationInterfaceQueue();
++            m_node.main_signals->SyncWithValidationInterfaceQueue();
+         });
+     wallet = TestLoadWallet(context);
+     // Since mempool transactions are requested at the end of loading, there will
+@@ -876,7 +876,7 @@ BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
+     }
+ 
+ 
+-    TestUnloadWallet(std::move(wallet));
++    TestUnloadWallet(std::move(wallet), *m_node.main_signals);
+ }
+ 
+ BOOST_FIXTURE_TEST_CASE(CreateWalletWithoutChain, BasicTestingSetup)
+@@ -903,7 +903,7 @@ BOOST_FIXTURE_TEST_CASE(ZapSelectTx, TestChain100Setup)
+     auto block_tx = TestSimpleSpend(*m_coinbase_txns[0], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
+     CreateAndProcessBlock({block_tx}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+ 
+-    SyncWithValidationInterfaceQueue();
++    m_node.main_signals->SyncWithValidationInterfaceQueue();
+ 
+     {
+         auto block_hash = block_tx.GetHash();
+@@ -920,7 +920,7 @@ BOOST_FIXTURE_TEST_CASE(ZapSelectTx, TestChain100Setup)
+         BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_hash), 0u);
+     }
+ 
+-    TestUnloadWallet(std::move(wallet));
++    TestUnloadWallet(std::move(wallet), *m_node.main_signals);
+ }
+ 
+ /**
