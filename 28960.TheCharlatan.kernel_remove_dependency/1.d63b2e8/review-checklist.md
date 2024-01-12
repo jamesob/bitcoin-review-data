@@ -4,6 +4,6 @@ Moving CMainSignals global onto `NodeContext`; good stuff, probably been a long 
 
 Easier to review with `--color-moved=dimmed-zebra --color-moved-ws=ignore-all-space`.
 
-- [ ] 2eb6be4407 [refactor] Make MainSignalsImpl RAII styled
+- [x] 2eb6be4407 [refactor] Make MainSignalsImpl RAII styled
 - [ ] b1aca69b11 [refactor] Move scheduler client to CMainSignals
 - [ ] d63b2e8878 kernel: Remove dependency on CScheduler
