@@ -1,0 +1,2 @@
+- [ ] 4c9dc4bbe6 rpc: add relevant_blocks to scanblocks status
+- [ ] 5b2d0216d8 doc: add release notes for 30713
